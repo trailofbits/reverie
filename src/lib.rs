@@ -1,10 +1,12 @@
 use std::ops::{Add, Mul, Neg, Sub};
 
+use rand_core::{impls, CryptoRng, Error, RngCore};
+
 // abstraction for Fiat-Shamir
 mod fs;
 
 // pre-processing
-// mod pp;
+mod pp;
 
 // PRF and puncturable PRF abstractions
 mod crypto;
@@ -26,11 +28,14 @@ pub trait RingElement: Sized + Add + Sub + Neg + Mul {
     fn pack(self) -> u64;
 
     /// Unpacks a 64-bit integer as a batch of ring elements
-    ///
-    /// Warning:
-    /// Interface assumes that providing a uniformly random serialized value
-    /// results in a vector of uniformly random field elements.
     fn unpack(v: u64) -> Self;
+
+    /// Generate a batch of elements
+    ///
+    /// Default implementation achieves this by unpacking a packed representation.
+    fn gen<G: RngCore>(gen: &mut G) -> Self {
+        Self::unpack(gen.next_u64())
+    }
 }
 
 /// Represents an element of the vector space GF(2)^64
@@ -82,13 +87,5 @@ impl RingElement for BitField {
 
     fn unpack(v: u64) -> Self {
         BitField(v)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
     }
 }

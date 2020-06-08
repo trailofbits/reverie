@@ -1,16 +1,5 @@
-use blake3::Hasher;
+mod view;
 
-pub struct Transcript {
-    hasher: Hasher,
+use super::crypto::KEY_SIZE;
 
-    #[cfg(debug)]
-    transcript: Vec<u8>,
-}
-
-impl Transcript {
-    // appends a message to the transcript
-    fn append_message(&mut self, label: &'static [u8], message: &[u8]) {}
-
-    /// Returns an CSPRNG used for generating verifier challenges
-    fn challenge(&self, label: &'static [u8]) {}
-}
+pub use view::{Scope, View, ViewRNG};
