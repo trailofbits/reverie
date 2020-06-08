@@ -1,15 +1,24 @@
 use super::*;
 
+use std::fmt;
+
+use hex;
+
+use subtle::ConstantTimeEq;
+
 use aes::block_cipher_trait::generic_array::GenericArray;
 use aes::block_cipher_trait::BlockCipher;
 use aes::Aes128;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PRF {
     key: [u8; 16],
     bc: Aes128,
 }
 
+/// Defines the PRF used throughout the project:
+///
+/// PRF(k, v) = AES-128(k, v)
 impl PRF {
     pub fn new(k: [u8; 16]) -> PRF {
         PRF {
@@ -26,6 +35,18 @@ impl PRF {
     }
 }
 
+impl fmt::Display for PRF {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "AES-128({}, *)", hex::encode(self.key))
+    }
+}
+
+impl PartialEq for PRF {
+    fn eq(&self, other: &Self) -> bool {
+        self.key.ct_eq(&other.key).into()
+    }
+}
+
 /// A PRF is serialized as its key
 impl Serialize for PRF {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -39,15 +60,3 @@ impl Serialize for PRF {
         seq.end()
     }
 }
-
-/*
-/// A key can be deserialized into a PRF
-impl Deserialize for PRF {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        unimplemented!()
-    }
-}
-*/
