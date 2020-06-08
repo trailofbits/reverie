@@ -12,7 +12,7 @@ use aes::Aes128;
 
 #[derive(Debug, Clone)]
 pub struct PRF {
-    key: [u8; 16],
+    key: [u8; KEY_SIZE],
     bc: Aes128,
 }
 
@@ -20,18 +20,29 @@ pub struct PRF {
 ///
 /// PRF(k, v) = AES-128(k, v)
 impl PRF {
-    pub fn new(k: [u8; 16]) -> PRF {
+    pub fn new(k: [u8; KEY_SIZE]) -> PRF {
         PRF {
             key: k,
             bc: Aes128::new(GenericArray::from_slice(&k[..])),
         }
     }
 
-    pub fn eval(&self, v: &[u8; 16]) -> [u8; 16] {
+    pub fn eval(&self, v: &[u8; KEY_SIZE]) -> [u8; KEY_SIZE] {
         let mut blk = v.clone();
         let mut slc = GenericArray::from_mut_slice(&mut blk);
         self.bc.encrypt_block(&mut slc);
         blk
+    }
+
+    pub fn eval_u128(&self, v: u128) -> [u8; KEY_SIZE] {
+        let mut blk: [u8; KEY_SIZE] = v.to_le_bytes();
+        let mut slc = GenericArray::from_mut_slice(&mut blk);
+        self.bc.encrypt_block(&mut slc);
+        blk
+    }
+
+    pub fn eval_u64(&self, v: u64) -> [u8; KEY_SIZE] {
+        self.eval_u128(v as u128)
     }
 }
 

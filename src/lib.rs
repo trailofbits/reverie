@@ -4,10 +4,10 @@ use std::ops::{Add, Mul, Neg, Sub};
 mod fs;
 
 // pre-processing
-mod pp;
+// mod pp;
 
 // PRF and puncturable PRF abstractions
-mod prf;
+mod crypto;
 
 // online phase
 mod online;

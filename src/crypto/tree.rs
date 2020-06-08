@@ -163,23 +163,17 @@ mod tests {
 
     #[test]
     fn test_puncture64() {
-        for _ in 0..100 {
-            test_puncture::<U64>();
-        }
+        test_puncture::<U64>();
     }
 
     #[test]
     fn test_puncture256() {
-        for _ in 0..100 {
-            test_puncture::<U256>();
-        }
+        test_puncture::<U256>();
     }
 
     #[test]
     fn test_puncture512() {
-        for _ in 0..100 {
-            test_puncture::<U512>();
-        }
+        test_puncture::<U512>();
     }
 
     fn test_puncture<N: Unsigned + PowerOfTwo>() {
