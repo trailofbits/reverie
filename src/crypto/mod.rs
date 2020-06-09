@@ -17,17 +17,41 @@ pub const KEY_SIZE: usize = 16;
 // hash digest size is 2*KEY_SIZE to mitigate birthday attacks
 pub const HASH_SIZE: usize = KEY_SIZE * 2;
 
-/// We use blake3 in keyed mode as the commitment scheme:
-/// blake3 takes a 256-bit key (for 256-bits of security when used as a MAC),
-/// however we set the last 128-bit of the key to 0 to obtain a
-/// commitment scheme with:
-///
-/// - 128 bits of computational blinding
-/// - 128 bits of computational binding
-///
-/// This also means that a single PRF output can be used as commitment randomness directly.
-pub fn commit(key: &[u8; KEY_SIZE]) -> Hasher {
-    let mut bkey: [u8; 32] = [0u8; 32];
-    bkey[..16].copy_from_slice(&key[..]);
-    Hasher::new_keyed(&bkey)
+// benchmark to compare the performance of cryptographic primitives
+#[cfg(test)]
+mod tests {
+    use test::Bencher;
+
+    use aes::block_cipher_trait::generic_array::GenericArray;
+    use aes::block_cipher_trait::BlockCipher;
+    use aes::Aes128;
+
+    use blake3::Hasher;
+
+    #[bench]
+    fn bench_aes128(b: &mut Bencher) {
+        let key = [0u8; 16];
+        let mut blk = test::black_box([0u8; 16]);
+        let mut slc = GenericArray::from_mut_slice(&mut blk);
+        let bc = Aes128::new(GenericArray::from_slice(&key));
+
+        // every step produces 64-bytes of pseudo random
+        b.iter(|| {
+            bc.encrypt_block(&mut slc);
+            bc.encrypt_block(&mut slc);
+            bc.encrypt_block(&mut slc);
+            bc.encrypt_block(&mut slc);
+        });
+    }
+
+    #[bench]
+    fn bench_blake3(b: &mut Bencher) {
+        let key = [0u8; 32];
+        let hasher = Hasher::new_keyed(&key);
+        let mut reader = hasher.finalize_xof();
+        b.iter(|| {
+            let mut output = test::black_box([0u8; 64]);
+            reader.fill(&mut output[..]);
+        })
+    }
 }

@@ -15,7 +15,7 @@ const PRF_RIGHT: [u8; 16] = [1; 16];
 #[derive(Debug, Clone)]
 pub enum TreePRF<N: PowerOfTwo + Unsigned> {
     Punctured,                                // child has been punctured
-    Leaf(PRF, PhantomData<N>),                // used for leaf nodes and full sub-trees
+    Leaf([u8; KEY_SIZE], PhantomData<N>),     // used for leaf nodes and full sub-trees
     Internal(Rc<TreePRF<N>>, Rc<TreePRF<N>>), // used for punctured children
 }
 
@@ -23,32 +23,23 @@ const fn log2(x: usize) -> usize {
     (mem::size_of::<usize>() * 8) - (x.leading_zeros() as usize) - 1
 }
 
-impl<N: PowerOfTwo + Unsigned> fmt::Display for TreePRF<N> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            TreePRF::Punctured => write!(f, "none"),
-            TreePRF::Leaf(prf, _) => write!(f, "{}", prf),
-            TreePRF::Internal(left, right) => write!(f, "({}, {})", left, right),
-        }
-    }
-}
-
 impl<N: PowerOfTwo + Unsigned> TreePRF<N> {
     pub fn new(key: [u8; 16]) -> TreePRF<N> {
-        TreePRF::Leaf(PRF::new(key), PhantomData)
+        TreePRF::Leaf(key, PhantomData)
     }
 
     fn puncture_internal(&self, idx: usize, level: usize) -> TreePRF<N> {
         assert!(level <= log2(N::to_usize()));
         match self {
-            TreePRF::Leaf(prf, _) => {
+            TreePRF::Leaf(key, _) => {
                 if level == 0 {
                     // this is the leaf we are looking for
                     TreePRF::Punctured
                 } else {
                     // compute left and right trees
-                    let left = TreePRF::Leaf(PRF::new(prf.eval(&PRF_LEFT)), PhantomData);
-                    let right = TreePRF::Leaf(PRF::new(prf.eval(&PRF_RIGHT)), PhantomData);
+                    let prf = PRF::new(*key);
+                    let left = TreePRF::Leaf(prf.eval(&PRF_LEFT), PhantomData);
+                    let right = TreePRF::Leaf(prf.eval(&PRF_RIGHT), PhantomData);
 
                     // puncture recursively
                     if (idx >> level) & 1 == 0 {
@@ -91,7 +82,12 @@ impl<N: PowerOfTwo + Unsigned> TreePRF<N> {
         self.puncture_internal(idx << 1, log2(N::to_usize()))
     }
 
-    pub fn expand_internal(&self, result: &mut Vec<Option<PRF>>, leafs: usize, level: usize) {
+    pub fn expand_internal(
+        &self,
+        result: &mut Vec<Option<[u8; KEY_SIZE]>>,
+        leafs: usize,
+        level: usize,
+    ) {
         // check if we have extracted the required number of leafs
         assert!(level <= log2(N::to_usize()));
         if result.len() >= leafs {
@@ -107,16 +103,15 @@ impl<N: PowerOfTwo + Unsigned> TreePRF<N> {
                 left.expand_internal(result, leafs, level - 1);
                 right.expand_internal(result, leafs, level - 1);
             }
-            TreePRF::Leaf(prf, _) => {
+            TreePRF::Leaf(key, _) => {
                 if level == 0 {
                     // we are in a leaf
-                    result.push(Some(prf.clone()));
+                    result.push(Some(*key));
                 } else {
                     // compute left and right trees
-                    let left: TreePRF<N> =
-                        TreePRF::Leaf(PRF::new(prf.eval(&PRF_LEFT)), PhantomData);
-                    let right: TreePRF<N> =
-                        TreePRF::Leaf(PRF::new(prf.eval(&PRF_RIGHT)), PhantomData);
+                    let prf: PRF = PRF::new(*key);
+                    let left: TreePRF<N> = TreePRF::Leaf(prf.eval(&PRF_LEFT), PhantomData);
+                    let right: TreePRF<N> = TreePRF::Leaf(prf.eval(&PRF_RIGHT), PhantomData);
 
                     left.expand_internal(result, leafs, level - 1);
                     right.expand_internal(result, leafs, level - 1);
@@ -127,7 +122,7 @@ impl<N: PowerOfTwo + Unsigned> TreePRF<N> {
 
     /// Expand a TreePRF into an array of PRFs (one for every leaf).
     /// Does an in-order traversal on the tree to extract the first "leafs" nodes.
-    pub fn expand(&self, leafs: usize) -> Vec<Option<PRF>> {
+    pub fn expand(&self, leafs: usize) -> Vec<Option<[u8; KEY_SIZE]>> {
         assert!(
             leafs <= N::to_usize(),
             "the tree does not have sufficient leafs"

@@ -1,3 +1,7 @@
+#![feature(test)]
+
+extern crate test;
+
 use std::ops::{Add, Mul, Neg, Sub};
 
 use rand_core::{impls, CryptoRng, Error, RngCore};
@@ -20,9 +24,14 @@ mod online;
 ///
 /// For efficiency reasons one should pick ring elements with a
 /// size dividing the size of the serilization type (u64).
-pub trait RingElement: Sized + Add + Sub + Neg + Mul {
+pub trait RingElement:
+    Sized + Copy + Add<Output = Self> + Sub<Output = Self> + Neg<Output = Self> + Mul<Output = Self>
+{
     const BIT_SIZE: usize; // size in bits
     const BATCH_SIZE: usize; // number of elements in batch
+
+    /// Returns the additive identity in the ring
+    fn zero() -> Self;
 
     /// Packs a batch of ring elements into a 64-bit unsigned integer
     fn pack(self) -> u64;
@@ -39,12 +48,13 @@ pub trait RingElement: Sized + Add + Sub + Neg + Mul {
 }
 
 /// Represents an element of the vector space GF(2)^64
+#[derive(Copy, Clone)]
 struct BitField(u64);
 
 impl Add for BitField {
     type Output = Self;
 
-    fn add(self, other: Self) -> Self {
+    fn add(self, other: Self) -> Self::Output {
         BitField(self.0 ^ other.0)
     }
 }
@@ -52,7 +62,7 @@ impl Add for BitField {
 impl Sub for BitField {
     type Output = Self;
 
-    fn sub(self, other: Self) -> Self {
+    fn sub(self, other: Self) -> Self::Output {
         BitField(self.0 ^ other.0)
     }
 }
@@ -60,7 +70,7 @@ impl Sub for BitField {
 impl Mul for BitField {
     type Output = Self;
 
-    fn mul(self, other: Self) -> Self {
+    fn mul(self, other: Self) -> Self::Output {
         BitField(self.0 & other.0)
     }
 }
@@ -72,7 +82,7 @@ impl Mul for BitField {
 impl Neg for BitField {
     type Output = Self;
 
-    fn neg(self) -> Self {
+    fn neg(self) -> Self::Output {
         self
     }
 }
@@ -80,6 +90,10 @@ impl Neg for BitField {
 impl RingElement for BitField {
     const BIT_SIZE: usize = 1;
     const BATCH_SIZE: usize = 64;
+
+    fn zero() -> BitField {
+        BitField(0)
+    }
 
     fn pack(self) -> u64 {
         self.0

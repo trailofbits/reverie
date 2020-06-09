@@ -53,7 +53,7 @@ impl<'a> Drop for Scope<'a> {
 
 impl View {
     /// Produce a new view with randomness extracted from the seed
-    pub fn new(seed: [u8; KEY_SIZE]) -> View {
+    pub fn new_keyed(seed: [u8; KEY_SIZE]) -> View {
         // create keyed hasher
         let mut key: [u8; 32] = [0u8; 32];
         key[..16].copy_from_slice(&seed[..]);
@@ -61,6 +61,15 @@ impl View {
 
         View {
             hasher,
+            #[cfg(debug)]
+            transcript: vec![],
+        }
+    }
+
+    /// Produce a new view with randomness extracted from the seed
+    pub fn new() -> View {
+        View {
+            hasher: Hasher::new(),
             #[cfg(debug)]
             transcript: vec![],
         }
@@ -75,7 +84,7 @@ impl View {
 
     /// Produce a hash of the view.
     /// If the seed has high min-entropy then the hash serves as a commitment.
-    pub fn commit(&self) -> Hash {
+    pub fn hash(&self) -> Hash {
         self.hasher.finalize()
     }
 
