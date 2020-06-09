@@ -50,6 +50,8 @@ mod tests {
         let key = [0u8; 32];
         let hasher = Hasher::new_keyed(&key);
         let mut reader = hasher.finalize_xof();
+
+        // every step produces 64-bytes of pseudo random
         b.iter(|| {
             let mut output = test::black_box([0u8; 64]);
             reader.fill(&mut output[..]);

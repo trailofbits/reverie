@@ -1,5 +1,5 @@
 [package]
-name = "zk-proof"
+name = "reverie"
 version = "0.1.0"
 authors = ["Mathias Hall-Andersen <mathias@hall-andersen.dk>"]
 edition = "2018"
@@ -13,3 +13,4 @@ subtle = "2.2.3"
 hex = "0.4"
 rand = "0.7.3"
 rand_core = "*"
+generic-array = "0.14.1"
