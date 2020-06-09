@@ -8,7 +8,7 @@ pub struct View {
 }
 
 pub struct ViewRNG {
-    /// TODO: buffer to improve performance
+    /// TODO: buffer to improve performance, since RingElement::gen is likely to do small reads (8-bytes)
     /// https://docs.rs/blake3/0.3.4/src/blake3/lib.rs.html#1199-1201
     reader: OutputReader,
 }
@@ -53,6 +53,8 @@ impl<'a> Drop for Scope<'a> {
 
 impl View {
     /// Produce a new view with randomness extracted from the seed
+    ///
+    /// This is used to simulate parties (in-the-head) with secret random tapes.
     pub fn new_keyed(seed: [u8; KEY_SIZE]) -> View {
         // create keyed hasher
         let mut key: [u8; 32] = [0u8; 32];
@@ -66,7 +68,9 @@ impl View {
         }
     }
 
-    /// Produce a new view with randomness extracted from the seed
+    /// Produce a new unseeded view
+    ///
+    /// This can be used for simulate public coin verifiers (Fiat-Shamir).
     pub fn new() -> View {
         View {
             hasher: Hasher::new(),
@@ -76,23 +80,33 @@ impl View {
     }
 
     /// Return the PRNG bound to the present view
-    pub fn rng(&self) -> ViewRNG {
-        let mut reader = self.hasher.finalize_xof();
-        reader.set_position(32);
-        ViewRNG { reader }
+    pub fn rng(&self, label: &'static [u8]) -> ViewRNG {
+        let mut hasher = self.hasher.clone();
+        hasher.update(label);
+        hasher.update(&(label.len() as u8).to_le_bytes());
+        hasher.update(&[0]);
+        ViewRNG {
+            reader: hasher.finalize_xof(),
+        }
     }
 
     /// Produce a hash of the view.
-    /// If the seed has high min-entropy then the hash serves as a commitment.
+    /// If the initial seed has high min-entropy then
+    /// the hash additionally serves as a blinding commitment.
     pub fn hash(&self) -> Hash {
         self.hasher.finalize()
     }
 
     /// Returns a new labelled scope.
     /// Scopes are used to add messages to the view.
+    ///
+    /// The type system ensure that at most one scope can be live for any view at any time.
+    /// The scope is automatically serialized into the view when it is dropped,
+    /// while only consuming a constant amount of memory.
     pub fn scope<'a>(&'a mut self, label: &'static [u8]) -> Scope<'a> {
         self.hasher.update(label);
         self.hasher.update(&(label.len() as u8).to_le_bytes());
+        self.hasher.update(&[1]);
         Scope {
             length: 0,
             view: self,

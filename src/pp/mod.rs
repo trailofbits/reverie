@@ -12,8 +12,11 @@ struct Preprocessed<N> {
     _phantom: PhantomData<N>,
 }
 
+const LABEL_RNG_BEAVER: &'static [u8] = "beaver_rng".as_bytes();
+const LABEL_SCOPE_CORRECTION: &'static [u8] = "correction_bits".as_bytes();
+const LABEL_SCOPE_AGGREGATE_COMMIT: &'static [u8] = "aggregate_commit".as_bytes();
+
 fn preprocess<E: RingElement, N: Unsigned, M: Unsigned + PowerOfTwo>(
-    inputs: u64, // number of input/output sharings
     beaver: u64, // number of Beaver multiplication triples
     seed: [u8; 16],
 ) -> Preprocessed<N> {
@@ -37,11 +40,11 @@ fn preprocess<E: RingElement, N: Unsigned, M: Unsigned + PowerOfTwo>(
     }
 
     // derive PRNG for every player
-    let mut prngs: Vec<ViewRNG> = views.iter().map(|v| v.rng()).collect();
+    let mut prngs: Vec<ViewRNG> = views.iter().map(|v| v.rng(LABEL_RNG_BEAVER)).collect();
 
     // obtain a scope for correction bits (0th player)
     {
-        let mut scope: Scope = views[0].scope("correction".as_bytes());
+        let mut scope: Scope = views[0].scope(LABEL_SCOPE_CORRECTION);
 
         // generate correction bits for Beaver triples
         for _ in 0..beaver {
@@ -71,7 +74,7 @@ fn preprocess<E: RingElement, N: Unsigned, M: Unsigned + PowerOfTwo>(
     // aggregate every view commitment into a single commitment to the entire pre-processing
     let mut agg: View = View::new();
     {
-        let mut scope: Scope = agg.scope("view_commitment".as_bytes());
+        let mut scope: Scope = agg.scope(LABEL_SCOPE_AGGREGATE_COMMIT);
         for j in 0..N::to_usize() {
             scope.update(views[j].hash().as_bytes())
         }
