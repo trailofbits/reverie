@@ -1,5 +1,7 @@
-#![feature(test)]
+#![cfg_attr(feature = "unstable", feature(test))]
 
+#[cfg(test)]
+#[cfg(feature = "unstable")]
 extern crate test;
 
 use std::ops::{Add, Mul, Neg, Sub};

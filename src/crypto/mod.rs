@@ -19,6 +19,7 @@ pub const HASH_SIZE: usize = KEY_SIZE * 2;
 
 // benchmark to compare the performance of cryptographic primitives
 #[cfg(test)]
+#[cfg(feature = "unstable")]
 mod tests {
     use test::Bencher;
 
