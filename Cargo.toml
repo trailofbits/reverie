@@ -5,8 +5,8 @@ authors = ["Mathias Hall-Andersen <mathias@hall-andersen.dk>"]
 edition = "2018"
 
 [dependencies]
-blake3 = "0.3.4" # used for Fiat-Shamir
-aes = "0.3.2"    # used as PRF
+blake3 = "0.3.4"
+rayon = "1.3"
 typenum = "1.12.0"
 serde = { version = "1.0", features = ["derive"] }
 subtle = "2.2.3"
@@ -14,3 +14,10 @@ hex = "0.4"
 rand = "0.7.3"
 rand_core = "*"
 generic-array = "0.14.1"
+static_assertions = "1.1.0"
+
+[dev-dependencies]
+aes = "0.3.2" # for comparision in benchmarks
+
+[features]
+unstable = []

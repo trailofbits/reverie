@@ -7,35 +7,9 @@ pub struct View {
     hasher: Hasher,
 }
 
-pub struct ViewRNG {
-    /// TODO: buffer to improve performance, since RingElement::gen is likely to do small reads (8-bytes)
-    /// https://docs.rs/blake3/0.3.4/src/blake3/lib.rs.html#1199-1201
-    reader: OutputReader,
-}
-
 pub struct Scope<'a> {
     view: &'a mut View,
     length: u64,
-}
-
-impl CryptoRng for ViewRNG {}
-
-impl RngCore for ViewRNG {
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
-        self.reader.fill(dest)
-    }
-
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Error> {
-        Ok(self.fill_bytes(dest))
-    }
-
-    fn next_u32(&mut self) -> u32 {
-        impls::next_u32_via_fill(self)
-    }
-
-    fn next_u64(&mut self) -> u64 {
-        impls::next_u64_via_fill(self)
-    }
 }
 
 impl<'a> Scope<'a> {
@@ -81,13 +55,7 @@ impl View {
 
     /// Return the PRNG bound to the present view
     pub fn rng(&self, label: &'static [u8]) -> ViewRNG {
-        let mut hasher = self.hasher.clone();
-        hasher.update(label);
-        hasher.update(&(label.len() as u8).to_le_bytes());
-        hasher.update(&[0]);
-        ViewRNG {
-            reader: hasher.finalize_xof(),
-        }
+        ViewRNG::new(&self.hasher, label)
     }
 
     /// Produce a hash of the view.

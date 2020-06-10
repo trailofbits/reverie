@@ -1,9 +1,11 @@
-use super::*;
+use super::KEY_SIZE;
 
 use std::fmt;
 use std::marker::PhantomData;
 use std::mem;
 use std::rc::Rc;
+
+use blake3::Hasher;
 
 use typenum::{PowerOfTwo, Unsigned};
 
@@ -23,8 +25,21 @@ const fn log2(x: usize) -> usize {
     (mem::size_of::<usize>() * 8) - (x.leading_zeros() as usize) - 1
 }
 
+fn double_prng(key: &[u8; KEY_SIZE]) -> ([u8; KEY_SIZE], [u8; KEY_SIZE]) {
+    let mut k = [0u8; 32];
+    let mut left = [0u8; KEY_SIZE];
+    let mut right = [0u8; KEY_SIZE];
+    k[..KEY_SIZE].copy_from_slice(&key[..]);
+
+    let hasher = Hasher::new_keyed(&k);
+    let result = hasher.finalize();
+    left[..].copy_from_slice(&result.as_bytes()[..KEY_SIZE]);
+    right[..].copy_from_slice(&result.as_bytes()[KEY_SIZE..]);
+    (left, right)
+}
+
 impl<N: PowerOfTwo + Unsigned> TreePRF<N> {
-    pub fn new(key: [u8; 16]) -> TreePRF<N> {
+    pub fn new(key: [u8; KEY_SIZE]) -> TreePRF<N> {
         TreePRF::Leaf(key, PhantomData)
     }
 
@@ -37,9 +52,8 @@ impl<N: PowerOfTwo + Unsigned> TreePRF<N> {
                     TreePRF::Punctured
                 } else {
                     // compute left and right trees
-                    let prf = PRF::new(*key);
-                    let left = TreePRF::Leaf(prf.eval(&PRF_LEFT), PhantomData);
-                    let right = TreePRF::Leaf(prf.eval(&PRF_RIGHT), PhantomData);
+                    let (left, right) = double_prng(key);
+                    let (left, right) = (Self::new(left), Self::new(right));
 
                     // puncture recursively
                     if (idx >> level) & 1 == 0 {
@@ -109,9 +123,8 @@ impl<N: PowerOfTwo + Unsigned> TreePRF<N> {
                     result.push(Some(*key));
                 } else {
                     // compute left and right trees
-                    let prf: PRF = PRF::new(*key);
-                    let left: TreePRF<N> = TreePRF::Leaf(prf.eval(&PRF_LEFT), PhantomData);
-                    let right: TreePRF<N> = TreePRF::Leaf(prf.eval(&PRF_RIGHT), PhantomData);
+                    let (left, right) = double_prng(key);
+                    let (left, right) = (Self::new(left), Self::new(right));
 
                     left.expand_internal(result, leafs, level - 1);
                     right.expand_internal(result, leafs, level - 1);
@@ -197,5 +210,23 @@ mod tests {
                 assert_eq!(expand[i], p_expand[i]);
             }
         }
+    }
+}
+
+#[cfg(test)]
+#[cfg(feature = "unstable")]
+mod benchmark {
+    use super::*;
+
+    use test::Bencher;
+    use typenum::consts::*;
+
+    #[bench]
+    fn bench_tree_expand64(b: &mut Bencher) {
+        let seed = test::black_box([0u8; KEY_SIZE]);
+        b.iter(|| {
+            let tree: TreePRF<U64> = TreePRF::new(seed);
+            tree.expand(64);
+        });
     }
 }

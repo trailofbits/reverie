@@ -2,20 +2,14 @@ use serde::de::{Deserialize, Deserializer};
 use serde::ser::{SerializeSeq, Serializer};
 use serde::Serialize;
 
-mod prf;
-mod prng;
 mod tree;
 
-pub use prf::PRF;
 pub use tree::TreePRF;
 
 pub use blake3::{Hash, Hasher};
 
 // we target 128-bits of security
 pub const KEY_SIZE: usize = 16;
-
-// hash digest size is 2*KEY_SIZE to mitigate birthday attacks
-pub const HASH_SIZE: usize = KEY_SIZE * 2;
 
 // benchmark to compare the performance of cryptographic primitives
 #[cfg(test)]
