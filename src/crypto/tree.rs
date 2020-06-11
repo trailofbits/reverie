@@ -1,6 +1,5 @@
 use super::KEY_SIZE;
 
-use std::fmt;
 use std::marker::PhantomData;
 use std::mem;
 use std::rc::Rc;

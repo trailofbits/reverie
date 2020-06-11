@@ -6,8 +6,8 @@ mod constants;
 
 use constants::*;
 
-use std::collections::HashSet;
 use std::marker::PhantomData;
+use std::mem;
 
 use rand_core::RngCore;
 
@@ -47,20 +47,27 @@ pub struct PreprocessedProof<
     _phantom4: PhantomData<E>,
 }
 
-fn random_subset<Mod: Unsigned, Samples: Unsigned, R: RngCore>(rng: &mut R) -> HashSet<usize> {
-    let mut set: HashSet<usize> = HashSet::new();
-    {
-        while set.len() < Samples::to_usize() {
-            // generate a 128-bit integer (to minimize statistical bias)
-            let mut le_bytes: [u8; 16] = [0u8; 16];
-            rng.fill_bytes(&mut le_bytes);
+fn random_subset<Mod: Unsigned, Samples: Unsigned, R: RngCore>(rng: &mut R) -> Vec<usize> {
+    let mut member: Vec<bool> = vec![false; Mod::to_usize()];
+    let mut set: Vec<usize> = Vec::with_capacity(Samples::to_usize());
+    while set.len() < Samples::to_usize() {
+        // generate a 128-bit integer (to minimize statistical bias)
+        let mut le_bytes: [u8; 16] = [0u8; 16];
+        rng.fill_bytes(&mut le_bytes);
 
-            // reduce mod the number of repetitions
-            let n: u128 = u128::from_le_bytes(le_bytes) % (Mod::to_u64() as u128);
-            set.insert(n as usize);
+        // reduce mod the number of repetitions
+        let n: u128 = u128::from_le_bytes(le_bytes) % (Mod::to_u64() as u128);
+        let n: usize = n as usize;
+
+        // if not in set, add to the vector
+        if !mem::replace(&mut member[n as usize], true) {
+            set.push(n);
         }
     }
+
+    // ensure a canonical ordering (for comparisons)
     debug_assert_eq!(set.len(), Samples::to_usize());
+    set.sort();
     set
 }
 
@@ -148,18 +155,19 @@ impl<
 
         // derive keys and hidden execution indexes
         let keys = self.prf.expand(R::to_usize());
-        let mut hide: Vec<usize> = Vec::with_capacity(O::to_usize());
-        let mut open: Vec<usize> = Vec::with_capacity(R::to_usize() - O::to_usize());
+        let mut hidden: Vec<usize> = Vec::with_capacity(O::to_usize());
+        let mut opened: Vec<usize> = Vec::with_capacity(R::to_usize() - O::to_usize());
         for (i, key) in keys.iter().enumerate() {
             if key.is_none() {
-                hide.push(i)
+                hidden.push(i)
             } else {
-                open.push(i)
+                opened.push(i)
             }
         }
 
-        // prover must open exactly n-t views
-        if hide.len() != O::to_usize() {
+        // prover must open exactly n-o views
+        if hidden.len() != O::to_usize() {
+            println!("{:?} {:?}", hidden.len(), O::to_usize());
             return false;
         }
 
@@ -170,9 +178,9 @@ impl<
             .collect();
 
         // copy over the provided hashes from the hidden views
-        for (i, hash) in hide.iter().zip(self.hashes.iter()) {
-            assert!(hashes[*i].is_none());
-            hashes[*i] = Some(*hash);
+        for (&i, hash) in hidden.iter().zip(self.hashes.iter()) {
+            assert!(hashes[i].is_none());
+            hashes[i] = Some(*hash);
         }
 
         // interleave the proved hashes with the recomputed ones
@@ -180,26 +188,15 @@ impl<
         {
             let mut scope: Scope = global.scope(LABEL_SCOPE_AGGREGATE_COMMIT);
             for hash in hashes {
-                match hash {
-                    None => return false,
-                    Some(hash) => {
-                        scope.update(hash.as_bytes());
-                    }
-                }
+                scope.update(hash.unwrap().as_bytes());
             }
         }
 
         // recompute the hidden indexes
-        let hide: HashSet<usize> =
-            random_subset::<R, O, _>(&mut global.rng(LABEL_RNG_OPEN_PREPROCESSING));
+        let hide = random_subset::<R, O, _>(&mut global.rng(LABEL_RNG_OPEN_PREPROCESSING));
 
-        // check that every hidden pre-processed phase is included in the hidden set computed
-        for i in &hide {
-            if !hide.contains(&i) {
-                return false;
-            }
-        }
-        true
+        println!("{:?} {:?}", hidden, hide);
+        hidden == random_subset::<R, O, _>(&mut global.rng(LABEL_RNG_OPEN_PREPROCESSING))
     }
 
     pub fn new(beaver: u64, seed: [u8; KEY_SIZE]) -> Self {
@@ -225,8 +222,8 @@ impl<
         }
 
         // extract random indexes not to open (rejection sampling)
-        let hide: HashSet<usize> =
-            random_subset::<R, O, _>(&mut global.rng(LABEL_RNG_OPEN_PREPROCESSING));
+        let hide = random_subset::<R, O, _>(&mut global.rng(LABEL_RNG_OPEN_PREPROCESSING));
+        debug_assert_eq!(hide.len(), O::to_usize());
 
         // puncture the root prf
         let mut punctured = root.clone();
@@ -234,19 +231,25 @@ impl<
             punctured = punctured.puncture(*i);
         }
 
-        // sort the hidden evaluations
-        let mut hide_ordered: Vec<usize> = hide.into_iter().collect();
-        hide_ordered.sort();
+        // sanity check
+        debug_assert_eq!(
+            punctured
+                .expand(R::to_usize())
+                .into_iter()
+                .map(|x| x.is_some() as usize)
+                .sum::<usize>(),
+            R::to_usize() - O::to_usize()
+        );
 
         // extract hashes for the hidden evaluations
-        let mut hide_hashes: Vec<Hash> = Vec::with_capacity(O::to_usize());
-        for i in hide_ordered {
-            hide_hashes.push(hashes[i].clone());
+        let mut hidden_hashes: Vec<Hash> = Vec::with_capacity(O::to_usize());
+        for i in &hide {
+            hidden_hashes.push(hashes[*i].clone());
         }
 
         // combine into the proof
         PreprocessedProof {
-            hashes: GenericArray::clone_from_slice(&hide_hashes[..]),
+            hashes: GenericArray::clone_from_slice(&hidden_hashes[..]),
             prf: punctured,
             _phantom1: PhantomData,
             _phantom2: PhantomData,
@@ -294,7 +297,7 @@ mod benchmark {
 
     const BEAVER: u64 = 100_000 / 64;
 
-    /// Benchmark of pre-processing using parameters from the paper
+    /// Benchmark proof generation of pre-processing using parameters from the paper
     /// (Table 1. p. 10, https://eprint.iacr.org/2018/475/20190311:173838)
     ///
     /// n =  64 (simulated players)
@@ -307,7 +310,7 @@ mod benchmark {
         });
     }
 
-    /// Benchmark of pre-processing using parameters from the paper
+    /// Benchmark proof generation of pre-processing using parameters from the paper
     /// (Table 1. p. 10, https://eprint.iacr.org/2018/475/20190311:173838)
     ///
     /// n =   8 (simulated players)
@@ -318,5 +321,31 @@ mod benchmark {
         b.iter(|| {
             PreprocessedProof::<BitField, U8, U8, U252, U256, U44>::new(BEAVER, [0u8; KEY_SIZE])
         });
+    }
+
+    /// Benchmark proof verification of pre-processing using parameters from the paper
+    /// (Table 1. p. 10, https://eprint.iacr.org/2018/475/20190311:173838)
+    ///
+    /// n =  64 (simulated players)
+    /// M =  23 (number of pre-processing executions)
+    /// t =  23 (online phase executions (hidden pre-processing executions))
+    #[bench]
+    fn bench_preprocessing_proof_verify_n64(b: &mut Bencher) {
+        let proof =
+            PreprocessedProof::<BitField, U64, U64, U631, U1024, U23>::new(BEAVER, [0u8; KEY_SIZE]);
+        b.iter(|| proof.verify(BEAVER));
+    }
+
+    /// Benchmark proof verification of pre-processing using parameters from the paper
+    /// (Table 1. p. 10, https://eprint.iacr.org/2018/475/20190311:173838)
+    ///
+    /// n =   8 (simulated players)
+    /// M = 252 (number of pre-processing executions)
+    /// t =  44 (online phase executions (hidden pre-processing executions))
+    #[bench]
+    fn bench_preprocessing_proof_verify_n8(b: &mut Bencher) {
+        let proof =
+            PreprocessedProof::<BitField, U8, U8, U252, U256, U44>::new(BEAVER, [0u8; KEY_SIZE]);
+        b.iter(|| proof.verify(BEAVER));
     }
 }
