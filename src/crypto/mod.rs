@@ -1,7 +1,3 @@
-use serde::de::{Deserialize, Deserializer};
-use serde::ser::{SerializeSeq, Serializer};
-use serde::Serialize;
-
 mod tree;
 
 pub use tree::TreePRF;

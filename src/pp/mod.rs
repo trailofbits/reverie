@@ -290,7 +290,7 @@ mod tests {
 #[cfg(test)]
 #[cfg(feature = "unstable")]
 mod benchmark {
-    use super::super::BitField;
+    use super::super::algebra::gf2::BitBatch;
     use super::*;
 
     use test::Bencher;
@@ -307,7 +307,7 @@ mod benchmark {
     #[bench]
     fn bench_preprocessing_proof_gen_n64(b: &mut Bencher) {
         b.iter(|| {
-            PreprocessedProof::<BitField, U64, U64, U631, U1024, U23>::new(BEAVER, [0u8; KEY_SIZE])
+            PreprocessedProof::<BitBatch, U64, U64, U631, U1024, U23>::new(BEAVER, [0u8; KEY_SIZE])
         });
     }
 
@@ -320,7 +320,7 @@ mod benchmark {
     #[bench]
     fn bench_preprocessing_proof_gen_n8(b: &mut Bencher) {
         b.iter(|| {
-            PreprocessedProof::<BitField, U8, U8, U252, U256, U44>::new(BEAVER, [0u8; KEY_SIZE])
+            PreprocessedProof::<BitBatch, U8, U8, U252, U256, U44>::new(BEAVER, [0u8; KEY_SIZE])
         });
     }
 
@@ -333,7 +333,7 @@ mod benchmark {
     #[bench]
     fn bench_preprocessing_proof_verify_n64(b: &mut Bencher) {
         let proof =
-            PreprocessedProof::<BitField, U64, U64, U631, U1024, U23>::new(BEAVER, [0u8; KEY_SIZE]);
+            PreprocessedProof::<BitBatch, U64, U64, U631, U1024, U23>::new(BEAVER, [0u8; KEY_SIZE]);
         b.iter(|| proof.verify(BEAVER));
     }
 
@@ -346,7 +346,7 @@ mod benchmark {
     #[bench]
     fn bench_preprocessing_proof_verify_n8(b: &mut Bencher) {
         let proof =
-            PreprocessedProof::<BitField, U8, U8, U252, U256, U44>::new(BEAVER, [0u8; KEY_SIZE]);
+            PreprocessedProof::<BitBatch, U8, U8, U252, U256, U44>::new(BEAVER, [0u8; KEY_SIZE]);
         b.iter(|| proof.verify(BEAVER));
     }
 }

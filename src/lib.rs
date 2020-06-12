@@ -4,8 +4,6 @@
 #[cfg(feature = "unstable")]
 extern crate test;
 
-use rand_core::RngCore;
-
 // abstraction for Fiat-Shamir
 mod fs;
 

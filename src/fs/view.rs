@@ -1,7 +1,6 @@
 use super::*;
 
-use blake3::{Hash, Hasher, OutputReader};
-use rand_core::{impls, CryptoRng, Error, RngCore};
+use blake3::{Hash, Hasher};
 
 pub struct View {
     hasher: Hasher,
