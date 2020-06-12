@@ -1,6 +1,6 @@
+use super::algebra::RingBatch;
 use super::crypto::*;
 use super::fs::*;
-use super::RingElement;
 
 mod constants;
 
@@ -30,7 +30,7 @@ use typenum::{PowerOfTwo, Unsigned};
 /// The proof is verified by re-executing the pre-processing phase executions
 /// for which the punctured PRF can be evaluated.
 pub struct PreprocessedProof<
-    E: RingElement,
+    B: RingBatch,
     N: Unsigned,
     NT: Unsigned + PowerOfTwo,
     R: Unsigned,
@@ -44,7 +44,7 @@ pub struct PreprocessedProof<
     _phantom1: PhantomData<N>,
     _phantom2: PhantomData<NT>,
     _phantom3: PhantomData<R>,
-    _phantom4: PhantomData<E>,
+    _phantom4: PhantomData<B>,
 }
 
 fn random_subset<Mod: Unsigned, Samples: Unsigned, R: RngCore>(rng: &mut R) -> Vec<usize> {
@@ -74,7 +74,7 @@ fn random_subset<Mod: Unsigned, Samples: Unsigned, R: RngCore>(rng: &mut R) -> V
 /// Executes the preprocessing (in-the-head) phase once.
 ///
 /// Returns a commitment to the view of all players.
-fn preprocess<E: RingElement, N: Unsigned, NT: Unsigned + PowerOfTwo>(
+fn preprocess<B: RingBatch, N: Unsigned, NT: Unsigned + PowerOfTwo>(
     beaver: u64,          // number of Beaver multiplication triples
     seed: [u8; KEY_SIZE], // random tape used for phase
 ) -> Hash {
@@ -106,15 +106,15 @@ fn preprocess<E: RingElement, N: Unsigned, NT: Unsigned + PowerOfTwo>(
 
         // generate correction bits for Beaver triples
         for _ in 0..beaver {
-            let mut left_mask = E::zero();
-            let mut right_mask = E::zero();
-            let mut product_mask = E::zero();
+            let mut left_mask = B::zero();
+            let mut right_mask = B::zero();
+            let mut product_mask = B::zero();
 
             for j in 0..N::to_usize() {
                 let rng: &mut ViewRNG = &mut prngs[j];
-                let left = E::gen(rng);
-                let right = E::gen(rng);
-                let product = E::gen(rng);
+                let left = B::gen(rng);
+                let right = B::gen(rng);
+                let product = B::gen(rng);
 
                 left_mask = left_mask + left;
                 right_mask = right_mask + right;
@@ -142,13 +142,13 @@ fn preprocess<E: RingElement, N: Unsigned, NT: Unsigned + PowerOfTwo>(
 }
 
 impl<
-        E: RingElement,
+        B: RingBatch,
         N: Unsigned,
         NT: Unsigned + PowerOfTwo,
         R: Unsigned,
         RT: Unsigned + PowerOfTwo,
         H: ArrayLength<Hash>,
-    > PreprocessedProof<E, N, NT, R, RT, H>
+    > PreprocessedProof<B, N, NT, R, RT, H>
 {
     pub fn verify(&self, beaver: u64) -> Option<&GenericArray<Hash, H>> {
         debug_assert!(R::to_usize() >= H::to_usize());
@@ -174,7 +174,7 @@ impl<
         // recompute the opened views
         let mut hashes: Vec<Option<Hash>> = keys
             .par_iter()
-            .map(|seed| seed.map(|seed| preprocess::<E, N, NT>(beaver, seed)))
+            .map(|seed| seed.map(|seed| preprocess::<B, N, NT>(beaver, seed)))
             .collect();
 
         // copy over the provided hashes from the hidden views
@@ -210,7 +210,7 @@ impl<
         // generate hashes of every pre-processing execution
         let hashes: Vec<Hash> = keys
             .par_iter()
-            .map(|seed| preprocess::<E, N, NT>(beaver, seed.unwrap()))
+            .map(|seed| preprocess::<B, N, NT>(beaver, seed.unwrap()))
             .collect();
 
         // add every pre-processing execution to a global view
@@ -262,7 +262,7 @@ impl<
 
 #[cfg(test)]
 mod tests {
-    use super::super::BitField;
+    use super::super::algebra::gf2::BitBatch;
     use super::*;
 
     use rand::Rng;
@@ -274,7 +274,7 @@ mod tests {
     fn test_preprocessing_n8() {
         let mut rng = rand::thread_rng();
         let seed: [u8; KEY_SIZE] = rng.gen();
-        let proof = PreprocessedProof::<BitField, U8, U8, U252, U256, U44>::new(BEAVER, seed);
+        let proof = PreprocessedProof::<BitBatch, U8, U8, U252, U256, U44>::new(BEAVER, seed);
         assert!(proof.verify(BEAVER).is_some());
     }
 
@@ -282,7 +282,7 @@ mod tests {
     fn test_preprocessing_n64() {
         let mut rng = rand::thread_rng();
         let seed: [u8; KEY_SIZE] = rng.gen();
-        let proof = PreprocessedProof::<BitField, U64, U64, U631, U1024, U23>::new(BEAVER, seed);
+        let proof = PreprocessedProof::<BitBatch, U64, U64, U631, U1024, U23>::new(BEAVER, seed);
         assert!(proof.verify(BEAVER).is_some());
     }
 }
