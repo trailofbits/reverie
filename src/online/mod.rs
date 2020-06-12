@@ -25,7 +25,7 @@ impl<B: RingBatch> PlayerState<B> {
         self.wires[div].get(rem)
     }
 
-    fn set(&self, label: usize, v: B::Element) {
+    fn set(&mut self, label: usize, v: B::Element) {
         let rem = label % B::BATCH_SIZE;
         let div = label / B::BATCH_SIZE;
 

@@ -4,7 +4,7 @@ use super::RingBatch;
 use std::ops::{Add, Mul, Neg, Sub};
 
 /// Represents an element of the vector space GF(2)^64
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct BitBatch(u64);
 
 impl Add for BitBatch {

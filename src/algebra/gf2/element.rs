@@ -2,7 +2,7 @@ use super::RingElement;
 
 use std::ops::{Add, Mul, Neg, Sub};
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct Bit(usize);
 
 impl Bit {
