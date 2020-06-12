@@ -25,7 +25,7 @@ use typenum::{PowerOfTwo, Unsigned};
 /// - NT: Size of the PRF tree (should be greater/equal N)
 /// - R : The number of repetitions for soundness.
 /// - RT: Size of the PRF tree (should be greater/equal R)
-/// - O : The number of repetitions not to open (repetitions of online phase)
+/// - H : The number of repetitions not to open (repetitions of online phase)
 ///
 /// The proof is verified by re-executing the pre-processing phase executions
 /// for which the punctured PRF can be evaluated.
@@ -35,9 +35,9 @@ pub struct PreprocessedProof<
     NT: Unsigned + PowerOfTwo,
     R: Unsigned,
     RT: Unsigned + PowerOfTwo,
-    O: ArrayLength<Hash>,
+    H: ArrayLength<Hash>,
 > {
-    hashes: GenericArray<Hash, O>, // commitments to the un-opened views in the commitment phase
+    hashes: GenericArray<Hash, H>, // commitments to the un-opened views in the commitment phase
     prf: TreePRF<RT>,              // punctured PRF used for verification of selected views
 
     // consume type parameters
@@ -147,16 +147,16 @@ impl<
         NT: Unsigned + PowerOfTwo,
         R: Unsigned,
         RT: Unsigned + PowerOfTwo,
-        O: ArrayLength<Hash>,
-    > PreprocessedProof<E, N, NT, R, RT, O>
+        H: ArrayLength<Hash>,
+    > PreprocessedProof<E, N, NT, R, RT, H>
 {
-    pub fn verify(&self, beaver: u64) -> bool {
-        debug_assert!(R::to_usize() >= O::to_usize());
+    pub fn verify(&self, beaver: u64) -> Option<&GenericArray<Hash, H>> {
+        debug_assert!(R::to_usize() >= H::to_usize());
 
         // derive keys and hidden execution indexes
         let keys = self.prf.expand(R::to_usize());
-        let mut hidden: Vec<usize> = Vec::with_capacity(O::to_usize());
-        let mut opened: Vec<usize> = Vec::with_capacity(R::to_usize() - O::to_usize());
+        let mut hidden: Vec<usize> = Vec::with_capacity(H::to_usize());
+        let mut opened: Vec<usize> = Vec::with_capacity(R::to_usize() - H::to_usize());
         for (i, key) in keys.iter().enumerate() {
             if key.is_none() {
                 hidden.push(i)
@@ -165,11 +165,11 @@ impl<
             }
         }
 
-        // prover must open exactly n-o views
-        if hidden.len() != O::to_usize() {
-            println!("{:?} {:?}", hidden.len(), O::to_usize());
-            return false;
+        // prover must open exactly R-H repetitions
+        if hidden.len() != H::to_usize() {
+            return None;
         }
+        debug_assert_eq!(hidden.len() + opened.len(), R::to_usize());
 
         // recompute the opened views
         let mut hashes: Vec<Option<Hash>> = keys
@@ -187,20 +187,21 @@ impl<
         let mut global: View = View::new();
         {
             let mut scope: Scope = global.scope(LABEL_SCOPE_AGGREGATE_COMMIT);
-            for hash in hashes {
+            for hash in &hashes {
                 scope.update(hash.unwrap().as_bytes());
             }
         }
 
-        // recompute the hidden indexes
-        let hide = random_subset::<R, O, _>(&mut global.rng(LABEL_RNG_OPEN_PREPROCESSING));
-
-        println!("{:?} {:?}", hidden, hide);
-        hidden == random_subset::<R, O, _>(&mut global.rng(LABEL_RNG_OPEN_PREPROCESSING))
+        // accept if the hidden indexes where computed correctly (Fiat-Shamir transform)
+        if hidden == random_subset::<R, H, _>(&mut global.rng(LABEL_RNG_OPEN_PREPROCESSING)) {
+            Some(&self.hashes)
+        } else {
+            None
+        }
     }
 
     pub fn new(beaver: u64, seed: [u8; KEY_SIZE]) -> Self {
-        debug_assert!(R::to_usize() >= O::to_usize());
+        debug_assert!(R::to_usize() >= H::to_usize());
 
         // define PRF tree and obtain key material for every pre-processing execution
         let root: TreePRF<RT> = TreePRF::new(seed);
@@ -222,8 +223,8 @@ impl<
         }
 
         // extract random indexes not to open (rejection sampling)
-        let hide = random_subset::<R, O, _>(&mut global.rng(LABEL_RNG_OPEN_PREPROCESSING));
-        debug_assert_eq!(hide.len(), O::to_usize());
+        let hide = random_subset::<R, H, _>(&mut global.rng(LABEL_RNG_OPEN_PREPROCESSING));
+        debug_assert_eq!(hide.len(), H::to_usize());
 
         // puncture the root prf
         let mut punctured = root.clone();
@@ -238,11 +239,11 @@ impl<
                 .into_iter()
                 .map(|x| x.is_some() as usize)
                 .sum::<usize>(),
-            R::to_usize() - O::to_usize()
+            R::to_usize() - H::to_usize()
         );
 
         // extract hashes for the hidden evaluations
-        let mut hidden_hashes: Vec<Hash> = Vec::with_capacity(O::to_usize());
+        let mut hidden_hashes: Vec<Hash> = Vec::with_capacity(H::to_usize());
         for i in &hide {
             hidden_hashes.push(hashes[*i].clone());
         }
@@ -274,7 +275,7 @@ mod tests {
         let mut rng = rand::thread_rng();
         let seed: [u8; KEY_SIZE] = rng.gen();
         let proof = PreprocessedProof::<BitField, U8, U8, U252, U256, U44>::new(BEAVER, seed);
-        assert!(proof.verify(BEAVER));
+        assert!(proof.verify(BEAVER).is_some());
     }
 
     #[test]
@@ -282,7 +283,7 @@ mod tests {
         let mut rng = rand::thread_rng();
         let seed: [u8; KEY_SIZE] = rng.gen();
         let proof = PreprocessedProof::<BitField, U64, U64, U631, U1024, U23>::new(BEAVER, seed);
-        assert!(proof.verify(BEAVER));
+        assert!(proof.verify(BEAVER).is_some());
     }
 }
 
