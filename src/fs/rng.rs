@@ -1,5 +1,4 @@
-use std::io::BufReader;
-use std::io::Read;
+use std::io::{BufReader, Read};
 
 use blake3::{Hasher, OutputReader};
 use rand_core::{impls, CryptoRng, Error, RngCore};

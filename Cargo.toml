@@ -16,6 +16,7 @@ rand = "0.7.3"
 rand_core = "*"
 generic-array = "0.14.1"
 static_assertions = "1.1.0"
+const-arrayvec = "0.2.1"
 
 [dev-dependencies]
 aes = "0.3.2" # for comparision in benchmarks

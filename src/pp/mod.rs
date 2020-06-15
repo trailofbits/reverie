@@ -1,141 +1,104 @@
 use super::algebra::RingBatch;
 use super::crypto::*;
 use super::fs::*;
+use super::util::*;
+use super::Parameters;
 
 mod constants;
+mod generator;
 
 use constants::*;
+use generator::Preprocessing;
 
 use std::marker::PhantomData;
 use std::mem;
 
 use rand_core::RngCore;
 
-use generic_array::{ArrayLength, GenericArray};
 use rayon::prelude::*;
-use typenum::{PowerOfTwo, Unsigned};
 
 /// Represents repeated execution of the pre-processing phase.
 /// The pre-precessing phase is executed R times, then fed to a random oracle,
 /// which dictates the subset of executions to open.
 ///
-/// The proof is generic over:
 ///
-/// - N : Number of players in the simulated protocol.
-/// - NT: Size of the PRF tree (should be greater/equal N)
-/// - R : The number of repetitions for soundness.
-/// - RT: Size of the PRF tree (should be greater/equal R)
-/// - H : The number of repetitions not to open (repetitions of online phase)
-///
-/// The proof is verified by re-executing the pre-processing phase executions
-/// for which the punctured PRF can be evaluated.
+/// - P  : number of players
+/// - PT : size of PRF tree for players
+/// - R  : number of repetitions
+/// - RT : size of PRF tree for repetitions
+/// - H  : hidden views (repetitions of online phase)
 pub struct PreprocessedProof<
     B: RingBatch,
-    N: Unsigned,
-    NT: Unsigned + PowerOfTwo,
-    R: Unsigned,
-    RT: Unsigned + PowerOfTwo,
-    H: ArrayLength<Hash>,
+    const P: usize,
+    const PT: usize,
+    const R: usize,
+    const RT: usize,
+    const H: usize,
 > {
-    hashes: GenericArray<Hash, H>, // commitments to the un-opened views in the commitment phase
-    prf: TreePRF<RT>,              // punctured PRF used for verification of selected views
-
-    // consume type parameters
-    _phantom1: PhantomData<N>,
-    _phantom2: PhantomData<NT>,
-    _phantom3: PhantomData<R>,
-    _phantom4: PhantomData<B>,
+    hidden: [Hash; H],
+    random: TreePRF<{ RT }>,
+    ph: PhantomData<B>,
 }
 
-fn random_subset<Mod: Unsigned, Samples: Unsigned, R: RngCore>(rng: &mut R) -> Vec<usize> {
-    let mut member: Vec<bool> = vec![false; Mod::to_usize()];
-    let mut set: Vec<usize> = Vec::with_capacity(Samples::to_usize());
-    while set.len() < Samples::to_usize() {
+fn random_subset<R: RngCore, const M: usize, const S: usize>(rng: &mut R) -> [usize; S] {
+    let mut members: [bool; M] = [false; M];
+    let mut samples: [usize; S] = unsafe { mem::MaybeUninit::zeroed().assume_init() };
+    let mut collect: usize = 0;
+
+    while collect < S {
         // generate a 128-bit integer (to minimize statistical bias)
         let mut le_bytes: [u8; 16] = [0u8; 16];
         rng.fill_bytes(&mut le_bytes);
 
         // reduce mod the number of repetitions
-        let n: u128 = u128::from_le_bytes(le_bytes) % (Mod::to_u64() as u128);
+        let n: u128 = u128::from_le_bytes(le_bytes) % (M as u128);
         let n: usize = n as usize;
 
         // if not in set, add to the vector
-        if !mem::replace(&mut member[n as usize], true) {
-            set.push(n);
+        if !mem::replace(&mut members[n as usize], true) {
+            samples[collect] = n;
+            collect += 1;
         }
     }
 
     // ensure a canonical ordering (for comparisons)
-    debug_assert_eq!(set.len(), Samples::to_usize());
-    set.sort();
-    set
+    samples.sort();
+    samples
 }
 
 /// Executes the preprocessing (in-the-head) phase once.
 ///
 /// Returns a commitment to the view of all players.
-fn preprocess<B: RingBatch, N: Unsigned, NT: Unsigned + PowerOfTwo>(
+fn preprocess<B: RingBatch, const P: usize, const PT: usize>(
     beaver: u64,          // number of Beaver multiplication triples
     seed: [u8; KEY_SIZE], // random tape used for phase
 ) -> Hash {
-    assert!(
-        NT::to_usize() >= N::to_usize(),
-        "tree-prf too small for player count"
-    );
-    assert!(
-        NT::to_usize() / 2 <= N::to_usize(),
-        "sub-optimal parameters for tree-prf"
-    );
-
     // the root PRF from which each players random tape is derived using a PRF tree
-    let root: TreePRF<NT> = TreePRF::new(seed);
-    let keys = root.expand(N::to_usize());
+    let root: TreePRF<PT> = TreePRF::new(seed);
+    let keys: [_; P] = root.expand();
 
     // create a view for every player
-    let mut views: Vec<View> = Vec::with_capacity(N::to_usize());
-    for key in keys {
+    let mut views: Vec<View> = Vec::with_capacity(P);
+    for key in keys.iter() {
         views.push(View::new_keyed(key.unwrap()));
     }
 
     // derive PRNG for every player
     let mut prngs: Vec<ViewRNG> = views.iter().map(|v| v.rng(LABEL_RNG_BEAVER)).collect();
 
-    // obtain a scope for correction bits (0th player)
-    {
-        let mut scope: Scope = views[0].scope(LABEL_SCOPE_CORRECTION);
-
-        // generate correction bits for Beaver triples
-        for _ in 0..beaver {
-            let mut left_mask = B::zero();
-            let mut right_mask = B::zero();
-            let mut product_mask = B::zero();
-
-            for j in 0..N::to_usize() {
-                let rng: &mut ViewRNG = &mut prngs[j];
-                let left = B::gen(rng);
-                let right = B::gen(rng);
-                let product = B::gen(rng);
-
-                left_mask = left_mask + left;
-                right_mask = right_mask + right;
-                product_mask = product_mask + product;
-            }
-
-            // product correction element:
-            // product_mask = correction + left_mask * right_mask
-            let correction = product_mask - left_mask * right_mask;
-
-            // add to player 0 view
-            scope.update(&correction.pack().to_le_bytes());
-        }
-    }
+    // generate the beaver triples and write the corrected shares to the transcript
+    let mut procs: Preprocessing<B, _, P> = Preprocessing::new(prngs);
+    procs.preprocess_corrections(
+        views[0].scope(LABEL_SCOPE_CORRECTION), // drops the scope after
+        beaver,
+    );
 
     // aggregate every view commitment into a single commitment to the entire pre-processing
     let mut global: View = View::new();
     {
         let mut scope: Scope = global.scope(LABEL_SCOPE_AGGREGATE_COMMIT);
-        for j in 0..N::to_usize() {
-            scope.update(views[j].hash().as_bytes())
+        for j in 0..P {
+            scope.join(&views[j].hash())
         }
     }
     global.hash()
@@ -143,20 +106,18 @@ fn preprocess<B: RingBatch, N: Unsigned, NT: Unsigned + PowerOfTwo>(
 
 impl<
         B: RingBatch,
-        N: Unsigned,
-        NT: Unsigned + PowerOfTwo,
-        R: Unsigned,
-        RT: Unsigned + PowerOfTwo,
-        H: ArrayLength<Hash>,
-    > PreprocessedProof<B, N, NT, R, RT, H>
+        const P: usize,
+        const PT: usize,
+        const R: usize,
+        const RT: usize,
+        const H: usize,
+    > PreprocessedProof<B, P, PT, R, RT, H>
 {
-    pub fn verify(&self, beaver: u64) -> Option<&GenericArray<Hash, H>> {
-        debug_assert!(R::to_usize() >= H::to_usize());
-
+    pub fn verify(&self, beaver: u64) -> Option<&[Hash; H]> {
         // derive keys and hidden execution indexes
-        let keys = self.prf.expand(R::to_usize());
-        let mut hidden: Vec<usize> = Vec::with_capacity(H::to_usize());
-        let mut opened: Vec<usize> = Vec::with_capacity(R::to_usize() - H::to_usize());
+        let keys: [_; R] = self.random.expand();
+        let mut hidden: Vec<usize> = Vec::with_capacity(R);
+        let mut opened: Vec<usize> = Vec::with_capacity(R - H);
         for (i, key) in keys.iter().enumerate() {
             if key.is_none() {
                 hidden.push(i)
@@ -166,19 +127,19 @@ impl<
         }
 
         // prover must open exactly R-H repetitions
-        if hidden.len() != H::to_usize() {
+        if hidden.len() != H {
             return None;
         }
-        debug_assert_eq!(hidden.len() + opened.len(), R::to_usize());
+        assert_eq!(hidden.len() + opened.len(), R);
 
         // recompute the opened views
         let mut hashes: Vec<Option<Hash>> = keys
             .par_iter()
-            .map(|seed| seed.map(|seed| preprocess::<B, N, NT>(beaver, seed)))
+            .map(|seed| seed.map(|seed| preprocess::<B, P, PT>(beaver, seed)))
             .collect();
 
         // copy over the provided hashes from the hidden views
-        for (&i, hash) in hidden.iter().zip(self.hashes.iter()) {
+        for (&i, hash) in hidden.iter().zip(self.hidden.iter()) {
             assert!(hashes[i].is_none());
             hashes[i] = Some(*hash);
         }
@@ -188,29 +149,29 @@ impl<
         {
             let mut scope: Scope = global.scope(LABEL_SCOPE_AGGREGATE_COMMIT);
             for hash in &hashes {
-                scope.update(hash.unwrap().as_bytes());
+                scope.join(&hash.unwrap());
             }
         }
 
         // accept if the hidden indexes where computed correctly (Fiat-Shamir transform)
-        if hidden == random_subset::<R, H, _>(&mut global.rng(LABEL_RNG_OPEN_PREPROCESSING)) {
-            Some(&self.hashes)
+        if &hidden[..]
+            == &random_subset::<_, R, H>(&mut global.rng(LABEL_RNG_OPEN_PREPROCESSING))[..]
+        {
+            Some(&self.hidden)
         } else {
             None
         }
     }
 
     pub fn new(beaver: u64, seed: [u8; KEY_SIZE]) -> Self {
-        debug_assert!(R::to_usize() >= H::to_usize());
-
         // define PRF tree and obtain key material for every pre-processing execution
         let root: TreePRF<RT> = TreePRF::new(seed);
-        let keys = root.expand(R::to_usize());
+        let keys: [_; R] = root.expand();
 
         // generate hashes of every pre-processing execution
         let hashes: Vec<Hash> = keys
             .par_iter()
-            .map(|seed| preprocess::<B, N, NT>(beaver, seed.unwrap()))
+            .map(|seed| preprocess::<B, P, PT>(beaver, seed.unwrap()))
             .collect();
 
         // add every pre-processing execution to a global view
@@ -218,44 +179,31 @@ impl<
         {
             let mut scope: Scope = global.scope(LABEL_SCOPE_AGGREGATE_COMMIT);
             for hash in &hashes {
-                scope.update(hash.as_bytes())
+                scope.join(&hash);
             }
         }
 
         // extract random indexes not to open (rejection sampling)
-        let hide = random_subset::<R, H, _>(&mut global.rng(LABEL_RNG_OPEN_PREPROCESSING));
-        debug_assert_eq!(hide.len(), H::to_usize());
+        let hide: [usize; H] =
+            random_subset::<_, R, H>(&mut global.rng(LABEL_RNG_OPEN_PREPROCESSING));
 
         // puncture the root prf
-        let mut punctured = root.clone();
-        for i in &hide {
-            punctured = punctured.puncture(*i);
+        let mut random = root.clone();
+        for i in hide.iter() {
+            random = random.puncture(*i);
         }
 
-        // sanity check
-        debug_assert_eq!(
-            punctured
-                .expand(R::to_usize())
-                .into_iter()
-                .map(|x| x.is_some() as usize)
-                .sum::<usize>(),
-            R::to_usize() - H::to_usize()
-        );
-
         // extract hashes for the hidden evaluations
-        let mut hidden_hashes: Vec<Hash> = Vec::with_capacity(H::to_usize());
-        for i in &hide {
-            hidden_hashes.push(hashes[*i].clone());
+        let mut hidden: [Hash; H] = unsafe { mem::MaybeUninit::uninit().assume_init() };
+        for (j, i) in hide.iter().enumerate() {
+            hidden[j] = hashes[*i].clone();
         }
 
         // combine into the proof
         PreprocessedProof {
-            hashes: GenericArray::clone_from_slice(&hidden_hashes[..]),
-            prf: punctured,
-            _phantom1: PhantomData,
-            _phantom2: PhantomData,
-            _phantom3: PhantomData,
-            _phantom4: PhantomData,
+            hidden,
+            random,
+            ph: PhantomData,
         }
     }
 }
@@ -266,15 +214,13 @@ mod tests {
     use super::*;
 
     use rand::Rng;
-    use typenum::consts::*;
-
     const BEAVER: u64 = 1000 / 64;
 
     #[test]
     fn test_preprocessing_n8() {
         let mut rng = rand::thread_rng();
         let seed: [u8; KEY_SIZE] = rng.gen();
-        let proof = PreprocessedProof::<BitBatch, U8, U8, U252, U256, U44>::new(BEAVER, seed);
+        let proof = PreprocessedProof::<BitBatch, 8, 8, 252, 256, 44>::new(BEAVER, seed);
         assert!(proof.verify(BEAVER).is_some());
     }
 
@@ -282,7 +228,7 @@ mod tests {
     fn test_preprocessing_n64() {
         let mut rng = rand::thread_rng();
         let seed: [u8; KEY_SIZE] = rng.gen();
-        let proof = PreprocessedProof::<BitBatch, U64, U64, U631, U1024, U23>::new(BEAVER, seed);
+        let proof = PreprocessedProof::<BitBatch, 64, 64, 631, 1024, 23>::new(BEAVER, seed);
         assert!(proof.verify(BEAVER).is_some());
     }
 }
@@ -307,7 +253,7 @@ mod benchmark {
     #[bench]
     fn bench_preprocessing_proof_gen_n64(b: &mut Bencher) {
         b.iter(|| {
-            PreprocessedProof::<BitBatch, U64, U64, U631, U1024, U23>::new(BEAVER, [0u8; KEY_SIZE])
+            PreprocessedProof::<BitBatch, 64, 64, 631, 1024, 23>::new(BEAVER, [0u8; KEY_SIZE])
         });
     }
 
@@ -319,9 +265,7 @@ mod benchmark {
     /// t =  44 (online phase executions (hidden pre-processing executions))
     #[bench]
     fn bench_preprocessing_proof_gen_n8(b: &mut Bencher) {
-        b.iter(|| {
-            PreprocessedProof::<BitBatch, U8, U8, U252, U256, U44>::new(BEAVER, [0u8; KEY_SIZE])
-        });
+        b.iter(|| PreprocessedProof::<BitBatch, 8, 8, 252, 256, 44>::new(BEAVER, [0u8; KEY_SIZE]));
     }
 
     /// Benchmark proof verification of pre-processing using parameters from the paper
@@ -333,7 +277,7 @@ mod benchmark {
     #[bench]
     fn bench_preprocessing_proof_verify_n64(b: &mut Bencher) {
         let proof =
-            PreprocessedProof::<BitBatch, U64, U64, U631, U1024, U23>::new(BEAVER, [0u8; KEY_SIZE]);
+            PreprocessedProof::<BitBatch, 64, 64, 631, 1024, 23>::new(BEAVER, [0u8; KEY_SIZE]);
         b.iter(|| proof.verify(BEAVER));
     }
 
@@ -345,8 +289,7 @@ mod benchmark {
     /// t =  44 (online phase executions (hidden pre-processing executions))
     #[bench]
     fn bench_preprocessing_proof_verify_n8(b: &mut Bencher) {
-        let proof =
-            PreprocessedProof::<BitBatch, U8, U8, U252, U256, U44>::new(BEAVER, [0u8; KEY_SIZE]);
+        let proof = PreprocessedProof::<BitBatch, 8, 8, 252, 256, 44>::new(BEAVER, [0u8; KEY_SIZE]);
         b.iter(|| proof.verify(BEAVER));
     }
 }

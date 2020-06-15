@@ -1,5 +1,7 @@
 mod tree;
 
+use super::util::*;
+
 pub use tree::TreePRF;
 
 pub use blake3::{Hash, Hasher};

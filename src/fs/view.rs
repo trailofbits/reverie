@@ -16,6 +16,10 @@ impl<'a> Scope<'a> {
         self.view.hasher.update(message);
         self.length += message.len() as u64;
     }
+
+    pub fn join(&mut self, hash: &Hash) {
+        self.update(hash.as_bytes());
+    }
 }
 
 impl<'a> Drop for Scope<'a> {
