@@ -2,9 +2,11 @@ use core::ops::{Add, Mul, Neg, Sub};
 
 use rand_core::RngCore;
 
+mod util;
+
 pub mod gf2;
 
-pub mod util;
+pub use util::{RingArray, RingVector};
 
 /// Represents a single ring element
 pub trait RingElement:

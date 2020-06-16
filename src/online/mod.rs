@@ -1,20 +1,15 @@
-use super::algebra::util::RingArray;
-use super::algebra::{RingBatch, RingElement};
-
-use blake3::Hash;
-
-use super::crypto::TreePRF;
-
-use rand_core::RngCore;
-
-use generic_array::{ArrayLength, GenericArray};
-use typenum::{PowerOfTwo, Unsigned};
-
 mod instr;
 mod prover;
 mod verifier;
 
 use instr::{Dst, Instruction, Src};
+
+use super::algebra::{RingBatch, RingElement, RingVector};
+use super::crypto::TreePRF;
+use super::pp::{PreprocessingFull, PreprocessingPartial};
+
+use blake3::Hash;
+use rand_core::RngCore;
 
 struct RingRng<B: RingBatch, R: RngCore> {
     rng: R,
@@ -50,38 +45,10 @@ struct PlayerState<B: RingBatch, R: RngCore> {
     beaver: RingRng<B, R>,
 }
 
-/// Efficient implementation of an expandable vector of ring elements.
-pub struct RingVector<B: RingBatch>(Vec<B>);
-
-impl<B: RingBatch> RingVector<B> {
-    pub fn new(&self, vec: Vec<B>) -> RingVector<B> {
-        RingVector(vec)
-    }
-
-    pub fn get(&self, idx: usize) -> Option<B::Element> {
-        let rem = idx % B::BATCH_SIZE;
-        let div = idx / B::BATCH_SIZE;
-        self.0.get(div).map(|b: &B| b.get(rem))
-    }
-
-    pub fn set(&mut self, idx: usize, v: B::Element) -> Option<()> {
-        let rem = idx % B::BATCH_SIZE;
-        let div = idx / B::BATCH_SIZE;
-        let elm = self.0.get_mut(div)?;
-        elm.set(rem, v);
-        Some(())
-    }
-
-    // append a batch of ring elements
-    pub fn append_batch(&mut self, batch: B) {
-        self.0.push(batch)
-    }
-}
-
-struct Execution<B: RingBatch, R: RngCore, N: ArrayLength<PlayerState<B, R>>> {
+struct Execution<B: RingBatch, R: RngCore, const N: usize> {
     next_corr: usize,
-    corrections: RingVector<B>,
-    players: GenericArray<PlayerState<B, R>, N>,
+    players: [PlayerState<B, R>; N],
+    beaver: PreprocessingFull<B, R, N, true>,
     public: PublicState<B>,
 }
 

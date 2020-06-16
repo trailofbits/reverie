@@ -45,6 +45,7 @@ impl RingBatch for BitBatch {
     type Element = Bit;
 
     fn get(&self, i: usize) -> Bit {
+        debug_assert!(i < Self::BATCH_SIZE);
         Bit::new(((self.0 >> i) & 1) as usize)
     }
 

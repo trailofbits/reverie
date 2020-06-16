@@ -1,20 +1,20 @@
-use super::algebra::RingBatch;
+mod constants;
+mod generator;
+
+use constants::*;
+
+pub use generator::{PreprocessingFull, PreprocessingPartial};
+
+use super::algebra::{RingArray, RingBatch, RingVector};
 use super::crypto::*;
 use super::fs::*;
 use super::util::*;
 use super::Parameters;
 
-mod constants;
-mod generator;
-
-use constants::*;
-use generator::Preprocessing;
-
 use std::marker::PhantomData;
 use std::mem;
 
 use rand_core::RngCore;
-
 use rayon::prelude::*;
 
 /// Represents repeated execution of the pre-processing phase.
@@ -78,20 +78,13 @@ fn preprocess<B: RingBatch, const P: usize, const PT: usize>(
     let keys: [_; P] = root.expand();
 
     // create a view for every player
-    let mut views: Vec<View> = Vec::with_capacity(P);
-    for key in keys.iter() {
-        views.push(View::new_keyed(key.unwrap()));
-    }
-
-    // derive PRNG for every player
-    let mut prngs: Vec<ViewRNG> = views.iter().map(|v| v.rng(LABEL_RNG_BEAVER)).collect();
+    let mut views: [View; P] = arr_map_owned(keys, |key| View::new_keyed(key.unwrap()));
 
     // generate the beaver triples and write the corrected shares to the transcript
-    let mut procs: Preprocessing<B, _, P> = Preprocessing::new(prngs);
-    procs.preprocess_corrections(
-        views[0].scope(LABEL_SCOPE_CORRECTION), // drops the scope after
-        beaver,
-    );
+    PreprocessingFull::<B, _, P, false>::new(
+        arr_map(&views, |view| view.rng(LABEL_RNG_BEAVER)), // derive RNG for every
+    )
+    .stream(views[0].scope(LABEL_SCOPE_CORRECTION), beaver);
 
     // aggregate every view commitment into a single commitment to the entire pre-processing
     let mut global: View = View::new();
@@ -194,10 +187,7 @@ impl<
         }
 
         // extract hashes for the hidden evaluations
-        let mut hidden: [Hash; H] = unsafe { mem::MaybeUninit::uninit().assume_init() };
-        for (j, i) in hide.iter().enumerate() {
-            hidden[j] = hashes[*i].clone();
-        }
+        let hidden: [Hash; H] = arr_from_iter(&mut hide.iter().map(|i| hashes[*i].clone()));
 
         // combine into the proof
         PreprocessedProof {

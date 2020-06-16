@@ -1,7 +1,10 @@
-use std::io::{BufReader, Read};
+use std::io;
+use std::io::{BufReader, Read, Seek, SeekFrom};
 
 use blake3::{Hasher, OutputReader};
 use rand_core::{impls, CryptoRng, Error, RngCore};
+
+const BUFFER_CAPACITY: usize = 64;
 
 pub struct ViewRNG {
     reader: BufReader<OutputReader>,
@@ -14,7 +17,22 @@ impl ViewRNG {
         hasher.update(&(label.len() as u8).to_le_bytes());
         hasher.update(&[0]);
         ViewRNG {
-            reader: BufReader::with_capacity(64, hasher.finalize_xof()),
+            reader: BufReader::with_capacity(BUFFER_CAPACITY, hasher.finalize_xof()),
+        }
+    }
+}
+
+impl Seek for ViewRNG {
+    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+        self.reader.seek(pos)
+    }
+}
+
+impl Clone for ViewRNG {
+    fn clone(&self) -> Self {
+        let rng = self.reader.get_ref().clone();
+        ViewRNG {
+            reader: BufReader::with_capacity(BUFFER_CAPACITY, rng),
         }
     }
 }

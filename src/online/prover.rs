@@ -1,5 +1,4 @@
 use super::Instruction;
-use super::{RingArray, RingBatch, RingElement, RingVector};
 
 use typenum::{PowerOfTwo, Unsigned};
 
