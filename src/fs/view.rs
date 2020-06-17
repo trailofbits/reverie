@@ -11,6 +11,13 @@ pub struct Scope<'a> {
     length: u64,
 }
 
+pub struct ScopeRing<'a, B> {
+    view: &'a mut View,
+    length: u64,
+    used: usize,
+    elem: B,
+}
+
 impl<'a> Scope<'a> {
     pub fn update(&mut self, message: &[u8]) {
         self.view.hasher.update(message);

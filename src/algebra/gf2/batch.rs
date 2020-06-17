@@ -1,7 +1,17 @@
 use super::Bit;
-use super::RingBatch;
+use super::{RingBatch, RingPacked};
 
 use std::ops::{Add, Mul, Neg, Sub};
+
+use rand::RngCore;
+
+pub struct BitPacked([u8; 8]);
+
+impl RingPacked for BitPacked {
+    fn as_bytes(&self) -> &[u8] {
+        &self.0[..]
+    }
+}
 
 /// Represents an element of the vector space GF(2)^64
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -43,6 +53,11 @@ impl RingBatch for BitBatch {
     const BATCH_SIZE: usize = 64;
 
     type Element = Bit;
+    type Packed = BitPacked;
+
+    fn gen<R: RngCore>(rng: &mut R) -> BitBatch {
+        BitBatch(rng.next_u64())
+    }
 
     fn get(&self, i: usize) -> Bit {
         debug_assert!(i < Self::BATCH_SIZE);
@@ -56,12 +71,12 @@ impl RingBatch for BitBatch {
         debug_assert_eq!(self.get(i), v);
     }
 
-    fn pack(self) -> u64 {
-        self.0
+    fn pack(self) -> BitPacked {
+        BitPacked(self.0.to_le_bytes())
     }
 
-    fn unpack(v: u64) -> Self {
-        BitBatch(v)
+    fn unpack(v: BitPacked) -> Self {
+        BitBatch(u64::from_le_bytes(v.0))
     }
 
     fn zero() -> BitBatch {

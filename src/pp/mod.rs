@@ -1,15 +1,13 @@
 mod constants;
 mod generator;
 
-use constants::*;
-
 pub use generator::{PreprocessingFull, PreprocessingPartial};
 
-use super::algebra::{RingArray, RingBatch, RingVector};
+use super::algebra::{RingArray, RingBatch, RingPacked, RingVector};
+use super::consts::*;
 use super::crypto::*;
 use super::fs::*;
 use super::util::*;
-use super::Parameters;
 
 use std::marker::PhantomData;
 use std::mem;

@@ -10,15 +10,6 @@
 #[cfg(feature = "unstable")]
 extern crate test;
 
-trait Parameters {
-    const PLAYERS: usize;
-    const REPETITIONS_PREPROCESSING: usize;
-    const REPETITIONS_ONLINE: usize;
-
-    const TREE_SIZE_PREPROCESSING: usize = Self::REPETITIONS_PREPROCESSING.next_power_of_two();
-    const TREE_SIZE_PLAYERS: usize = Self::PLAYERS.next_power_of_two();
-}
-
 // simple utility functions
 mod util;
 
@@ -36,3 +27,6 @@ mod online;
 
 // traits and implementations of the underlying ring
 mod algebra;
+
+// internal constants
+mod consts;

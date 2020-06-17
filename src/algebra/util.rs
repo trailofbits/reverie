@@ -1,5 +1,7 @@
 use super::RingBatch;
 
+use std::slice::Iter;
+
 /// Efficient implementation of an immutable array of ring elements
 pub struct RingArray<B: RingBatch>(Vec<B>);
 
@@ -37,26 +39,42 @@ impl<B: RingBatch> RingVector<B> {
         RingVector(Vec::new())
     }
 
+    pub fn with_capacity(cap: usize) -> RingVector<B> {
+        let alloc = (cap + B::BATCH_SIZE - 1) / B::BATCH_SIZE;
+        RingVector(Vec::with_capacity(alloc))
+    }
+
     pub fn get(&self, idx: usize) -> Option<B::Element> {
         let rem = idx % B::BATCH_SIZE;
         let div = idx / B::BATCH_SIZE;
         self.0.get(div).map(|b: &B| b.get(rem))
     }
 
-    pub fn set(&mut self, idx: usize, v: B::Element) -> Option<()> {
+    pub fn set(&mut self, idx: usize, v: B::Element) {
         let rem = idx % B::BATCH_SIZE;
         let div = idx / B::BATCH_SIZE;
-        let elm = self.0.get_mut(div)?;
-        elm.set(rem, v);
-        Some(())
+
+        // extend vector if index is outside
+        if div >= self.0.len() {
+            self.0.resize(div + 1, B::zero());
+        }
+
+        self.0[div].set(rem, v);
     }
 
     pub fn len(&self) -> usize {
         return self.0.len() * B::BATCH_SIZE;
     }
 
-    // append a batch of ring elements
-    pub fn append_batch(&mut self, batch: B) {
+    pub fn batch_len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn batch_push(&mut self, batch: B) {
         self.0.push(batch)
+    }
+
+    pub fn batch_iter<'a>(&'a self) -> Iter<'a, B> {
+        self.0.iter()
     }
 }

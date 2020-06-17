@@ -99,7 +99,7 @@ impl<B: RingBatch, R: RngCore, const N: usize, const S: bool> PreprocessingFull<
 
         // optionally save the pre-processing output
         if S {
-            self.zero.append_batch(self.stat[0].share_c);
+            self.zero.batch_push(self.stat[0].share_c);
         }
 
         // assert correctness in debug builds
@@ -120,7 +120,7 @@ impl<B: RingBatch, R: RngCore, const N: usize, const S: bool> PreprocessingFull<
     pub fn stream(&mut self, mut scope: Scope, batches: u64) {
         for _ in 0..batches {
             self.replenish();
-            scope.update(&self.stat[0].share_c.pack().to_le_bytes());
+            scope.update(&self.stat[0].share_c.pack().as_bytes());
         }
     }
 

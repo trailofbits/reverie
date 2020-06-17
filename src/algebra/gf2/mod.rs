@@ -1,4 +1,4 @@
-use super::{RingBatch, RingElement};
+use super::{RingBatch, RingElement, RingPacked};
 
 mod batch;
 mod element;

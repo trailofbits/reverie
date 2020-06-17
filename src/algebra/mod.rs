@@ -8,6 +8,10 @@ pub mod gf2;
 
 pub use util::{RingArray, RingVector};
 
+pub trait RingPacked {
+    fn as_bytes(&self) -> &[u8];
+}
+
 /// Represents a single ring element
 pub trait RingElement:
     Sized + Copy + Add<Output = Self> + Sub<Output = Self> + Neg<Output = Self> + Mul<Output = Self>
@@ -25,6 +29,7 @@ pub trait RingBatch:
     Sized + Copy + Add<Output = Self> + Sub<Output = Self> + Neg<Output = Self> + Mul<Output = Self>
 {
     type Element: RingElement;
+    type Packed: RingPacked;
 
     const BATCH_SIZE: usize;
 
@@ -34,14 +39,12 @@ pub trait RingBatch:
 
     fn zero() -> Self;
 
-    fn pack(self) -> u64;
+    /// Packing a batch of ring elements into a serializable type
+    fn pack(self) -> Self::Packed;
 
-    fn unpack(v: u64) -> Self;
+    /// Unpacking a batch of ring elements
+    fn unpack(v: Self::Packed) -> Self;
 
-    /// Generate a batch of elements
-    ///
-    /// Default implementation achieves this by unpacking a packed representation.
-    fn gen<G: RngCore>(gen: &mut G) -> Self {
-        Self::unpack(gen.next_u64())
-    }
+    /// Generate a batch of elements.
+    fn gen<G: RngCore>(gen: &mut G) -> Self;
 }

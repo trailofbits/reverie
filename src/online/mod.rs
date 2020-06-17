@@ -5,8 +5,11 @@ mod verifier;
 use instr::{Dst, Instruction, Src};
 
 use super::algebra::{RingBatch, RingElement, RingVector};
-use super::crypto::TreePRF;
+use super::consts::*;
+use super::crypto::{TreePRF, KEY_SIZE};
+use super::fs::{View, ViewRNG};
 use super::pp::{PreprocessingFull, PreprocessingPartial};
+use super::util::*;
 
 use blake3::Hash;
 use rand_core::RngCore;
@@ -30,26 +33,6 @@ impl<B: RingBatch, R: RngCore> RingRng<B, R> {
         self.used += 1;
         elem
     }
-}
-
-struct PublicState<B: RingBatch> {
-    // masked wire values (initially holds the masked inputs)
-    wires: RingVector<B>,
-}
-
-struct PlayerState<B: RingBatch, R: RngCore> {
-    // shares of wire masks (initially holds the masks for the inputs)
-    masks: RingVector<B>,
-
-    // used to generate beaver triples just-in-time (to minimize memory usage)
-    beaver: RingRng<B, R>,
-}
-
-struct Execution<B: RingBatch, R: RngCore, const N: usize> {
-    next_corr: usize,
-    players: [PlayerState<B, R>; N],
-    beaver: PreprocessingFull<B, R, N, true>,
-    public: PublicState<B>,
 }
 
 /*
