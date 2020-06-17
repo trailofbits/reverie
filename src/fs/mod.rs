@@ -2,12 +2,24 @@ use super::crypto::KEY_SIZE;
 
 use blake3::{Hash, Hasher};
 
+use std::io::{BufWriter, Write};
+
 mod rng;
 mod scope;
 
 pub use rng::ViewRNG;
-pub use scope::Scope;
+pub use scope::{Scope, ScopeRing};
 
+#[cfg(target_feature = "avx2")]
+const HASH_BUFFER_CAPACITY: usize = 8 * 1024;
+
+#[cfg(target_feature = "avx512")]
+const HASH_BUFFER_CAPACITY: usize = 16 * 1024;
+
+/// The hasher is wrapped in a buffered interface
+/// to enable the use of AVX2/AVX512 operations on supporting platforms.
+///
+/// https://docs.rs/blake3/0.3.4/blake3/struct.Hasher.html#method.update
 pub struct View {
     hasher: Hasher,
 }
@@ -20,12 +32,14 @@ impl View {
         // create keyed hasher
         let mut key: [u8; 32] = [0u8; 32];
         key[..16].copy_from_slice(&seed[..]);
-        let hasher = Hasher::new_keyed(&key);
+
+        let hasher: Hasher = Hasher::new_keyed(&key);
 
         View {
+            #[cfg(any(target_feature = "avx512", target_feature = "avx2"))]
+            hasher: BufWriter::with_capacity(HASH_BUFFER_CAPACITY, hasher),
+            #[cfg(not(any(target_feature = "avx512", target_feature = "avx2")))]
             hasher,
-            #[cfg(debug)]
-            transcript: vec![],
         }
     }
 
@@ -35,8 +49,6 @@ impl View {
     pub fn new() -> View {
         View {
             hasher: Hasher::new(),
-            #[cfg(debug)]
-            transcript: vec![],
         }
     }
 
@@ -66,5 +78,6 @@ impl View {
             length: 0,
             view: self,
         }
+        // when scope is dropped it flushes the content to the hash.
     }
 }

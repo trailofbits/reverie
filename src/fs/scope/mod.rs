@@ -18,7 +18,7 @@ pub struct Scope<'a> {
 
 impl<'a> Scope<'a> {
     pub fn update(&mut self, message: &[u8]) {
-        self.view.hasher.update(message);
+        let _ = self.view.hasher.write(message);
         self.length += message.len() as u64;
     }
 
@@ -29,6 +29,7 @@ impl<'a> Scope<'a> {
 
 impl<'a> Drop for Scope<'a> {
     fn drop(&mut self) {
-        self.view.hasher.update(&self.length.to_le_bytes());
+        let _ = self.view.hasher.write(&self.length.to_le_bytes());
+        let _ = self.view.hasher.flush();
     }
 }

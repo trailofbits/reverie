@@ -45,6 +45,9 @@ struct PlayerState<B: RingBatch> {
     // view transcript for player
     view: View,
 
+    // messages
+    sent: ElementHasher<B>,
+
     // shares of wire masks (initially holds the masks for the inputs)
     masks: RingVector<B>,
 }
@@ -55,7 +58,7 @@ struct ExecutionFull<B: RingBatch, const N: usize, const NT: usize, const S: boo
     players: [PlayerState<B>; N],
 }
 
-impl<B: RingBatch, const N: usize, const NT: usize, const S: bool> ExecutionFull<B, N, NT, S> {
+impl<'a, B: RingBatch, const N: usize, const NT: usize, const S: bool> ExecutionFull<B, N, NT, S> {
     /// Takes the seed for the random tapes (used for pre-processing and input masking)
     ///
     /// The number of inputs is assumed to be a multiple of the batch size.
@@ -69,6 +72,7 @@ impl<B: RingBatch, const N: usize, const NT: usize, const S: bool> ExecutionFull
 
         // generate initial player states
         let mut players: [PlayerState<B>; N] = arr_map(&keys, |key| PlayerState {
+            sent: ElementHasher::new(),
             view: View::new_keyed(key.unwrap()),
             masks: RingVector::with_capacity(inputs.len()),
         });
@@ -158,6 +162,9 @@ impl<B: RingBatch, const N: usize, const NT: usize, const S: bool> ExecutionFull
                     if S && i == self.public.omit {
                         self.public.messages.write(share);
                     }
+
+                    // add the share (broadcast message) to the players view
+                    player.sent.update(share);
 
                     s = s + share;
                 }

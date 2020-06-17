@@ -1,7 +1,5 @@
 use super::*;
 
-use std::marker::PhantomData;
-use std::mem;
 use std::rc::Rc;
 
 use blake3::Hasher;
@@ -208,12 +206,10 @@ mod tests {
 }
 
 #[cfg(test)]
-#[cfg(feature = "unstable")]
 mod benchmark {
     use super::*;
 
     use test::Bencher;
-    use typenum::consts::*;
 
     #[bench]
     fn bench_tree_expand64(b: &mut Bencher) {

@@ -117,11 +117,13 @@ impl<B: RingBatch, R: RngCore, const N: usize, const S: bool> PreprocessingFull<
         }
     }
 
-    pub fn stream(&mut self, mut scope: Scope, batches: u64) {
+    pub fn hash(&mut self, batches: u64) -> Hash {
+        let mut hasher: BatchHasher = BatchHasher::new();
         for _ in 0..batches {
             self.replenish();
-            scope.update(&self.stat[0].share_c.pack().as_bytes());
+            hasher.update(self.stat[0].share_c);
         }
+        hasher.finalize()
     }
 
     pub fn zero(self) -> RingArray<B> {

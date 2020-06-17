@@ -2,14 +2,14 @@ mod instr;
 mod prover;
 mod verifier;
 
-use instr::{Dst, Instruction, Src};
+use instr::Instruction;
 
-use super::algebra::{RingBatch, RingElement, RingVector};
-use super::consts::*;
-use super::crypto::{TreePRF, KEY_SIZE};
-use super::fs::{View, ViewRNG};
-use super::pp::{PreprocessingFull, PreprocessingPartial};
-use super::util::*;
+use crate::algebra::{RingBatch, RingElement, RingVector};
+use crate::consts::*;
+use crate::crypto::{ElementHasher, TreePRF, KEY_SIZE};
+use crate::fs::{ScopeRing, View, ViewRNG};
+use crate::pp::{PreprocessingFull, PreprocessingPartial};
+use crate::util::*;
 
 use blake3::Hash;
 use rand_core::RngCore;

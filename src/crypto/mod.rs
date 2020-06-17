@@ -1,10 +1,11 @@
+mod ring;
 mod tree;
 
 use super::util::*;
 
-pub use tree::TreePRF;
-
 pub use blake3::{Hash, Hasher};
+pub use ring::{BatchHasher, ElementHasher};
+pub use tree::TreePRF;
 
 // we target 128-bits of security
 pub const KEY_SIZE: usize = 16;

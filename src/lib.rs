@@ -4,10 +4,9 @@
 #![feature(const_generics)]
 #![feature(const_int_pow)]
 #![allow(incomplete_features)]
-#![cfg_attr(feature = "unstable", feature(test))]
+#![feature(test)]
 
 #[cfg(test)]
-#[cfg(feature = "unstable")]
 extern crate test;
 
 // simple utility functions

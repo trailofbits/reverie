@@ -79,18 +79,22 @@ fn preprocess<B: RingBatch, const P: usize, const PT: usize>(
     let mut views: [View; P] = arr_map_owned(keys, |key| View::new_keyed(key.unwrap()));
 
     // generate the beaver triples and write the corrected shares to the transcript
-    PreprocessingFull::<B, _, P, false>::new(
+    let player0_correction_hash = PreprocessingFull::<B, _, P, false>::new(
         arr_map(&views, |view| view.rng(LABEL_RNG_BEAVER)), // derive RNG for every
     )
-    .stream(views[0].scope(LABEL_SCOPE_CORRECTION), beaver);
+    .hash(beaver);
+
+    // append the corrections to the view of player0
+    views[0]
+        .scope(LABEL_SCOPE_CORRECTION)
+        .join(&player0_correction_hash);
 
     // aggregate every view commitment into a single commitment to the entire pre-processing
     let mut global: View = View::new();
-    {
-        let mut scope: Scope = global.scope(LABEL_SCOPE_AGGREGATE_COMMIT);
-        for j in 0..P {
-            scope.join(&views[j].hash())
-        }
+    for view in views.iter() {
+        global
+            .scope(LABEL_SCOPE_AGGREGATE_COMMIT)
+            .join(&view.hash())
     }
     global.hash()
 }
@@ -222,15 +226,13 @@ mod tests {
 }
 
 #[cfg(test)]
-#[cfg(feature = "unstable")]
 mod benchmark {
     use super::super::algebra::gf2::BitBatch;
     use super::*;
 
     use test::Bencher;
-    use typenum::consts::*;
 
-    const BEAVER: u64 = 100_000 / 64;
+    const BEAVER: u64 = (100_000 / BitBatch::BATCH_SIZE) as u64;
 
     /// Benchmark proof generation of pre-processing using parameters from the paper
     /// (Table 1. p. 10, https://eprint.iacr.org/2018/475/20190311:173838)
