@@ -7,22 +7,9 @@ pub struct Src(usize);
 pub struct Dst(usize);
 
 pub enum Instruction<E: RingElement> {
-    AddConst(Dst, Src, E), // addition of constant
-    MulConst(Dst, Src, E), // multiplication by constant
-    Mul(Dst, Src, Src),    // multiplication of two wires
-    Add(Dst, Src, Src),    // addition of two wires
-    Input(Dst),            // input wire (read wire from encrypted witness)
-    Ouput(Src),            // output wire (write wire-value to output)
-}
-
-impl Into<usize> for Src {
-    fn into(self) -> usize {
-        self.0
-    }
-}
-
-impl Into<usize> for Dst {
-    fn into(self) -> usize {
-        self.0
-    }
+    AddConst(usize, usize, E), // addition of constant
+    MulConst(usize, usize, E), // multiplication by constant
+    Mul(usize, usize, usize),  // multiplication of two wires
+    Add(usize, usize, usize),  // addition of two wires
+    Ouput(usize),              // output wire (write wire-value to output)
 }
