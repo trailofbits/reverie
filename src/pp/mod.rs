@@ -232,7 +232,7 @@ mod benchmark {
 
     use test::Bencher;
 
-    const BEAVER: u64 = (100_000 / BitBatch::BATCH_SIZE) as u64;
+    const BEAVER: u64 = (500_000 / BitBatch::BATCH_SIZE) as u64;
 
     /// Benchmark proof generation of pre-processing using parameters from the paper
     /// (Table 1. p. 10, https://eprint.iacr.org/2018/475/20190311:173838)

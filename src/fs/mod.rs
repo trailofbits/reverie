@@ -10,12 +10,6 @@ mod scope;
 pub use rng::ViewRNG;
 pub use scope::{Scope, ScopeRing};
 
-#[cfg(target_feature = "avx2")]
-const HASH_BUFFER_CAPACITY: usize = 8 * 1024;
-
-#[cfg(target_feature = "avx512")]
-const HASH_BUFFER_CAPACITY: usize = 16 * 1024;
-
 /// The hasher is wrapped in a buffered interface
 /// to enable the use of AVX2/AVX512 operations on supporting platforms.
 ///
@@ -36,9 +30,6 @@ impl View {
         let hasher: Hasher = Hasher::new_keyed(&key);
 
         View {
-            #[cfg(any(target_feature = "avx512", target_feature = "avx2"))]
-            hasher: BufWriter::with_capacity(HASH_BUFFER_CAPACITY, hasher),
-            #[cfg(not(any(target_feature = "avx512", target_feature = "avx2")))]
             hasher,
         }
     }

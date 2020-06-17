@@ -65,10 +65,9 @@ impl RingBatch for BitBatch {
     }
 
     fn set(&mut self, i: usize, v: Bit) {
-        let m = (v.get() as u64) << i;
-        self.0 &= !m;
-        self.0 |= m;
-        debug_assert_eq!(self.get(i), v);
+        self.0 &= !(1 << i);
+        self.0 |= (v.get() as u64) << i;
+        debug_assert_eq!(self.get(i), v, "{:016b}[{}] != {}", self.0, i, v.get());
     }
 
     fn pack(self) -> BitPacked {

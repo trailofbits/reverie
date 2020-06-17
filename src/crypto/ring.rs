@@ -1,39 +1,26 @@
-use blake3::{Hash, Hasher};
-
 use crate::algebra::{RingBatch, RingPacked};
 
-#[cfg(target_feature = "avx2")]
-const HASH_BUFFER_CAPACITY: usize = 8 * 1024;
-
-#[cfg(target_feature = "avx512")]
-const HASH_BUFFER_CAPACITY: usize = 16 * 1024;
-
-#[cfg_attr(any(target_feature = "avx2", target_feature = "avx512"), buffered)]
-#[cfg_attr(any(target_feature = "avx2", target_feature = "avx512"), buffered)]
-#[cfg(buffered)]
 use std::io::{BufWriter, Write};
+
+use blake3::{Hash, Hasher};
+
+const HASH_BUFFER_CAPACITY: usize = 8 * 1024;
 
 pub struct BatchHasher {
     length: u64,
-
-    // if AVX is there, use a buffered interface
-    #[cfg(buffered)]
     hasher: BufWriter<Hasher>,
+}
 
-    // otherwise do not bother and minimize cache misses
-    #[cfg(not(buffered))]
-    hasher: Hasher,
+pub struct ElementHasher<B: RingBatch> {
+    hasher: BatchHasher,
+    used: usize,
+    elem: B,
 }
 
 impl BatchHasher {
     pub fn new() -> Self {
         Self {
             length: 0,
-
-            #[cfg(not(buffered))]
-            hasher: Hasher::new(),
-
-            #[cfg(buffered)]
             hasher: BufWriter::with_capacity(HASH_BUFFER_CAPACITY, Hasher::new()),
         }
     }
@@ -41,11 +28,6 @@ impl BatchHasher {
     #[inline(always)]
     fn raw_update(&mut self, buf: &[u8], len: usize) {
         self.length += len as u64;
-
-        #[cfg(not(buffered))]
-        self.hasher.update(buf);
-
-        #[cfg(buffered)]
         let _ = self.hasher.write(buf);
     }
 
@@ -54,25 +36,12 @@ impl BatchHasher {
     }
 
     pub fn finalize(mut self) -> Hash {
-        #[cfg(buffered)]
-        {
-            self.hasher.write(self.length.to_le_bytes());
-            self.hasher.flush();
-            self.hasher.get_ref().finalize()
-        }
-        #[cfg(not(buffered))]
-        {
-            self.hasher.update(&self.length.to_le_bytes());
-            self.hasher.finalize()
-        }
+        let _ = self.hasher.write(&self.length.to_le_bytes());
+        let _ = self.hasher.flush();
+        self.hasher.get_ref().finalize()
     }
 }
 
-pub struct ElementHasher<B: RingBatch> {
-    hasher: BatchHasher,
-    used: usize,
-    elem: B,
-}
 
 impl<B: RingBatch> Into<ElementHasher<B>> for BatchHasher {
     fn into(self) -> ElementHasher<B> {
@@ -107,9 +76,44 @@ impl<B: RingBatch> ElementHasher<B> {
 
     pub fn finalize(mut self) -> Hash {
         if self.used > 0 {
+            // write residue batch and update the length
             self.hasher
                 .raw_update(self.elem.pack().as_bytes(), self.used);
         }
         self.hasher.finalize()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::algebra::gf2::BitBatch;
+
+    use rand::Rng;
+
+    fn equal_batch_element<B: RingBatch>() {
+        let mut rng = rand::thread_rng();
+        let mut hasher1: ElementHasher<B> = ElementHasher::new();
+        let mut hasher2 = BatchHasher::new();
+
+        let batches : usize = rng.gen::<usize>() % 10_000;
+
+        for _ in 0..batches {
+            let batch = B::gen(&mut rng);
+
+            hasher2.update(batch);
+
+            for i in 0..B::BATCH_SIZE {
+                hasher1.update(batch.get(i))
+            }
+        }
+
+        assert_eq!(hasher1.finalize(), hasher2.finalize());
+    }
+
+    #[test]
+    fn equal_batch_element_bits() {
+        equal_batch_element::<BitBatch>();
     }
 }
