@@ -155,8 +155,13 @@ impl<B: RingBatch, R: RngCore, const N: usize> PreprocessingPartial<B, R, N> {
         // check that omit is a valid player
         debug_assert!(omit < N, "omitted player does not exist");
 
-        // check that zero.len() == 0 iff omit == 0
-        debug_assert_eq!((omit == 0) as usize ^ (zero.len() > 0) as usize, 1);
+        // check that zero.len() > 0 => omit != 0
+        debug_assert!(
+            if zero.len() > 0 { omit != 0 } else { true },
+            "omit = {}, zero.len() = {}",
+            omit,
+            zero.len()
+        );
 
         // initialize the state for every player
         let mut stat: [State<B, R>; N] = arr_map_owned(rngs, |rng| State {
