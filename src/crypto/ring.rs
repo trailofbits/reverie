@@ -42,7 +42,6 @@ impl BatchHasher {
     }
 }
 
-
 impl<B: RingBatch> Into<ElementHasher<B>> for BatchHasher {
     fn into(self) -> ElementHasher<B> {
         ElementHasher {
@@ -97,7 +96,7 @@ mod tests {
         let mut hasher1: ElementHasher<B> = ElementHasher::new();
         let mut hasher2 = BatchHasher::new();
 
-        let batches : usize = rng.gen::<usize>() % 10_000;
+        let batches: usize = rng.gen::<usize>() % 10_000;
 
         for _ in 0..batches {
             let batch = B::gen(&mut rng);

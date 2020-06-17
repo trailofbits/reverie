@@ -29,9 +29,7 @@ impl View {
 
         let hasher: Hasher = Hasher::new_keyed(&key);
 
-        View {
-            hasher,
-        }
+        View { hasher }
     }
 
     /// Produce a new unseeded view
