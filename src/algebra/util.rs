@@ -1,5 +1,6 @@
 use super::RingBatch;
 
+use std::cmp;
 use std::slice::Iter;
 
 /// Efficient implementation of an immutable array of ring elements
@@ -26,28 +27,40 @@ impl<B: RingBatch> RingArray<B> {
 }
 
 /// Efficient implementation of an expandable vector of ring elements.
-pub struct RingVector<B: RingBatch>(Vec<B>);
+pub struct RingVector<B: RingBatch> {
+    vec: Vec<B>,
+    len: usize,
+}
 
 impl<B: RingBatch> Into<RingArray<B>> for RingVector<B> {
     fn into(self) -> RingArray<B> {
-        RingArray(self.0)
+        RingArray(self.vec)
     }
 }
 
 impl<B: RingBatch> RingVector<B> {
     pub fn new() -> RingVector<B> {
-        RingVector(Vec::new())
+        RingVector {
+            vec: Vec::new(),
+            len: 0,
+        }
     }
 
     pub fn with_capacity(cap: usize) -> RingVector<B> {
         let alloc = (cap + B::BATCH_SIZE - 1) / B::BATCH_SIZE;
-        RingVector(Vec::with_capacity(alloc))
+        RingVector {
+            vec: Vec::with_capacity(alloc),
+            len: 0,
+        }
     }
 
     pub fn get(&self, idx: usize) -> Option<B::Element> {
+        if idx > self.len {
+            return None;
+        }
         let rem = idx % B::BATCH_SIZE;
         let div = idx / B::BATCH_SIZE;
-        self.0.get(div).map(|b: &B| b.get(rem))
+        Some(self.vec[div].get(rem))
     }
 
     pub fn set(&mut self, idx: usize, v: B::Element) {
@@ -55,26 +68,28 @@ impl<B: RingBatch> RingVector<B> {
         let div = idx / B::BATCH_SIZE;
 
         // extend vector if index is outside
-        if div >= self.0.len() {
-            self.0.resize(div + 1, B::zero());
+        if div >= self.vec.len() {
+            self.vec.resize(div + 1, B::zero());
         }
 
-        self.0[div].set(rem, v);
+        self.len = cmp::max(idx + 1, self.len);
+        self.vec[div].set(rem, v);
     }
 
     pub fn len(&self) -> usize {
-        return self.0.len() * B::BATCH_SIZE;
+        self.len
     }
 
     pub fn batch_len(&self) -> usize {
-        self.0.len()
+        self.vec.len()
     }
 
     pub fn batch_push(&mut self, batch: B) {
-        self.0.push(batch)
+        self.vec.push(batch);
+        self.len = self.vec.len() * B::BATCH_SIZE;
     }
 
     pub fn batch_iter<'a>(&'a self) -> Iter<'a, B> {
-        self.0.iter()
+        self.vec.iter()
     }
 }

@@ -4,7 +4,7 @@ const PRF_TREE_RIGHT: [u8; 16] = [2; 16];
 /// Labels used in the Fiat-Shamir and "in-head" executions for domain-separation.
 
 // RNG label for input masks
-pub const LABEL_RNG_INPUT: &'static [u8] = "input_rng".as_bytes();
+pub const LABEL_RNG_MASKS: &'static [u8] = "mask_rng".as_bytes();
 
 // RNG label for beaver triples
 pub const LABEL_RNG_BEAVER: &'static [u8] = "beaver_rng".as_bytes();

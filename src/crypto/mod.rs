@@ -5,7 +5,7 @@ use super::util::*;
 
 pub use blake3::{Hash, Hasher};
 
-pub use ring::{BatchHasher, ElementHasher};
+pub use ring::{BatchHasher, ElementHasher, ElementRNG};
 
 pub use tree::TreePRF;
 
@@ -14,7 +14,6 @@ pub const KEY_SIZE: usize = 16;
 
 // benchmark to compare the performance of cryptographic primitives
 #[cfg(test)]
-#[cfg(feature = "unstable")]
 mod tests {
     use test::Bencher;
 

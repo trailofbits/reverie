@@ -4,9 +4,9 @@ mod verifier;
 
 use instr::Instruction;
 
-use crate::algebra::{RingBatch, RingElement, RingVector};
+use crate::algebra::{RingArray, RingBatch, RingElement, RingVector};
 use crate::consts::*;
-use crate::crypto::{ElementHasher, TreePRF, KEY_SIZE};
+use crate::crypto::{ElementHasher, ElementRNG, TreePRF, KEY_SIZE};
 use crate::fs::{ScopeRing, View, ViewRNG};
 use crate::pp::{PreprocessingFull, PreprocessingPartial};
 use crate::util::*;
