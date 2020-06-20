@@ -80,7 +80,7 @@ fn preprocess<B: RingBatch, const P: usize, const PT: usize>(
 
     // generate the beaver triples and write the corrected shares to the transcript
     let player0_correction_hash = PreprocessingFull::<B, _, P, false>::new(
-        arr_map(&views, |view| view.rng(LABEL_RNG_BEAVER)), // derive RNG for every
+        arr_map!(&views, |view| view.rng(LABEL_RNG_BEAVER)), // derive RNG for every
     )
     .hash(beaver);
 
@@ -109,6 +109,10 @@ impl<
     > PreprocessedProof<B, P, PT, R, RT, H>
 {
     pub fn verify(&self, beaver: u64) -> Option<&[Hash; H]> {
+        let batches = (beaver + (B::BATCH_SIZE as u64) - 1) / (B::BATCH_SIZE as u64);
+        debug_assert!(batches * (B::BATCH_SIZE as u64) >= beaver);
+        debug_assert!(beaver == 0 || (batches - 1) * (B::BATCH_SIZE as u64) <= beaver);
+
         // derive keys and hidden execution indexes
         let keys: [_; R] = self.random.expand();
         let mut hidden: Vec<usize> = Vec::with_capacity(R);
@@ -130,7 +134,7 @@ impl<
         // recompute the opened views
         let mut hashes: Vec<Option<Hash>> = keys
             .par_iter()
-            .map(|seed| seed.map(|seed| preprocess::<B, P, PT>(beaver, seed)))
+            .map(|seed| seed.map(|seed| preprocess::<B, P, PT>(batches, seed)))
             .collect();
 
         // copy over the provided hashes from the hidden views
@@ -163,10 +167,14 @@ impl<
         let root: TreePRF<RT> = TreePRF::new(seed);
         let keys: [_; R] = root.expand();
 
+        // batches = ceil(beaver / BATCH_SIZE)
+        let batches = (beaver + (B::BATCH_SIZE as u64) - 1) / (B::BATCH_SIZE as u64);
+        debug_assert!(batches * (B::BATCH_SIZE as u64) >= beaver);
+
         // generate hashes of every pre-processing execution
         let hashes: Vec<Hash> = keys
             .par_iter()
-            .map(|seed| preprocess::<B, P, PT>(beaver, seed.unwrap()))
+            .map(|seed| preprocess::<B, P, PT>(batches, seed.unwrap()))
             .collect();
 
         // add every pre-processing execution to a global view
@@ -206,7 +214,7 @@ mod tests {
     use super::*;
 
     use rand::Rng;
-    const BEAVER: u64 = 1000 / 64;
+    const BEAVER: u64 = 1000;
 
     #[test]
     fn test_preprocessing_n8() {
@@ -226,13 +234,14 @@ mod tests {
 }
 
 #[cfg(test)]
+#[cfg(not(debug_assertions))] // omit for testing
 mod benchmark {
     use super::super::algebra::gf2::BitBatch;
     use super::*;
 
     use test::Bencher;
 
-    const BEAVER: u64 = (100_000 / BitBatch::BATCH_SIZE) as u64;
+    const BEAVER: u64 = 100_000;
 
     /// Benchmark proof generation of pre-processing using parameters from the paper
     /// (Table 1. p. 10, https://eprint.iacr.org/2018/475/20190311:173838)

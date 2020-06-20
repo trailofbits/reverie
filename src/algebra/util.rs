@@ -55,12 +55,12 @@ impl<B: RingBatch> RingVector<B> {
     }
 
     pub fn get(&self, idx: usize) -> Option<B::Element> {
-        if idx > self.len {
+        if idx >= self.len {
             return None;
         }
         let rem = idx % B::BATCH_SIZE;
         let div = idx / B::BATCH_SIZE;
-        Some(self.vec[div].get(rem))
+        Some(unsafe { self.vec.get_unchecked(div) }.get(rem))
     }
 
     pub fn set(&mut self, idx: usize, v: B::Element) {
@@ -73,7 +73,7 @@ impl<B: RingBatch> RingVector<B> {
         }
 
         self.len = cmp::max(idx + 1, self.len);
-        self.vec[div].set(rem, v);
+        unsafe { self.vec.get_unchecked_mut(div) }.set(rem, v);
     }
 
     pub fn len(&self) -> usize {

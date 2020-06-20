@@ -18,5 +18,10 @@ static_assertions = "1.1.0"
 [dev-dependencies]
 aes = "0.3.2" # for comparision in benchmarks
 
+# used for testing
+[[bin]]
+name = "reverie"
+path = "src/bin.rs"
+
 [features]
 unstable = []

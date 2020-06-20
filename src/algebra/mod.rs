@@ -48,3 +48,11 @@ pub trait RingBatch:
     /// Generate a batch of elements.
     fn gen<G: RngCore>(gen: &mut G) -> Self;
 }
+
+pub trait TransposedBatch<const N: usize, const M: usize>: Sized {
+    type Batch: RingBatch;
+
+    fn new(rows: [Self::Batch; N]) -> [Self; M];
+
+    fn get(&self, i: usize) -> <<Self as TransposedBatch<N, M>>::Batch as RingBatch>::Element;
+}

@@ -5,27 +5,29 @@
 #![feature(const_int_pow)]
 #![allow(incomplete_features)]
 #![feature(test)]
+#![feature(new_uninit)]
 
 #[cfg(test)]
 extern crate test;
 
 // simple utility functions
+#[macro_use]
 mod util;
 
 // abstraction for Fiat-Shamir
-mod fs;
+pub mod fs;
 
 // pre-processing
-mod pp;
+pub mod pp;
 
 // puncturable PRF abstractions
-mod crypto;
+pub mod crypto;
 
 // online phase
-mod online;
+pub mod online;
 
 // traits and implementations of the underlying ring
-mod algebra;
+pub mod algebra;
 
 // internal constants
 mod consts;

@@ -62,7 +62,7 @@ impl<B: RingBatch, R: RngCore, const N: usize, const S: bool> PreprocessingFull<
         }
 
         // extract the next single element from current batch
-        let beavers: [(B::Element, B::Element, B::Element); N] = arr_map(&self.stat, |s| {
+        let beavers: [(B::Element, B::Element, B::Element); N] = arr_map!(&self.stat, |s| {
             (
                 s.share_a.get(self.used),
                 s.share_b.get(self.used),
@@ -221,7 +221,7 @@ impl<B: RingBatch, R: RngCore, const N: usize> PreprocessingPartial<B, R, N> {
         }
 
         // extract the next single element from current batch
-        let beavers: [(B::Element, B::Element, B::Element); N] = arr_map(&self.stat, |s| {
+        let beavers: [(B::Element, B::Element, B::Element); N] = arr_map!(&self.stat, |s| {
             (
                 s.share_a.get(self.used),
                 s.share_b.get(self.used),

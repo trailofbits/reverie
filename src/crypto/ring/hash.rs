@@ -1,4 +1,4 @@
-use crate::algebra::{RingBatch, RingPacked};
+use crate::algebra::{RingBatch, RingPacked, RingVector};
 
 use std::io::{BufWriter, Write};
 
@@ -15,6 +15,16 @@ pub struct ElementHasher<B: RingBatch> {
     hasher: BatchHasher,
     used: usize,
     elem: B,
+}
+
+pub fn hash_vector<B: RingBatch>(vec: &RingVector<B>) -> Hash {
+    let mut hasher = BufWriter::with_capacity(HASH_BUFFER_CAPACITY, Hasher::new());
+    for batch in vec.batch_iter() {
+        let _ = hasher.write(batch.pack().as_bytes());
+    }
+    let _ = hasher.write(&(vec.len() as u64).to_le_bytes());
+    let _ = hasher.flush();
+    hasher.get_ref().finalize()
 }
 
 impl BatchHasher {
