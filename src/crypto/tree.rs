@@ -132,9 +132,9 @@ impl<const N: usize> TreePRF<N> {
 
     /// Expand a TreePRF into an array of PRFs (one for every leaf).
     /// Does an in-order traversal on the tree to extract the first "leafs" nodes.
-    pub fn expand<const L: usize>(&self) -> [Option<[u8; KEY_SIZE]>; L] {
+    pub fn expand<const L: usize>(&self) -> Box<[Option<[u8; KEY_SIZE]>; L]> {
         assert!(L <= N); // should be optimized out
-        let mut result: [Option<[u8; KEY_SIZE]>; L] = [None; L];
+        let mut result: Box<[Option<[u8; KEY_SIZE]>; L]> = Box::new([None; L]);
         self.expand_internal(&mut result, 0, log2(N));
         result
     }
@@ -192,8 +192,8 @@ mod tests {
         }
 
         // check that the new tree agree with the original on every non-punctured index
-        let expand: [_; N] = tree.expand();
-        let p_expand: [_; N] = p_tree.expand();
+        let expand: Box<[_; N]> = tree.expand();
+        let p_expand: Box<[_; N]> = p_tree.expand();
         for i in 0..N {
             assert!(expand[i].is_some());
             if punctured.contains(&i) {
@@ -216,7 +216,7 @@ mod benchmark {
         let seed = test::black_box([0u8; KEY_SIZE]);
         b.iter(|| {
             let tree: TreePRF<64> = TreePRF::new(seed);
-            let _: [_; 64] = tree.expand();
+            let _: Box<[_; 64]> = tree.expand();
         });
     }
 }

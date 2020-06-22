@@ -12,6 +12,12 @@ pub const LABEL_RNG_BEAVER: &'static [u8] = "beaver_rng".as_bytes();
 // RNG label for openings
 pub const LABEL_RNG_OPEN_PREPROCESSING: &'static [u8] = "open_preprocessing".as_bytes();
 
+// RNG label for openings
+pub const LABEL_RNG_OPEN_ONLINE: &'static [u8] = "open_online".as_bytes();
+
+// Scope label for correction bits (Beaver triples)
+pub const LABEL_SCOPE_ONLINE_TRANSCRIPT: &'static [u8] = "online_transcript".as_bytes();
+
 // Scope label for correction bits (Beaver triples)
 pub const LABEL_SCOPE_CORRECTION: &'static [u8] = "correction_elements".as_bytes();
 

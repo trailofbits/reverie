@@ -22,7 +22,7 @@ impl View {
     /// Produce a new view with randomness extracted from the seed
     ///
     /// This is used to simulate parties (in-the-head) with secret random tapes.
-    pub fn new_keyed(seed: [u8; KEY_SIZE]) -> View {
+    pub fn new_keyed(seed: &[u8; KEY_SIZE]) -> View {
         // create keyed hasher
         let mut key: [u8; 32] = [0u8; 32];
         key[..16].copy_from_slice(&seed[..]);

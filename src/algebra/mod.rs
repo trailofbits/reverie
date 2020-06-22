@@ -14,7 +14,7 @@ pub trait RingPacked {
 
 /// Represents a single ring element
 pub trait RingElement:
-    Sized + Copy + Add<Output = Self> + Sub<Output = Self> + Neg<Output = Self> + Mul<Output = Self>
+    Sized + Copy + Send + Sync + Add<Output = Self> + Sub<Output = Self> + Neg<Output = Self> + Mul<Output = Self>
 {
     fn zero() -> Self;
 }
@@ -26,7 +26,7 @@ pub trait RingElement:
 /// The reason for this abstraction is efficiency:
 /// e.g. allowing us to represent 64 elements of gf2 in a single 64-bit word.
 pub trait RingBatch:
-    Sized + Copy + Add<Output = Self> + Sub<Output = Self> + Neg<Output = Self> + Mul<Output = Self>
+    Sized + Copy + Send + Sync + Add<Output = Self> + Sub<Output = Self> + Neg<Output = Self> + Mul<Output = Self>
 {
     type Element: RingElement;
     type Packed: RingPacked;

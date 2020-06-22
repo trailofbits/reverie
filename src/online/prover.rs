@@ -1,49 +1,66 @@
 use super::*;
 
-struct PublicState<B: RingBatch> {
-    wires: RingVector<B>,
-}
+use std::marker::PhantomData;
+
+use rayon::prelude::*;
 
 pub trait Transcript<B: RingBatch> {
-    fn new() -> Self;
     fn write(&mut self, elem: B::Element);
 }
 
-impl<B: RingBatch> Transcript<B> for ElementHasher<B> {
-    fn new() -> Self {
-        ElementHasher::new()
+
+struct PublicState<'a, B: RingBatch, T: Transcript<B>> {
+    wires: RingVector<B>,
+
+    // we write to the transcript in "round-robin"
+    transcript: &'a mut T
+}
+
+struct SavedTranscript<B: RingBatch, const N: usize> {
+    save: usize,
+    next: usize,
+    transcript: RingVector<B>,
+}
+
+impl <B: RingBatch, const N: usize> SavedTranscript<B, N> {
+    fn new(save: usize) -> Self {
+        Self {
+            next: 0,
+            save,
+            transcript: RingVector::new(),
+        }
     }
 
+    fn inner(self) -> RingVector<B> {
+        self.transcript
+    }
+}
+
+impl<B: RingBatch> Transcript<B> for ElementHasher<B> {
     fn write(&mut self, elem: B::Element) {
         self.update(elem)
     }
 }
 
-struct SavedTranscript<B: RingBatch> {
-    vec: RingVector<B>,
-    next: usize,
-}
+impl<B: RingBatch, const N: usize> Transcript<B> for SavedTranscript<B, N> {
+   
+    fn write(&mut self, elem: B::Element) {
+        if self.save == 0 {
+            // save the current element
+            self.transcript.set(self.next, elem);
+            self.next += 1;
 
-impl<B: RingBatch> Transcript<B> for SavedTranscript<B> {
-    fn new() -> Self {
-        SavedTranscript {
-            vec: RingVector::new(),
-            next: 0,
+            // save next element in N invocations
+            self.save = N; 
+        } else {
+            self.save -= 1;
         }
     }
-
-    fn write(&mut self, elem: B::Element) {
-        self.vec.set(self.next, elem);
-        self.next += 1;
-    }
 }
 
-struct PlayerState<B: RingBatch, T: Transcript<B>> {
+struct PlayerState<B: RingBatch, > {
     // view transcript for player
     view: View,
-
-    // all messages broadcast by the player
-    sent: T,
 
     // mask generator
     mask_rng: ElementRNG<B, ViewRNG>,
@@ -52,33 +69,89 @@ struct PlayerState<B: RingBatch, T: Transcript<B>> {
     masks: RingVector<B>,
 }
 
-pub struct Execution<B: RingBatch, T: Transcript<B>, const N: usize, const NT: usize> {
-    random: TreePRF<NT>,
+pub struct Execution<'a, B: RingBatch, T: Transcript<B>, const N: usize, const NT: usize> {
     beaver: PreprocessingFull<B, ViewRNG, N, true>,
-    public: PublicState<B>,
-    players: Box<[PlayerState<B, T>; N]>,
+    public: PublicState<'a, B, T>,
+    players: Box<[PlayerState<B>; N]>,
 }
 
-struct Proof<const N: usize, const NT: usize> {
-    random: TreePRF<NT>,
+pub struct Proof<B: RingBatch, const N: usize, const NT: usize> {
+    transcripts: Vec<RingVector<B>>,
+    _ph: PhantomData<B>,
 }
 
-impl<B: RingBatch, T: Transcript<B>, const N: usize, const NT: usize> Execution<B, T, N, NT> {
+impl<B: RingBatch, const N: usize, const NT: usize> Proof<B, N, NT> {
+    /// 
+    /// - seeds: A list of PRNG seeds used for every execution (of both pre-processing an online).
+    pub fn new(seeds: &[[u8; KEY_SIZE]], program: &[Instruction<B::Element>], inputs: &RingVector<B>) -> Proof<B, N, NT> {
+
+        // expand keys for every player
+        let keys: Vec<Box<[[u8; KEY_SIZE]; N]>> = seeds.par_iter().map(|seed| {
+            let tree: TreePRF<NT> = TreePRF::new(*seed);
+            arr_map!(&tree.expand(), |x: &Option<[u8; KEY_SIZE]>| x.unwrap())
+        }).collect();
+
+        println!("first");
+
+        // first execution to obtain challenges
+        let hashes: Vec<Hash> = keys.par_iter().map(|keys| {
+            let mut transcript = ElementHasher::<B>::new();
+            let mut exec = Execution::<B, ElementHasher<B>, N, NT>::new(keys, &mut transcript, inputs, 1024);
+            for ins in program {
+                exec.step(ins);
+            }
+            transcript.finalize()
+        }).collect();
+
+        // extract which players to open
+        let mut view: View = View::new();
+        {
+            let mut scope = view.scope(LABEL_SCOPE_ONLINE_TRANSCRIPT);
+            for hash in hashes.iter() {
+                scope.join(hash);
+            }
+        }
+        let mut rng = view.rng(LABEL_RNG_OPEN_ONLINE);
+        let mut hidden: Vec<usize> = Vec::with_capacity(seeds.len());
+        for _ in 0..seeds.len() {
+            hidden.push(random_usize::<_, N>(&mut rng));
+        }
+        
+        println!("second");
+
+
+        // second execution to obtain proof
+        let jobs: Vec<(&usize, &Box<[[u8; KEY_SIZE]; N]>)> = hidden.iter().zip(keys.iter()).collect();
+        let transcripts: Vec<RingVector<B>> = jobs.par_iter().map(|(hide, keys)| {
+            let mut transcript = SavedTranscript::new(**hide);
+            let mut exec = Execution::<B, SavedTranscript<B, N>, N, NT>::new(keys, &mut transcript, inputs, 1024);
+            for ins in program {
+                exec.step(ins);
+            }
+            transcript.inner()
+        }).collect();
+
+        Proof{
+            _ph: PhantomData,
+            transcripts
+        }
+
+        
+    }
+}
+
+impl<'a, B: RingBatch, T: Transcript<B>, const N: usize, const NT: usize> Execution<'a, B, T, N, NT> {
     /// Takes the seed for the random tapes (used for pre-processing and input masking)
     ///
     ///
-    pub fn new(seed: [u8; KEY_SIZE], inputs: &RingVector<B>, capacity: usize) -> Self {
-        let tree: TreePRF<NT> = TreePRF::new(seed);
-        let keys: [_; N] = tree.expand();
-
+    fn new(keys: &[[u8; KEY_SIZE]; N], transcript: &'a mut T, inputs: &RingVector<B>, capacity: usize) -> Self {
         // generate initial player states
         // TODO: this runs out of stack memory
-        let mut players: Box<[PlayerState<B, T>; N]> = arr_map_box!(&keys, |key| {
-            let view = View::new_keyed(key.unwrap());
+        let mut players: Box<[PlayerState<B>; N]> = arr_map!(keys, |key| {
+            let view = View::new_keyed(key);
             let mask_rng = ElementRNG::new(view.rng(LABEL_RNG_MASKS));
             PlayerState {
                 view,
-                sent: T::new(),
                 mask_rng,
                 masks: RingVector::with_capacity(capacity),
             }
@@ -91,7 +164,8 @@ impl<B: RingBatch, T: Transcript<B>, const N: usize, const NT: usize> Execution<
             }));
 
         // create the global channel
-        let mut public: PublicState<B> = PublicState {
+        let mut public: PublicState<'a, B, T> = PublicState {
+            transcript,
             wires: RingVector::with_capacity(inputs.len()),
         };
 
@@ -111,7 +185,6 @@ impl<B: RingBatch, T: Transcript<B>, const N: usize, const NT: usize> Execution<
 
         // bundle up the initial state for the interpreter
         Execution {
-            random: tree,
             beaver,
             public,
             players,
@@ -167,8 +240,8 @@ impl<B: RingBatch, T: Transcript<B>, const N: usize, const NT: usize> Execution<
                     // store the new mask
                     player.masks.set(*dst, mask);
 
-                    // add the share (broadcast message) to the players view
-                    player.sent.write(share);
+                    // add the share (broadcast message) to the transcript
+                    self.public.transcript.write(share);
 
                     s = s + share;
                 }
@@ -182,9 +255,6 @@ impl<B: RingBatch, T: Transcript<B>, const N: usize, const NT: usize> Execution<
         Some(())
     }
 
-    pub fn end(self) -> [T; N] {
-        arr_map_owned(*self.players, |player| player.sent)
-    }
 }
 
 #[cfg(test)]
@@ -199,6 +269,7 @@ mod benchmark {
 
     const MULTIPLICATIONS: u64 = 100_000;
 
+    /*
     fn bench_online_execution<B: RingBatch, const N: usize, const NT: usize, const R: usize>(
         b: &mut Bencher,
     ) {
@@ -212,7 +283,7 @@ mod benchmark {
                 .par_iter()
                 .map(|_| {
                     let mut exec: Execution<BitBatch, ElementHasher<BitBatch>, N, NT> =
-                        Execution::new([0u8; 16], &inputs, 1024);
+                        Execution::new(Box<[0u8; 16]>, arr_from_iter!((0..N).map(|_| ElementHasher<BitBatch>::new())), &inputs, 1024);
 
                     for _ in 0..MULTIPLICATIONS {
                         exec.step(&Instruction::Mul(3, 0, 1));
@@ -231,4 +302,5 @@ mod benchmark {
     fn bench_online_execution_n8(b: &mut Bencher) {
         bench_online_execution::<BitBatch, 8, 8, 44>(b);
     }
+    */
 }

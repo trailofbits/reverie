@@ -32,19 +32,24 @@ impl<B: RingBatch, R: RngCore> State<B, R> {
 /// where the c shares for player 0 must be included in the transcript.
 pub struct PreprocessingFull<B: RingBatch, R: RngCore, const N: usize, const S: bool> {
     used: usize,            // elements used from current batch
-    stat: [State<B, R>; N], // state of every player
+    stat: Box<[State<B, R>; N]>, // state of every player
     zero: RingVector<B>,    // corrected c shares for player 0
 }
 
 impl<B: RingBatch, R: RngCore, const N: usize, const S: bool> PreprocessingFull<B, R, N, S> {
-    pub fn new(rngs: [R; N]) -> Self {
+    pub fn new(rngs: Box<[R; N]>) -> Self {
+
+
         // initialize the state for every player
-        let mut stat: [State<B, R>; N] = arr_map_owned(rngs, |rng| State {
+        let mut stat: Box<[State<B, R>; N]> = arr_map_owned!(rngs, |rng| State {
             rng,
             share_a: B::zero(),
             share_b: B::zero(),
             share_c: B::zero(),
         });
+
+
+
 
         // join into pre-processing context for entire protocol
         PreprocessingFull {
@@ -62,7 +67,7 @@ impl<B: RingBatch, R: RngCore, const N: usize, const S: bool> PreprocessingFull<
         }
 
         // extract the next single element from current batch
-        let beavers: [(B::Element, B::Element, B::Element); N] = arr_map!(&self.stat, |s| {
+        let beavers: [(B::Element, B::Element, B::Element); N] = arr_map_stack!(&self.stat, |s| {
             (
                 s.share_a.get(self.used),
                 s.share_b.get(self.used),
@@ -147,13 +152,13 @@ pub struct PreprocessingPartial<B: RingBatch, R: RngCore, const N: usize> {
     used: usize,            // elements used from current batch
     omit: usize,            // index of player omitted
     bidx: usize,            // current batch index
-    stat: [State<B, R>; N], // state of every player
+    stat: Box<[State<B, R>; N]>, // state of every player
     zero: RingArray<B>,     // corrected c shares for player 0 (if not omitted)
 }
 
 impl<B: RingBatch, R: RngCore, const N: usize> PreprocessingPartial<B, R, N> {
     /// rngs[omit] is a dummy.
-    pub fn new(rngs: [R; N], omit: usize, zero: RingArray<B>) -> Self {
+    pub fn new(rngs: Box<[R; N]>, omit: usize, zero: RingArray<B>) -> Self {
         // check that omit is a valid player
         debug_assert!(omit < N, "omitted player does not exist");
 
@@ -166,7 +171,7 @@ impl<B: RingBatch, R: RngCore, const N: usize> PreprocessingPartial<B, R, N> {
         );
 
         // initialize the state for every player
-        let mut stat: [State<B, R>; N] = arr_map_owned(rngs, |rng| State {
+        let mut stat: Box<[State<B, R>; N]> = arr_map_owned!(rngs, |rng| State {
             rng,
             share_a: B::zero(),
             share_b: B::zero(),
@@ -221,7 +226,7 @@ impl<B: RingBatch, R: RngCore, const N: usize> PreprocessingPartial<B, R, N> {
         }
 
         // extract the next single element from current batch
-        let beavers: [(B::Element, B::Element, B::Element); N] = arr_map!(&self.stat, |s| {
+        let beavers: [(B::Element, B::Element, B::Element); N] = arr_map_stack!(&self.stat, |s| {
             (
                 s.share_a.get(self.used),
                 s.share_b.get(self.used),
@@ -255,18 +260,23 @@ mod tests {
             let beavers: usize = rng.gen::<usize>() & BEAVERS;
 
             // get distinct player RNGS
-            let rngs: [_; PLAYERS] = arr_from_iter(&mut (0..PLAYERS).into_iter().map(|i| {
-                let mut k = [0u8; KEY_SIZE];
-                k[0] = i as u8;
-                View::new_keyed(k).rng("test".as_bytes())
+            let rngs: Box<[_; PLAYERS]> = arr_from_iter!(&mut (0..PLAYERS).into_iter().map(|i| {
+                let mut key = [0u8; KEY_SIZE];
+                key[0] = i as u8;
+                View::new_keyed(&key).rng("test".as_bytes())
             }));
+
 
             // create backup of initial state
             let mut orig = rngs.clone();
 
+
             // create preprocessing
             let mut full: PreprocessingFull<BitBatch, ViewRNG, PLAYERS, true> =
                 PreprocessingFull::new(rngs);
+
+
+
 
             // get a bunch of shares
             let mut shares: Vec<_> = vec![];
@@ -275,7 +285,7 @@ mod tests {
             }
 
             // now dummy one of the rngs and run the partial pre-processing
-            orig[omit] = View::new_keyed([1u8; KEY_SIZE]).rng("test".as_bytes());
+            orig[omit] = View::new_keyed(&[1u8; KEY_SIZE]).rng("test".as_bytes());
 
             let mut partial: PreprocessingPartial<BitBatch, ViewRNG, PLAYERS> =
                 PreprocessingPartial::new(
@@ -287,6 +297,8 @@ mod tests {
                         full.zero()
                     },
                 );
+
+
 
             for mut s_full in shares {
                 let s_partial = partial.next().unwrap();
@@ -301,6 +313,8 @@ mod tests {
 
                 assert_eq!(s_full, s_partial);
             }
+            mem::drop(partial);
+           
         }
     }
 }

@@ -1,5 +1,6 @@
 use super::RingElement;
 
+#[derive(Copy, Clone)]
 pub enum Instruction<E: RingElement> {
     AddConst(usize, usize, E), // addition of constant
     MulConst(usize, usize, E), // multiplication by constant

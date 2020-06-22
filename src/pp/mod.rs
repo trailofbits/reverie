@@ -15,6 +15,7 @@ use std::mem;
 use rand_core::RngCore;
 use rayon::prelude::*;
 
+
 /// Represents repeated execution of the pre-processing phase.
 /// The pre-precessing phase is executed R times, then fed to a random oracle,
 /// which dictates the subset of executions to open.
@@ -33,54 +34,29 @@ pub struct PreprocessedProof<
     const RT: usize,
     const H: usize,
 > {
-    hidden: [Hash; H],
+    hidden: Box<[Hash; H]>,
     random: TreePRF<{ RT }>,
     ph: PhantomData<B>,
 }
 
-fn random_subset<R: RngCore, const M: usize, const S: usize>(rng: &mut R) -> [usize; S] {
-    let mut members: [bool; M] = [false; M];
-    let mut samples: [usize; S] = unsafe { mem::MaybeUninit::zeroed().assume_init() };
-    let mut collect: usize = 0;
-
-    while collect < S {
-        // generate a 128-bit integer (to minimize statistical bias)
-        let mut le_bytes: [u8; 16] = [0u8; 16];
-        rng.fill_bytes(&mut le_bytes);
-
-        // reduce mod the number of repetitions
-        let n: u128 = u128::from_le_bytes(le_bytes) % (M as u128);
-        let n: usize = n as usize;
-
-        // if not in set, add to the vector
-        if !mem::replace(&mut members[n as usize], true) {
-            samples[collect] = n;
-            collect += 1;
-        }
-    }
-
-    // ensure a canonical ordering (for comparisons)
-    samples.sort();
-    samples
-}
 
 /// Executes the preprocessing (in-the-head) phase once.
 ///
 /// Returns a commitment to the view of all players.
 fn preprocess<B: RingBatch, const P: usize, const PT: usize>(
-    beaver: u64,          // number of Beaver multiplication triples
-    seed: [u8; KEY_SIZE], // random tape used for phase
+    beaver: u64,               // number of Beaver multiplication triples
+    seed: &[u8; KEY_SIZE], // random tape used for phase
 ) -> Hash {
     // the root PRF from which each players random tape is derived using a PRF tree
-    let root: TreePRF<PT> = TreePRF::new(seed);
-    let keys: [_; P] = root.expand();
+    let root: TreePRF<PT> = TreePRF::new(*seed);
+    let keys: Box<[_; P]> = root.expand();
 
     // create a view for every player
-    let mut views: [View; P] = arr_map_owned(keys, |key| View::new_keyed(key.unwrap()));
+    let mut views: Box<[View; P]> = arr_map!(&keys, |key: &Option<[u8; KEY_SIZE]>| View::new_keyed(key.as_ref().unwrap()));
 
     // generate the beaver triples and write the corrected shares to the transcript
     let player0_correction_hash = PreprocessingFull::<B, _, P, false>::new(
-        arr_map!(&views, |view| view.rng(LABEL_RNG_BEAVER)), // derive RNG for every
+        arr_map!(&views, |view: &View| view.rng(LABEL_RNG_BEAVER)), // derive RNG for every
     )
     .hash(beaver);
 
@@ -99,6 +75,7 @@ fn preprocess<B: RingBatch, const P: usize, const PT: usize>(
     global.hash()
 }
 
+
 impl<
         B: RingBatch,
         const P: usize,
@@ -114,7 +91,7 @@ impl<
         debug_assert!(beaver == 0 || (batches - 1) * (B::BATCH_SIZE as u64) <= beaver);
 
         // derive keys and hidden execution indexes
-        let keys: [_; R] = self.random.expand();
+        let keys: Box<[_; R]> = self.random.expand();
         let mut hidden: Vec<usize> = Vec::with_capacity(R);
         let mut opened: Vec<usize> = Vec::with_capacity(R - H);
         for (i, key) in keys.iter().enumerate() {
@@ -134,7 +111,7 @@ impl<
         // recompute the opened views
         let mut hashes: Vec<Option<Hash>> = keys
             .par_iter()
-            .map(|seed| seed.map(|seed| preprocess::<B, P, PT>(batches, seed)))
+            .map(|seed| seed.map(|seed| preprocess::<B, P, PT>(batches, &seed)))
             .collect();
 
         // copy over the provided hashes from the hidden views
@@ -165,7 +142,7 @@ impl<
     pub fn new(beaver: u64, seed: [u8; KEY_SIZE]) -> Self {
         // define PRF tree and obtain key material for every pre-processing execution
         let root: TreePRF<RT> = TreePRF::new(seed);
-        let keys: [_; R] = root.expand();
+        let keys: Box<[_; R]> = root.expand();
 
         // batches = ceil(beaver / BATCH_SIZE)
         let batches = (beaver + (B::BATCH_SIZE as u64) - 1) / (B::BATCH_SIZE as u64);
@@ -174,7 +151,7 @@ impl<
         // generate hashes of every pre-processing execution
         let hashes: Vec<Hash> = keys
             .par_iter()
-            .map(|seed| preprocess::<B, P, PT>(batches, seed.unwrap()))
+            .map(|seed| preprocess::<B, P, PT>(batches, seed.as_ref().unwrap()))
             .collect();
 
         // add every pre-processing execution to a global view
@@ -197,7 +174,7 @@ impl<
         }
 
         // extract hashes for the hidden evaluations
-        let hidden: [Hash; H] = arr_from_iter(&mut hide.iter().map(|i| hashes[*i].clone()));
+        let hidden: Box<[Hash; H]> = arr_from_iter!(&mut hide.iter().map(|i| hashes[*i].clone()));
 
         // combine into the proof
         PreprocessedProof {

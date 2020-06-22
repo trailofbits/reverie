@@ -1,18 +1,22 @@
 extern crate reverie;
 
+
 use reverie::algebra::gf2::{Bit, BitBatch};
 use reverie::algebra::RingVector;
 use reverie::crypto::ElementHasher;
-use reverie::online::prover::Execution;
+use reverie::online::prover::Proof;
 use reverie::online::Instruction;
 
 use reverie::pp::PreprocessedProof;
+
 
 use std::env;
 
 use rayon::prelude::*;
 
 fn main() {
+
+
     let mut inputs: RingVector<BitBatch> = RingVector::new();
 
     inputs.set(0, Bit::new(1));
@@ -25,23 +29,15 @@ fn main() {
 
     println!("process: {}", multiplications);
 
-    PreprocessedProof::<BitBatch, 64, 64, 631, 1024, 23>::new(multiplications, [0u8; 16]);
+    let program = vec![Instruction::Mul(2, 0, 1); multiplications as usize];
+
+    PreprocessedProof::<BitBatch, 8, 8, 252, 256, 44>::new(multiplications, [0u8; 16]);
 
     println!("preprocessed done");
 
-    for _ in 0..2 {
-        println!("run online");
-        let _: Vec<()> = vec![0u8; 23]
-            .par_iter()
-            .map(|_| {
-                let mut exec: Execution<BitBatch, ElementHasher<BitBatch>, 64, 64> =
-                    Execution::new([0u8; 16], &inputs, 8);
+    let keys: Vec<[u8; 16]> = vec![[0u8; 16]; 44];
 
-                let ins = Instruction::Mul(3, 0, 1);
-                for _ in 0..multiplications {
-                    exec.step(&ins);
-                }
-            })
-            .collect();
-    }
+    let _: Proof<BitBatch, 8, 8> =  Proof::new(&keys[..], &program, &inputs);
+
+    println!("online done");
 }

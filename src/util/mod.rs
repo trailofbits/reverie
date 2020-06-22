@@ -1,40 +1,66 @@
+mod subset;
+
+pub use subset::*;
+
 use std::mem;
 
 pub const fn log2(x: usize) -> usize {
     (mem::size_of::<usize>() * 8) - (x.leading_zeros() as usize) - 1
 }
 
-macro_rules! arr_map {
-    ($array:expr, $func:expr) => {{
-        use std::mem;
-        pub fn map<F: Sized + (Fn(&A) -> B), A: Sized, B: Sized, const L: usize>(
-            v: &[A; L],
-            m: F,
-        ) -> [B; L] {
-            // create an array of uninitialized array members
-            // MaybeUninit is needed to ensure that a potential destructor is not run
-            // when overwriting the uninitialized array members (leading to UB).
-            let mut res: [mem::MaybeUninit<B>; L] =
-                unsafe { mem::MaybeUninit::uninit().assume_init() };
-            for (i, e) in v.iter().enumerate() {
-                res[i] = mem::MaybeUninit::new(m(e));
-            }
-
-            // now that everything in res is initialized,
-            // we can safely transmute the MaybeUninit wrapper away
-            //
-            // I can find no way around this copy without boxing the array
-            unsafe { mem::transmute_copy(&res) }
-        }
-        map($array, $func)
-    }};
+pub struct ArrayIter<A, const L: usize> {
+    array: Box<[mem::MaybeUninit<A>; L]>,
+    next: usize,
 }
 
-macro_rules! arr_map_box {
+impl <A, const L: usize>ArrayIter<A, L> {
+    pub fn new(array: Box<[A; L]>) -> Self {
+        ArrayIter{
+            array: unsafe { mem::transmute(array) },
+            next: 0
+        }
+    }
+}
+
+impl <A, const L: usize> Iterator for ArrayIter<A, L> {
+    type Item = A;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.next >= L {
+            return None;
+        }
+        let res = mem::replace(&mut self.array[self.next], mem::MaybeUninit::uninit());
+        self.next += 1;
+        Some(unsafe { res.assume_init() })
+    }
+}
+
+macro_rules! arr_map_stack {
     ($array:expr, $func:expr) => {{
         use std::mem;
 
         #[inline(always)]
+        #[allow(dead_code)]
+        fn map<F: Sized + (Fn(&A) -> B), A: Sized, B: Sized, const L: usize>(
+            v: &[A; L],
+            m: F,
+        ) -> [B; L] {
+            let mut res: [mem::MaybeUninit<B>; L] = unsafe { mem::MaybeUninit::uninit().assume_init() };
+            for (i, e) in v.iter().enumerate() {
+                res[i] = mem::MaybeUninit::new(m(e));
+            }
+            unsafe { mem::transmute_copy(&res) }
+        }
+
+        map($array, $func)
+    }};
+}
+
+macro_rules! arr_map {
+    ($array:expr, $func:expr) => {{
+        use std::mem;
+
+        #[inline(always)]
+        #[allow(dead_code)]
         fn map<F: Sized + (Fn(&A) -> B), A: Sized, B: Sized, const L: usize>(
             v: &[A; L],
             m: F,
@@ -47,6 +73,7 @@ macro_rules! arr_map_box {
         }
 
         #[inline(always)]
+        #[allow(dead_code)]
         fn type_check<F: Sized + (Fn(&A) -> B), A: Sized, B: Sized, const L: usize>(
             _f: F,
             _src_ptr: *const Box<[mem::MaybeUninit<B>; L]>,
@@ -71,23 +98,21 @@ macro_rules! arr_map_box {
     }};
 }
 
-macro_rules! arr_map_owned_box {
+macro_rules! arr_map_owned {
     ($array:expr, $func:expr) => {{
         use std::mem;
 
         #[inline(always)]
+        #[allow(dead_code)]
         fn map<F: Sized + (Fn(A) -> B), A: Sized, B: Sized, const L: usize>(
-            v: [A; L],
+            v: Box<[A; L]>,
             m: F,
         ) -> Box<[mem::MaybeUninit<B>; L]> {
             // create an array of uninitialized array members
             // MaybeUninit is needed to ensure that a potential destructor is not run
             // when overwriting the uninitialized array members (leading to UB).
             let mut res: Box<[mem::MaybeUninit<B>; L]> = unsafe { Box::new_uninit().assume_init() };
-            let mut val: [mem::MaybeUninit<A>; L] = unsafe { mem::transmute_copy(&v) };
-
-            // avoid potentially running the destructor twice
-            mem::forget(v);
+            let mut val: Box<[mem::MaybeUninit<A>; L]> = unsafe { mem::transmute(v) };
 
             for i in 0..L {
                 // replace the next element in the array
@@ -102,11 +127,12 @@ macro_rules! arr_map_owned_box {
         }
 
         #[inline(always)]
+        #[allow(dead_code)]
         fn type_check<F: Sized + (Fn(A) -> B), A: Sized, B: Sized, const L: usize>(
             _f: F,
             _src_ptr: *const Box<[mem::MaybeUninit<B>; L]>,
             _dst_ptr: *const Box<[B; L]>,
-            _v: *const [A; L],
+            _v: *const Box<[A; L]>,
         ) {
         }
 
@@ -129,52 +155,51 @@ macro_rules! arr_map_owned_box {
     }};
 }
 
-#[test]
-fn test() {
-    let v: [u8; 4] = [1, 2, 3, 5];
-    let r = arr_map_owned_box!(v, |x| { (x + 1u8) as u8 });
-    println!("{:?}", r);
-}
 
-pub fn arr_from_iter<I: Iterator<Item = A>, A: Sized, const L: usize>(iter: &mut I) -> [A; L] {
-    // create an array of uninitialized array members
-    // MaybeUninit is needed to ensure that a potential destructor is not run
-    // when overwriting the uninitialized array members (leading to UB).
-    let mut res: [mem::MaybeUninit<A>; L] = unsafe { mem::MaybeUninit::uninit().assume_init() };
-    for i in 0..L {
-        res[i] = mem::MaybeUninit::new(iter.next().unwrap());
-    }
 
-    // now that everything in res is initialized,
-    // we can safely transmute the MaybeUninit wrapper away
-    unsafe { mem::transmute_copy(&res) }
-}
+/// TODO: Consider a variant with stronger types:
+/// Enforce equality between the length of the iter and array at compile time.
+macro_rules! arr_from_iter {
+    ($iter:expr) => {{
+        use std::mem;
 
-pub fn arr_map_owned<F: Sized + (Fn(A) -> B), A: Sized, B: Sized, const L: usize>(
-    v: [A; L],
-    m: F,
-) -> [B; L] {
-    // create an array of uninitialized array members
-    // MaybeUninit is needed to ensure that a potential destructor is not run
-    // when overwriting the uninitialized array members (leading to UB).
-    let mut res: [mem::MaybeUninit<B>; L] = unsafe { mem::MaybeUninit::uninit().assume_init() };
-    let mut val: [mem::MaybeUninit<A>; L] = unsafe { mem::transmute_copy(&v) };
+        #[inline(always)]
+        #[allow(dead_code)]
+        fn map<
+            I: Iterator<Item = A>,
+            A: Sized,
+            const L: usize,
+        >(mut iter: I) -> Box<[mem::MaybeUninit<A>; L]> {
+            let mut res: Box<[mem::MaybeUninit<A>; L]> = unsafe { Box::new_uninit().assume_init() };
+            for i in 0..L {
+                res[i] = mem::MaybeUninit::new(iter.next().unwrap());
+            }
+            debug_assert!(iter.next().is_none(), "iterator longer than array");
+            res
+        }
+        
+        #[inline(always)]
+        #[allow(dead_code)]
+        fn type_check<A: Sized, const L: usize>(
+            _src_ptr: *const Box<[mem::MaybeUninit<A>; L]>,
+            _dst_ptr: *const Box<[A; L]>,
+        ) {
+        }
 
-    // avoid potentially running the destructor twice
-    mem::forget(v);
+        // apply the map and obtain a boxed array of
+        let res_maybe = map($iter);
+        let src_ptr = &res_maybe as *const _;
 
-    for i in 0..L {
-        // replace the next element in the array
-        // with an uninitialized value (to avoid Copy)
-        let e = mem::replace(&mut val[i], mem::MaybeUninit::uninit());
+        // every element is initialized and the outer container is an array
+        // hence it should be safe to remove the MaybeUninit wrapper.
+        let res_muted = unsafe { mem::transmute(res_maybe) };
+        let dst_ptr = &res_muted as *const _;
 
-        // we know that e is initialized (coming from safe Rust)
-        res[i] = mem::MaybeUninit::new(m(unsafe { e.assume_init() }));
-    }
-
-    // now that everything in res is initialized,
-    // we can safely transmute the MaybeUninit wrapper away
-    unsafe { mem::transmute_copy(&res) }
+        // enforce type equality
+        // (allows the type-checker to infer the type of "res_muted")
+        type_check(src_ptr, dst_ptr);
+        res_muted
+    }};
 }
 
 #[cfg(test)]
