@@ -1,20 +1,19 @@
 mod constants;
 mod generator;
 
-pub use generator::{PreprocessingFull, PreprocessingPartial};
+pub use generator::*;
 
-use super::algebra::{RingArray, RingBatch, RingPacked, RingVector};
-use super::consts::*;
-use super::crypto::*;
-use super::fs::*;
-use super::util::*;
+use crate::algebra::*;
+use crate::consts::*;
+use crate::crypto::*;
+use crate::fs::*;
+use crate::util::*;
 
 use std::marker::PhantomData;
 use std::mem;
 
 use rand_core::RngCore;
 use rayon::prelude::*;
-
 
 /// Represents repeated execution of the pre-processing phase.
 /// The pre-precessing phase is executed R times, then fed to a random oracle,
@@ -27,7 +26,7 @@ use rayon::prelude::*;
 /// - RT : size of PRF tree for repetitions
 /// - H  : hidden views (repetitions of online phase)
 pub struct PreprocessedProof<
-    B: RingBatch,
+    D: Domain,
     const P: usize,
     const PT: usize,
     const R: usize,
@@ -36,15 +35,14 @@ pub struct PreprocessedProof<
 > {
     hidden: Box<[Hash; H]>,
     random: TreePRF<{ RT }>,
-    ph: PhantomData<B>,
+    ph: PhantomData<D>,
 }
-
 
 /// Executes the preprocessing (in-the-head) phase once.
 ///
 /// Returns a commitment to the view of all players.
-fn preprocess<B: RingBatch, const P: usize, const PT: usize>(
-    beaver: u64,               // number of Beaver multiplication triples
+fn preprocess<D: Domain, const P: usize, const PT: usize>(
+    batches: u64,          // number of Beaver multiplication triples
     seed: &[u8; KEY_SIZE], // random tape used for phase
 ) -> Hash {
     // the root PRF from which each players random tape is derived using a PRF tree
@@ -52,43 +50,31 @@ fn preprocess<B: RingBatch, const P: usize, const PT: usize>(
     let keys: Box<[_; P]> = root.expand();
 
     // create a view for every player
-    let mut views: Box<[View; P]> = arr_map!(&keys, |key: &Option<[u8; KEY_SIZE]>| View::new_keyed(key.as_ref().unwrap()));
+    let views: Box<[View; P]> = arr_map!(&keys, |key: &Option<[u8; KEY_SIZE]>| View::new_keyed(
+        key.as_ref().unwrap()
+    ));
 
     // generate the beaver triples and write the corrected shares to the transcript
-    let player0_correction_hash = PreprocessingFull::<B, _, P, false>::new(
-        arr_map!(&views, |view: &View| view.rng(LABEL_RNG_BEAVER)), // derive RNG for every
-    )
-    .hash(beaver);
-
-    // append the corrections to the view of player0
-    views[0]
-        .scope(LABEL_SCOPE_CORRECTION)
-        .join(&player0_correction_hash);
-
-    // aggregate every view commitment into a single commitment to the entire pre-processing
-    let mut global: View = View::new();
-    for view in views.iter() {
-        global
-            .scope(LABEL_SCOPE_AGGREGATE_COMMIT)
-            .join(&view.hash())
-    }
-    global.hash()
+    let mut rngs: Box<[ViewRNG; P]> = arr_map!(&views, |view: &View| view.rng(LABEL_RNG_BEAVER));
+    correction_hash::<D, _>(&mut rngs[..], batches)
 }
 
-
 impl<
-        B: RingBatch,
+        D: Domain,
         const P: usize,
         const PT: usize,
         const R: usize,
         const RT: usize,
         const H: usize,
-    > PreprocessedProof<B, P, PT, R, RT, H>
+    > PreprocessedProof<D, P, PT, R, RT, H>
 {
+    fn beaver_to_batches(beaver: u64) -> u64 {
+        (beaver + (D::Batch::DIMENSION as u64) - 1) / (D::Batch::DIMENSION as u64)
+    }
+
     pub fn verify(&self, beaver: u64) -> Option<&[Hash; H]> {
-        let batches = (beaver + (B::BATCH_SIZE as u64) - 1) / (B::BATCH_SIZE as u64);
-        debug_assert!(batches * (B::BATCH_SIZE as u64) >= beaver);
-        debug_assert!(beaver == 0 || (batches - 1) * (B::BATCH_SIZE as u64) <= beaver);
+        // compute the number of required batches
+        let batches = Self::beaver_to_batches(beaver);
 
         // derive keys and hidden execution indexes
         let keys: Box<[_; R]> = self.random.expand();
@@ -111,7 +97,7 @@ impl<
         // recompute the opened views
         let mut hashes: Vec<Option<Hash>> = keys
             .par_iter()
-            .map(|seed| seed.map(|seed| preprocess::<B, P, PT>(batches, &seed)))
+            .map(|seed| seed.map(|seed| preprocess::<D, P, PT>(batches, &seed)))
             .collect();
 
         // copy over the provided hashes from the hidden views
@@ -145,13 +131,12 @@ impl<
         let keys: Box<[_; R]> = root.expand();
 
         // batches = ceil(beaver / BATCH_SIZE)
-        let batches = (beaver + (B::BATCH_SIZE as u64) - 1) / (B::BATCH_SIZE as u64);
-        debug_assert!(batches * (B::BATCH_SIZE as u64) >= beaver);
+        let batches = Self::beaver_to_batches(beaver);
 
         // generate hashes of every pre-processing execution
         let hashes: Vec<Hash> = keys
             .par_iter()
-            .map(|seed| preprocess::<B, P, PT>(batches, seed.as_ref().unwrap()))
+            .map(|seed| preprocess::<D, P, PT>(batches, seed.as_ref().unwrap()))
             .collect();
 
         // add every pre-processing execution to a global view
@@ -187,7 +172,7 @@ impl<
 
 #[cfg(test)]
 mod tests {
-    use super::super::algebra::gf2::BitBatch;
+    use super::super::algebra::gf2p8::GF2P8;
     use super::*;
 
     use rand::Rng;
@@ -197,29 +182,32 @@ mod tests {
     fn test_preprocessing_n8() {
         let mut rng = rand::thread_rng();
         let seed: [u8; KEY_SIZE] = rng.gen();
-        let proof = PreprocessedProof::<BitBatch, 8, 8, 252, 256, 44>::new(BEAVER, seed);
+        let proof = PreprocessedProof::<GF2P8, 8, 8, 252, 256, 44>::new(BEAVER, seed);
         assert!(proof.verify(BEAVER).is_some());
     }
 
+    /*
     #[test]
     fn test_preprocessing_n64() {
         let mut rng = rand::thread_rng();
         let seed: [u8; KEY_SIZE] = rng.gen();
-        let proof = PreprocessedProof::<BitBatch, 64, 64, 631, 1024, 23>::new(BEAVER, seed);
+        let proof = PreprocessedProof::<GF2P8, 64, 64, 631, 1024, 23>::new(BEAVER, seed);
         assert!(proof.verify(BEAVER).is_some());
     }
+    */
 }
 
 #[cfg(test)]
 #[cfg(not(debug_assertions))] // omit for testing
 mod benchmark {
-    use super::super::algebra::gf2::BitBatch;
+    use super::super::algebra::gf2p8::GF2P8;
     use super::*;
 
     use test::Bencher;
 
-    const BEAVER: u64 = 100_000;
+    const BEAVER: u64 = 1_000_000;
 
+    /*
     /// Benchmark proof generation of pre-processing using parameters from the paper
     /// (Table 1. p. 10, https://eprint.iacr.org/2018/475/20190311:173838)
     ///
@@ -228,10 +216,9 @@ mod benchmark {
     /// t =  23 (online phase executions (hidden pre-processing executions))
     #[bench]
     fn bench_preprocessing_proof_gen_n64(b: &mut Bencher) {
-        b.iter(|| {
-            PreprocessedProof::<BitBatch, 64, 64, 631, 1024, 23>::new(BEAVER, [0u8; KEY_SIZE])
-        });
+        b.iter(|| PreprocessedProof::<GF2P8, 64, 64, 631, 1024, 23>::new(BEAVER, [0u8; KEY_SIZE]));
     }
+    */
 
     /// Benchmark proof generation of pre-processing using parameters from the paper
     /// (Table 1. p. 10, https://eprint.iacr.org/2018/475/20190311:173838)
@@ -241,9 +228,10 @@ mod benchmark {
     /// t =  44 (online phase executions (hidden pre-processing executions))
     #[bench]
     fn bench_preprocessing_proof_gen_n8(b: &mut Bencher) {
-        b.iter(|| PreprocessedProof::<BitBatch, 8, 8, 252, 256, 44>::new(BEAVER, [0u8; KEY_SIZE]));
+        b.iter(|| PreprocessedProof::<GF2P8, 8, 8, 252, 256, 44>::new(BEAVER, [0u8; KEY_SIZE]));
     }
 
+    /*
     /// Benchmark proof verification of pre-processing using parameters from the paper
     /// (Table 1. p. 10, https://eprint.iacr.org/2018/475/20190311:173838)
     ///
@@ -256,6 +244,7 @@ mod benchmark {
             PreprocessedProof::<BitBatch, 64, 64, 631, 1024, 23>::new(BEAVER, [0u8; KEY_SIZE]);
         b.iter(|| proof.verify(BEAVER));
     }
+    */
 
     /// Benchmark proof verification of pre-processing using parameters from the paper
     /// (Table 1. p. 10, https://eprint.iacr.org/2018/475/20190311:173838)
@@ -265,7 +254,7 @@ mod benchmark {
     /// t =  44 (online phase executions (hidden pre-processing executions))
     #[bench]
     fn bench_preprocessing_proof_verify_n8(b: &mut Bencher) {
-        let proof = PreprocessedProof::<BitBatch, 8, 8, 252, 256, 44>::new(BEAVER, [0u8; KEY_SIZE]);
+        let proof = PreprocessedProof::<GF2P8, 8, 8, 252, 256, 44>::new(BEAVER, [0u8; KEY_SIZE]);
         b.iter(|| proof.verify(BEAVER));
     }
 }

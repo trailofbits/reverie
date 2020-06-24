@@ -6,6 +6,7 @@
 #![allow(incomplete_features)]
 #![feature(test)]
 #![feature(new_uninit)]
+#![feature(stdsimd)]
 
 #[cfg(test)]
 extern crate test;
@@ -24,7 +25,7 @@ pub mod pp;
 pub mod crypto;
 
 // online phase
-pub mod online;
+// pub mod online;
 
 // traits and implementations of the underlying ring
 pub mod algebra;

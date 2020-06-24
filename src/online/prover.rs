@@ -8,12 +8,11 @@ pub trait Transcript<B: RingBatch> {
     fn write(&mut self, elem: B::Element);
 }
 
-
 struct PublicState<'a, B: RingBatch, T: Transcript<B>> {
     wires: RingVector<B>,
 
     // we write to the transcript in "round-robin"
-    transcript: &'a mut T
+    transcript: &'a mut T,
 }
 
 struct SavedTranscript<B: RingBatch, const N: usize> {
@@ -22,7 +21,7 @@ struct SavedTranscript<B: RingBatch, const N: usize> {
     transcript: RingVector<B>,
 }
 
-impl <B: RingBatch, const N: usize> SavedTranscript<B, N> {
+impl<B: RingBatch, const N: usize> SavedTranscript<B, N> {
     fn new(save: usize) -> Self {
         Self {
             next: 0,
@@ -43,7 +42,6 @@ impl<B: RingBatch> Transcript<B> for ElementHasher<B> {
 }
 
 impl<B: RingBatch, const N: usize> Transcript<B> for SavedTranscript<B, N> {
-   
     fn write(&mut self, elem: B::Element) {
         if self.save == 0 {
             // save the current element
@@ -51,14 +49,14 @@ impl<B: RingBatch, const N: usize> Transcript<B> for SavedTranscript<B, N> {
             self.next += 1;
 
             // save next element in N invocations
-            self.save = N; 
+            self.save = N;
         } else {
             self.save -= 1;
         }
     }
 }
 
-struct PlayerState<B: RingBatch, > {
+struct PlayerState<B: RingBatch> {
     // view transcript for player
     view: View,
 
@@ -81,27 +79,39 @@ pub struct Proof<B: RingBatch, const N: usize, const NT: usize> {
 }
 
 impl<B: RingBatch, const N: usize, const NT: usize> Proof<B, N, NT> {
-    /// 
+    ///
     /// - seeds: A list of PRNG seeds used for every execution (of both pre-processing an online).
-    pub fn new(seeds: &[[u8; KEY_SIZE]], program: &[Instruction<B::Element>], inputs: &RingVector<B>) -> Proof<B, N, NT> {
-
+    pub fn new(
+        seeds: &[[u8; KEY_SIZE]],
+        program: &[Instruction<B::Element>],
+        inputs: &RingVector<B>,
+    ) -> Proof<B, N, NT> {
         // expand keys for every player
-        let keys: Vec<Box<[[u8; KEY_SIZE]; N]>> = seeds.par_iter().map(|seed| {
-            let tree: TreePRF<NT> = TreePRF::new(*seed);
-            arr_map!(&tree.expand(), |x: &Option<[u8; KEY_SIZE]>| x.unwrap())
-        }).collect();
-
-        println!("first");
+        let keys: Vec<Box<[[u8; KEY_SIZE]; N]>> = seeds
+            .par_iter()
+            .map(|seed| {
+                let tree: TreePRF<NT> = TreePRF::new(*seed);
+                arr_map!(&tree.expand(), |x: &Option<[u8; KEY_SIZE]>| x.unwrap())
+            })
+            .collect();
 
         // first execution to obtain challenges
-        let hashes: Vec<Hash> = keys.par_iter().map(|keys| {
-            let mut transcript = ElementHasher::<B>::new();
-            let mut exec = Execution::<B, ElementHasher<B>, N, NT>::new(keys, &mut transcript, inputs, 1024);
-            for ins in program {
-                exec.step(ins);
-            }
-            transcript.finalize()
-        }).collect();
+        let hashes: Vec<Hash> = keys
+            .par_iter()
+            .map(|keys| {
+                let mut transcript = ElementHasher::<B>::new();
+                let mut exec = Execution::<B, ElementHasher<B>, N, NT>::new(
+                    keys,
+                    &mut transcript,
+                    inputs,
+                    1024,
+                );
+                for ins in program {
+                    exec.step(ins);
+                }
+                transcript.finalize()
+            })
+            .collect();
 
         // extract which players to open
         let mut view: View = View::new();
@@ -116,35 +126,46 @@ impl<B: RingBatch, const N: usize, const NT: usize> Proof<B, N, NT> {
         for _ in 0..seeds.len() {
             hidden.push(random_usize::<_, N>(&mut rng));
         }
-        
-        println!("second");
-
 
         // second execution to obtain proof
-        let jobs: Vec<(&usize, &Box<[[u8; KEY_SIZE]; N]>)> = hidden.iter().zip(keys.iter()).collect();
-        let transcripts: Vec<RingVector<B>> = jobs.par_iter().map(|(hide, keys)| {
-            let mut transcript = SavedTranscript::new(**hide);
-            let mut exec = Execution::<B, SavedTranscript<B, N>, N, NT>::new(keys, &mut transcript, inputs, 1024);
-            for ins in program {
-                exec.step(ins);
-            }
-            transcript.inner()
-        }).collect();
+        let jobs: Vec<(&usize, &Box<[[u8; KEY_SIZE]; N]>)> =
+            hidden.iter().zip(keys.iter()).collect();
+        let transcripts: Vec<RingVector<B>> = jobs
+            .par_iter()
+            .map(|(hide, keys)| {
+                let mut transcript = SavedTranscript::new(**hide);
+                let mut exec = Execution::<B, SavedTranscript<B, N>, N, NT>::new(
+                    keys,
+                    &mut transcript,
+                    inputs,
+                    1024,
+                );
+                for ins in program {
+                    exec.step(ins);
+                }
+                transcript.inner()
+            })
+            .collect();
 
-        Proof{
+        Proof {
             _ph: PhantomData,
-            transcripts
+            transcripts,
         }
-
-        
     }
 }
 
-impl<'a, B: RingBatch, T: Transcript<B>, const N: usize, const NT: usize> Execution<'a, B, T, N, NT> {
+impl<'a, B: RingBatch, T: Transcript<B>, const N: usize, const NT: usize>
+    Execution<'a, B, T, N, NT>
+{
     /// Takes the seed for the random tapes (used for pre-processing and input masking)
     ///
     ///
-    fn new(keys: &[[u8; KEY_SIZE]; N], transcript: &'a mut T, inputs: &RingVector<B>, capacity: usize) -> Self {
+    fn new(
+        keys: &[[u8; KEY_SIZE]; N],
+        transcript: &'a mut T,
+        inputs: &RingVector<B>,
+        capacity: usize,
+    ) -> Self {
         // generate initial player states
         // TODO: this runs out of stack memory
         let mut players: Box<[PlayerState<B>; N]> = arr_map!(keys, |key| {
@@ -254,7 +275,6 @@ impl<'a, B: RingBatch, T: Transcript<B>, const N: usize, const NT: usize> Execut
         }
         Some(())
     }
-
 }
 
 #[cfg(test)]

@@ -5,7 +5,7 @@ use super::util::*;
 
 pub use blake3::{Hash, Hasher};
 
-pub use ring::{BatchHasher, ElementHasher, ElementRNG};
+pub use ring::RingHasher;
 
 pub use tree::TreePRF;
 

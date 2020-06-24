@@ -1,58 +1,49 @@
-use core::ops::{Add, Mul, Neg, Sub};
+use std::io;
+use std::ops::{Add, Mul, Sub};
 
-use rand_core::RngCore;
+use rand::RngCore;
 
-mod util;
+mod ring;
 
-pub mod gf2;
+pub mod gf2p8;
 
-pub use util::{RingArray, RingVector};
+pub use ring::{RingElement, RingModule};
 
-pub trait RingPacked {
-    fn as_bytes(&self) -> &[u8];
+pub trait Serializable {
+    fn serialize<W: io::Write>(&self, w: &mut W) -> io::Result<()>;
 }
 
-/// Represents a single ring element
-pub trait RingElement:
-    Sized + Copy + Send + Sync + Add<Output = Self> + Sub<Output = Self> + Neg<Output = Self> + Mul<Output = Self>
-{
-    fn zero() -> Self;
+pub trait Samplable {
+    fn gen<R: RngCore>(rng: &mut R) -> Self;
 }
 
-/// Represents a batch/vector of ring elements.
-/// Ring operations occur component-wise:
-/// Hadamard products and addition of vectors.
+/// A sharing is a serializable ring module with a reconstruction homomorphism:
 ///
-/// The reason for this abstraction is efficiency:
-/// e.g. allowing us to represent 64 elements of gf2 in a single 64-bit word.
-pub trait RingBatch:
-    Sized + Copy + Send + Sync + Add<Output = Self> + Sub<Output = Self> + Neg<Output = Self> + Mul<Output = Self>
-{
-    type Element: RingElement;
-    type Packed: RingPacked;
-
-    const BATCH_SIZE: usize;
-
-    fn get(&self, i: usize) -> Self::Element;
-
-    fn set(&mut self, i: usize, v: Self::Element);
-
-    fn zero() -> Self;
-
-    /// Packing a batch of ring elements into a serializable type
-    fn pack(self) -> Self::Packed;
-
-    /// Unpacking a batch of ring elements
-    fn unpack(v: Self::Packed) -> Self;
-
-    /// Generate a batch of elements.
-    fn gen<G: RngCore>(gen: &mut G) -> Self;
+/// (v1 + v2).reconstruct() = v1.reconstruct() + v2.reconstruct()
+///
+/// For additive sharings (used here) this corresponds to the sum of the coordinates.
+/// The dimension of the sharing is equal to the number of players in the MPC protocol.
+pub trait Sharing: RingModule + Serializable {
+    fn reconstruct(&self) -> <Self as RingModule>::Scalar;
 }
 
-pub trait TransposedBatch<const N: usize, const M: usize>: Sized {
-    type Batch: RingBatch;
+/// Represents a ring and player count instance of the protocol
+pub trait Domain {
+    /// a batch of ring elements belonging to a single player
+    type Batch: RingModule + Samplable + Serializable;
 
-    fn new(rows: [Self::Batch; N]) -> [Self; M];
+    /// a sharing of a value across all players
+    type Sharing: Sharing;
 
-    fn get(&self, i: usize) -> <<Self as TransposedBatch<N, M>>::Batch as RingBatch>::Element;
+    /// See documentation for Domain::convert
+    const SHARINGS_PER_BATCH: usize;
+
+    /// Map from:
+    ///
+    /// Self::Batch ^ Self::Sharing::DIMENSION -> Self::Sharing ^ Self::SHARINGS_PER_BATCH
+    ///
+    /// This corresponds to a transpose of the following matrix:
+    ///
+    /// The destination is always holds at least SHARINGS_PER_BATCH bytes.
+    fn convert(dst: &mut [Self::Sharing], src: &[Self::Batch]);
 }

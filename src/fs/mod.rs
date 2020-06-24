@@ -8,7 +8,7 @@ mod rng;
 mod scope;
 
 pub use rng::ViewRNG;
-pub use scope::{Scope, ScopeRing};
+pub use scope::Scope;
 
 /// The hasher is wrapped in a buffered interface
 /// to enable the use of AVX2/AVX512 operations on supporting platforms.

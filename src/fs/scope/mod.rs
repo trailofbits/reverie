@@ -1,10 +1,6 @@
-mod util;
-
 use super::*;
 
 use blake3::Hash;
-
-pub use util::ScopeRing;
 
 /// Represents a labelled Scope, enabling use to write (key, value) pairs
 /// to the transcript, without needing to hold all of "value" in memory.

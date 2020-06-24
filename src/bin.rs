@@ -1,6 +1,6 @@
 extern crate reverie;
 
-
+/*
 use reverie::algebra::gf2::{Bit, BitBatch};
 use reverie::algebra::RingVector;
 use reverie::crypto::ElementHasher;
@@ -8,7 +8,7 @@ use reverie::online::prover::Proof;
 use reverie::online::Instruction;
 
 use reverie::pp::PreprocessedProof;
-
+*/
 
 use std::env;
 
@@ -16,7 +16,7 @@ use rayon::prelude::*;
 
 fn main() {
 
-
+    /*
     let mut inputs: RingVector<BitBatch> = RingVector::new();
 
     inputs.set(0, Bit::new(1));
@@ -40,4 +40,5 @@ fn main() {
     let _: Proof<BitBatch, 8, 8> =  Proof::new(&keys[..], &program, &inputs);
 
     println!("online done");
+    */
 }

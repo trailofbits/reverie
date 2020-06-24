@@ -1,320 +1,135 @@
 use super::*;
 
-use std::io::{Seek, SeekFrom};
-use std::mem;
+use crate::crypto::RingHasher;
+
+use std::io::Write;
 
 use blake3::Hash;
 use rand_core::RngCore;
 
-pub struct State<B: RingBatch, R: RngCore> {
-    rng: R,
-    share_a: B,
-    share_b: B,
-    share_c: B,
+pub fn correction_hash<'a, D: Domain, R: RngCore>(rngs: &'a mut [R], batches: u64) -> Hash {
+    assert_eq!(rngs.len(), D::Sharing::DIMENSION);
+
+    let mut hasher = RingHasher::new();
+
+    for _ in 0..batches {
+        // generate 3 random sharings
+        let a0 = D::Batch::gen(&mut rngs[0]);
+        let b0 = D::Batch::gen(&mut rngs[0]);
+        let c0 = D::Batch::gen(&mut rngs[0]);
+
+        let mut a = a0;
+        let mut b = b0;
+        let mut c = c0;
+
+        for i in 1..D::Sharing::DIMENSION {
+            a = a + D::Batch::gen(&mut rngs[i]);
+            b = b + D::Batch::gen(&mut rngs[i]);
+            c = c + D::Batch::gen(&mut rngs[i]);
+        }
+
+        // correct player 0 share:
+        // Calculate \delta and add to player 0 share:
+        // c + \delta = a * b
+        hasher.update(c0 + (a * b - c));
+    }
+
+    hasher.finalize()
 }
 
-impl<B: RingBatch, R: RngCore> State<B, R> {
-    fn replenish(&mut self) {
-        self.share_a = B::gen(&mut self.rng);
-        self.share_b = B::gen(&mut self.rng);
-        self.share_c = B::gen(&mut self.rng);
-    }
+/// Implementation of pre-processing phase used by the prover during online execution
+pub struct ProverOnlinePreprocessing<D: Domain, W: Write, R: RngCore, const N: usize> {
+    share_a: Vec<D::Sharing>,
+    share_b: Vec<D::Sharing>,
+    share_c: Vec<D::Sharing>,
+    zero: W,           // writer for player 0 shares
+    rngs: Box<[R; N]>, // rngs for players
 }
 
-/// Provides an execution of the pre-processing phase where every player state is know,
-/// hence shares can be computed completely Just-In-Time, whenever the prover needs them.
-///
-/// - N: Number of players.
-/// - S: Should the player 0 c shares be saved?
-///
-/// This is used for proving/verifying correct executions of the pre-processing phase (where S = false).
-/// As well as proving during the online phase (where S = true),
-/// where the c shares for player 0 must be included in the transcript.
-pub struct PreprocessingFull<B: RingBatch, R: RngCore, const N: usize, const S: bool> {
-    used: usize,            // elements used from current batch
-    stat: Box<[State<B, R>; N]>, // state of every player
-    zero: RingVector<B>,    // corrected c shares for player 0
-}
-
-impl<B: RingBatch, R: RngCore, const N: usize, const S: bool> PreprocessingFull<B, R, N, S> {
-    pub fn new(rngs: Box<[R; N]>) -> Self {
-
-
-        // initialize the state for every player
-        let mut stat: Box<[State<B, R>; N]> = arr_map_owned!(rngs, |rng| State {
-            rng,
-            share_a: B::zero(),
-            share_b: B::zero(),
-            share_c: B::zero(),
-        });
-
-
-
-
-        // join into pre-processing context for entire protocol
-        PreprocessingFull {
-            used: B::BATCH_SIZE,
-            zero: RingVector::new(),
-            stat,
-        }
-    }
-
-    pub fn next(&mut self) -> [(B::Element, B::Element, B::Element); N] {
-        // check if every multiplication in batch has been used
-        if self.used >= B::BATCH_SIZE {
-            self.replenish();
-            self.used = 0;
-        }
-
-        // extract the next single element from current batch
-        let beavers: [(B::Element, B::Element, B::Element); N] = arr_map_stack!(&self.stat, |s| {
-            (
-                s.share_a.get(self.used),
-                s.share_b.get(self.used),
-                s.share_c.get(self.used),
-            )
-        });
-
-        // return shares for each player
-        self.used += 1;
-        beavers
-    }
-
-    /// Generate a the next batch of Beaver triples.
-    fn replenish(&mut self) {
-        debug_assert_eq!(self.used, B::BATCH_SIZE);
-
-        // generate shares for players
-        for i in 0..N {
-            self.stat[i].replenish();
-        }
-
-        // calculate the shared elements
-        let mut a = self.stat[0].share_a;
-        let mut b = self.stat[0].share_b;
-        let mut c = self.stat[0].share_c;
-        for i in 1..N {
-            a = a + self.stat[i].share_a;
-            b = b + self.stat[i].share_b;
-            c = c + self.stat[i].share_c;
-        }
-
-        // correct the share for player 0
-        self.stat[0].share_c = c - a * b;
-
-        // optionally save the pre-processing output
-        if S {
-            self.zero.batch_push(self.stat[0].share_c);
-        }
-
-        // assert correctness in debug builds
-        #[cfg(debug)]
-        {
-            let mut a = B::zero();
-            let mut b = B::zero();
-            let mut c = B::zero();
-            for i in 0..N {
-                a = a + self.stat[i].share_a;
-                b = b + self.stat[i].share_b;
-                c = c + self.stat[i].share_c;
-            }
-            assert_eq!(a * b, c);
-        }
-    }
-
-    pub fn hash(&mut self, batches: u64) -> Hash {
-        let mut hasher: BatchHasher = BatchHasher::new();
-        for _ in 0..batches {
-            self.replenish();
-            hasher.update(self.stat[0].share_c);
-        }
-        hasher.finalize()
-    }
-
-    pub fn zero(self) -> RingArray<B> {
-        assert!(S, "shares not saved, invalid use");
-        self.zero.into()
-    }
-}
-
-/// Provides an execution of the pre-processing phase where the state of all-but-one of the players is known.
-/// Shares for every player except player 0 can be computed completely Just-In-Time as before and immediately discarded.
-///
-/// - N: Number of players.
-/// - S: Should the player 0 c shares be saved?
-///
-/// This is used for verification in the online phase.
-///
-/// Ths constructor takes an array of rngs, the index of the player omitted,
-/// and the c shares for player 0 in case player 0 is not omitted.
-///
-pub struct PreprocessingPartial<B: RingBatch, R: RngCore, const N: usize> {
-    used: usize,            // elements used from current batch
-    omit: usize,            // index of player omitted
-    bidx: usize,            // current batch index
-    stat: Box<[State<B, R>; N]>, // state of every player
-    zero: RingArray<B>,     // corrected c shares for player 0 (if not omitted)
-}
-
-impl<B: RingBatch, R: RngCore, const N: usize> PreprocessingPartial<B, R, N> {
-    /// rngs[omit] is a dummy.
-    pub fn new(rngs: Box<[R; N]>, omit: usize, zero: RingArray<B>) -> Self {
-        // check that omit is a valid player
-        debug_assert!(omit < N, "omitted player does not exist");
-
-        // check that zero.len() > 0 => omit != 0
-        debug_assert!(
-            if zero.len() > 0 { omit != 0 } else { true },
-            "omit = {}, zero.len() = {}",
-            omit,
-            zero.len()
-        );
-
-        // initialize the state for every player
-        let mut stat: Box<[State<B, R>; N]> = arr_map_owned!(rngs, |rng| State {
-            rng,
-            share_a: B::zero(),
-            share_b: B::zero(),
-            share_c: B::zero(),
-        });
-
-        // join into pre-processing context for entire protocol
-        PreprocessingPartial {
-            used: B::BATCH_SIZE,
+impl<D: Domain, W: Write, R: RngCore, const N: usize> ProverOnlinePreprocessing<D, W, R, N> {
+    pub fn new(rngs: Box<[R; N]>, zero: W) -> Self {
+        Self {
+            share_a: Vec::with_capacity(D::Batch::DIMENSION),
+            share_b: Vec::with_capacity(D::Batch::DIMENSION),
+            share_c: Vec::with_capacity(D::Batch::DIMENSION),
             zero,
-            omit,
-            stat,
-            bidx: 0,
+            rngs,
         }
     }
 
-    /// Extract a the next batch of partial shares for Beaver triples.
-    ///
-    /// This function can fail is there is insufficient corrected multiplication shares
-    /// left for player 0: if the pre-processing was too short for the online phase.
-    fn replenish(&mut self) -> Option<()> {
-        debug_assert_eq!(self.used, B::BATCH_SIZE);
+    fn replenish(&mut self) {
+        debug_assert_eq!(self.share_a.len(), 0);
+        debug_assert_eq!(self.share_b.len(), 0);
+        debug_assert_eq!(self.share_c.len(), 0);
 
-        // generate shares for players
-        for (i, stat) in self.stat.iter_mut().enumerate() {
-            if i != self.omit {
-                stat.replenish();
+        self.share_a.resize(D::Batch::DIMENSION, D::Sharing::ZERO);
+        self.share_b.resize(D::Batch::DIMENSION, D::Sharing::ZERO);
+        self.share_c.resize(D::Batch::DIMENSION, D::Sharing::ZERO);
+
+        let mut share_a: [D::Batch; N] = [D::Batch::ZERO; N];
+        let mut share_b: [D::Batch; N] = [D::Batch::ZERO; N];
+        let mut share_c: [D::Batch; N] = [D::Batch::ZERO; N];
+
+        // generate 3 batches of shares for every player
+        let mut a = D::Batch::ZERO;
+        let mut b = D::Batch::ZERO;
+        let mut c = D::Batch::ZERO;
+
+        for i in 0..N {
+            share_a[i] = D::Batch::gen(&mut self.rngs[i]);
+            share_b[i] = D::Batch::gen(&mut self.rngs[i]);
+            share_c[i] = D::Batch::gen(&mut self.rngs[i]);
+            a = a + share_a[i];
+            b = b + share_b[i];
+            c = c + share_c[i];
+        }
+
+        // correct share for player 0
+        share_c[0] = share_c[0] + (a * b - c);
+
+        // write player 0 corrected share
+        share_c[0].serialize(&mut self.zero).unwrap();
+
+        // transpose
+        D::convert(&mut self.share_a[..], &mut share_a);
+        D::convert(&mut self.share_b[..], &mut share_b);
+        D::convert(&mut self.share_c[..], &mut share_c);
+    }
+
+    pub fn next(&mut self) -> (D::Sharing, D::Sharing, D::Sharing) {
+        match (self.share_a.pop(), self.share_b.pop(), self.share_c.pop()) {
+            (Some(a), Some(b), Some(c)) => (a, b, c),
+            (None, None, None) => {
+                self.replenish();
+                debug_assert!(self.share_a.len() > 0);
+                debug_assert!(self.share_b.len() > 0);
+                debug_assert!(self.share_c.len() > 0);
+                self.next()
             }
+            _ => unreachable!(),
         }
-
-        // if player zero is opened replace share with correction
-        if self.omit != 0 {
-            self.stat[0].share_c = self.zero.get_batch(self.bidx)?;
-            self.bidx += 1;
-        }
-
-        // replenished successfully
-        Some(())
-    }
-
-    /// Obtain the next partial shares for a single Beaver triple (single ring elements).
-    ///
-    /// For the omitted player it always returns zero (a dummy value).
-    ///
-    /// This function can fail is there is insufficient corrected multiplication shares
-    /// left for player 0: if the pre-processing was too short for the online phase.
-    pub fn next(&mut self) -> Option<[(B::Element, B::Element, B::Element); N]> {
-        // check if every multiplication in batch has been used
-        if self.used == B::BATCH_SIZE {
-            self.replenish()?;
-            self.used = 0;
-        }
-
-        // extract the next single element from current batch
-        let beavers: [(B::Element, B::Element, B::Element); N] = arr_map_stack!(&self.stat, |s| {
-            (
-                s.share_a.get(self.used),
-                s.share_b.get(self.used),
-                s.share_c.get(self.used),
-            )
-        });
-
-        // return shares for each player
-        self.used += 1;
-        Some(beavers)
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::super::super::algebra::gf2::*;
-    use super::super::super::algebra::*;
+#[cfg(not(debug_assertions))] // omit for testing
+mod benchmark {
     use super::*;
+    use crate::algebra::gf2p8::GF2P8;
 
-    use rand::Rng;
+    use std::io::{sink, Sink};
 
-    #[test]
-    fn test_full_partial_equal() {
-        const PLAYERS: usize = 16;
-        const BEAVERS: usize = 50_000;
+    use rand::rngs::ThreadRng;
+    use rand::thread_rng;
 
-        for _ in 0..32 {
-            let mut rng = rand::thread_rng();
+    use test::{black_box, Bencher};
 
-            let omit: usize = rng.gen::<usize>() % PLAYERS;
-            let beavers: usize = rng.gen::<usize>() & BEAVERS;
+    #[bench]
+    fn bench_preprocessing_n8_triples(b: &mut Bencher) {
+        let mut rngs: Box<[ThreadRng; 8]> = arr_from_iter!((0..8).map(|_| thread_rng()));
+        let mut gen: ProverOnlinePreprocessing<GF2P8, Sink, _, 8> =
+            ProverOnlinePreprocessing::new(rngs, sink());
 
-            // get distinct player RNGS
-            let rngs: Box<[_; PLAYERS]> = arr_from_iter!(&mut (0..PLAYERS).into_iter().map(|i| {
-                let mut key = [0u8; KEY_SIZE];
-                key[0] = i as u8;
-                View::new_keyed(&key).rng("test".as_bytes())
-            }));
-
-
-            // create backup of initial state
-            let mut orig = rngs.clone();
-
-
-            // create preprocessing
-            let mut full: PreprocessingFull<BitBatch, ViewRNG, PLAYERS, true> =
-                PreprocessingFull::new(rngs);
-
-
-
-
-            // get a bunch of shares
-            let mut shares: Vec<_> = vec![];
-            for _ in 0..beavers {
-                shares.push(full.next());
-            }
-
-            // now dummy one of the rngs and run the partial pre-processing
-            orig[omit] = View::new_keyed(&[1u8; KEY_SIZE]).rng("test".as_bytes());
-
-            let mut partial: PreprocessingPartial<BitBatch, ViewRNG, PLAYERS> =
-                PreprocessingPartial::new(
-                    orig,
-                    omit,
-                    if omit == 0 {
-                        RingVector::new().into()
-                    } else {
-                        full.zero()
-                    },
-                );
-
-
-
-            for mut s_full in shares {
-                let s_partial = partial.next().unwrap();
-
-                assert_eq!(s_partial[omit].0, Bit::zero());
-                assert_eq!(s_partial[omit].1, Bit::zero());
-                assert_eq!(s_partial[omit].2, Bit::zero());
-
-                s_full[omit].0 = Bit::zero();
-                s_full[omit].1 = Bit::zero();
-                s_full[omit].2 = Bit::zero();
-
-                assert_eq!(s_full, s_partial);
-            }
-            mem::drop(partial);
-           
-        }
+        b.iter(|| black_box(gen.next()));
     }
 }
