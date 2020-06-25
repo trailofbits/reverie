@@ -4,34 +4,49 @@ mod verifier;
 
 pub use instr::Instruction;
 
-use crate::algebra::{RingArray, RingBatch, RingElement, RingVector};
 use crate::consts::*;
-use crate::crypto::{ElementHasher, ElementRNG, TreePRF, KEY_SIZE};
-use crate::fs::{Scope, ScopeRing, View, ViewRNG};
-use crate::pp::{PreprocessingFull, PreprocessingPartial};
+use crate::crypto::{RingHasher, TreePRF, KEY_SIZE};
+use crate::fs::{Scope, View, ViewRNG};
+
 use crate::util::*;
+
+use crate::algebra::{Domain, RingElement, Samplable};
 
 use blake3::Hash;
 use rand_core::RngCore;
 
-struct RingRng<B: RingBatch, R: RngCore> {
-    rng: R,
-    used: usize,
-    elems: B,
+struct SharingRng<D: Domain, R: RngCore, const N: usize> {
+    rngs: Box<[R; N]>,
+    sharings: Vec<D::Sharing>,
 }
 
-impl<B: RingBatch, R: RngCore> RingRng<B, R> {
-    fn gen(&mut self) -> B::Element {
-        // check to see if should replenish
-        if self.used == B::BATCH_SIZE {
-            self.elems = B::gen(&mut self.rng);
-            self.used = 0;
+impl<D: Domain, R: RngCore, const N: usize> SharingRng<D, R, N> {
+    pub fn new(rngs: Box<[R; N]>) -> SharingRng<D, R, N> {
+        SharingRng {
+            rngs,
+            sharings: Vec::with_capacity(D::SHARINGS_PER_BATCH),
         }
+    }
 
-        // extract the next element
-        let elem = self.elems.get(self.used);
-        self.used += 1;
-        elem
+    pub fn gen(&mut self) -> D::Sharing {
+        match self.sharings.pop() {
+            Some(sharing) => sharing,
+            None => {
+                // generate a batch of shares for every player
+                let mut batches: [D::Batch; N] = [D::Batch::ZERO; N];
+                self.sharings
+                    .resize(D::SHARINGS_PER_BATCH, D::Sharing::ZERO);
+                for i in 0..N {
+                    batches[i] = D::Batch::gen(&mut self.rngs[i]);
+                }
+
+                // transpose batches into sharings
+                D::convert(&mut self.sharings[..], &batches[..]);
+
+                // return the first sharing
+                self.sharings.pop().unwrap()
+            }
+        }
     }
 }
 

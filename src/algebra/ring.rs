@@ -25,11 +25,11 @@ pub trait RingModule: RingElement {
 
     // action of the scalar ring upon the module:
     // s * (r_1, r_2, ..., r_dimension) = (s * r_1, s * r_2, ..., s * r_dimension)
-    fn action(&self, s: &Self::Scalar) -> Self;
+    fn action(&self, s: Self::Scalar) -> Self;
 
     // get the n'th ring element from an element in the module
     fn get(&self, n: usize) -> Self::Scalar;
 
     // set the n'th ring element from an element in the module
-    fn set(&self, s: &Self::Scalar, n: usize) -> Self;
+    fn set(&self, s: Self::Scalar, n: usize) -> Self;
 }

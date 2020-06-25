@@ -1,4 +1,4 @@
-use super::RingElement;
+use crate::algebra::RingElement;
 
 #[derive(Copy, Clone)]
 pub enum Instruction<E: RingElement> {

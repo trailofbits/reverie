@@ -1,83 +1,123 @@
 use super::*;
 
-use std::marker::PhantomData;
+use crate::algebra::{Domain, RingModule, Serializable, Sharing};
+use crate::pp::ProverOnlinePreprocessing;
+
+use super::SharingRng;
+
+use std::io::Write;
 
 use rayon::prelude::*;
 
-pub trait Transcript<B: RingBatch> {
-    fn write(&mut self, elem: B::Element);
+pub trait Transcript<T> {
+    fn append(&mut self, message: T);
 }
 
-struct PublicState<'a, B: RingBatch, T: Transcript<B>> {
-    wires: RingVector<B>,
+impl<T> Transcript<T> for RingHasher<T>
+where
+    T: Serializable,
+{
+    fn append(&mut self, message: T) {
+        self.update(message)
+    }
+}
 
-    // we write to the transcript in "round-robin"
+pub struct Execution<
+    'a,
+    D: Domain,                 // algebraic domain
+    W: Write,                  // writer for player 0 shares
+    T: Transcript<D::Sharing>, // transcript for public channel
+    const N: usize,
+    const NT: usize,
+> {
+    preprocessing: ProverOnlinePreprocessing<D, W, ViewRNG, N>,
     transcript: &'a mut T,
+    mask: SharingRng<D, ViewRNG, N>,
+    wire: Vec<(<D::Sharing as RingModule>::Scalar, D::Sharing)>,
 }
 
-struct SavedTranscript<B: RingBatch, const N: usize> {
-    save: usize,
-    next: usize,
-    transcript: RingVector<B>,
-}
+impl<'a, D: Domain, W: Write, T: Transcript<D::Sharing>, const N: usize, const NT: usize>
+    Execution<'a, D, W, T, N, NT>
+{
+    /// Takes the seed for the random tapes (used for pre-processing and input masking)
+    ///
+    ///
+    fn new(
+        keys: &[[u8; KEY_SIZE]; N],
+        zero: W,
+        inputs: &[<D::Sharing as RingModule>::Scalar],
+        transcript: &'a mut T,
+    ) -> Self {
+        // create just-in-time pre-processing instance
 
-impl<B: RingBatch, const N: usize> SavedTranscript<B, N> {
-    fn new(save: usize) -> Self {
-        Self {
-            next: 0,
-            save,
-            transcript: RingVector::new(),
+        let views: Box<[View; N]> = arr_map!(keys, |key| View::new_keyed(key));
+        let preprocessing = ProverOnlinePreprocessing::new(
+            arr_map!(&views, |view| { view.rng(LABEL_RNG_BEAVER) }),
+            zero,
+        );
+
+        // encrypt the inputs
+
+        let mut mask = SharingRng::new(arr_map!(&views, |view| { view.rng(LABEL_RNG_MASKS) }));
+        let mut wire: Vec<(<D::Sharing as RingModule>::Scalar, D::Sharing)> =
+            Vec::with_capacity(inputs.len());
+
+        for input in inputs {
+            let m: D::Sharing = mask.gen();
+            wire.push((*input - m.reconstruct(), m));
+        }
+
+        Execution {
+            preprocessing,
+            transcript,
+            mask,
+            wire,
         }
     }
 
-    fn inner(self) -> RingVector<B> {
-        self.transcript
-    }
-}
+    ///
+    pub fn step(&mut self, ins: &Instruction<<D::Sharing as RingModule>::Scalar>) {
+        match ins {
+            Instruction::AddConst(dst, src, c) => {
+                let sw = self.wire[*src];
+                self.wire[*dst] = (sw.0 + (*c), sw.1);
+            }
 
-impl<B: RingBatch> Transcript<B> for ElementHasher<B> {
-    fn write(&mut self, elem: B::Element) {
-        self.update(elem)
-    }
-}
+            Instruction::MulConst(dst, src, c) => {
+                let sw = self.wire[*src];
+                self.wire[*dst] = (sw.0 * (*c), sw.1.action(*c));
+            }
+            Instruction::Add(dst, src1, src2) => {
+                let sw1 = self.wire[*src1];
+                let sw2 = self.wire[*src2];
+                self.wire[*dst] = (sw1.0 + sw2.0, sw1.1 + sw2.1);
+            }
+            Instruction::Mul(dst, src1, src2) => {
+                let sw1 = self.wire[*src1];
+                let sw2 = self.wire[*src2];
 
-impl<B: RingBatch, const N: usize> Transcript<B> for SavedTranscript<B, N> {
-    fn write(&mut self, elem: B::Element) {
-        if self.save == 0 {
-            // save the current element
-            self.transcript.set(self.next, elem);
-            self.next += 1;
+                // generate the next beaver triple
+                let (a, b, ab) = self.preprocessing.next();
 
-            // save next element in N invocations
-            self.save = N;
-        } else {
-            self.save -= 1;
+                // generate new mask to mask reconstruction (and result)
+                let m = self.mask.gen();
+
+                // calculate reconstruction shares for every player
+                let r = a.action(sw1.0) + b.action(sw2.0) + ab + m;
+
+                // append messages from all players to transcript
+                self.transcript.append(r);
+
+                // reconstruct and correct share
+                self.wire[*dst] = (r.reconstruct() + sw1.0 * sw2.0, m);
+            }
+
+            Instruction::Output(src) => {}
         }
     }
 }
 
-struct PlayerState<B: RingBatch> {
-    // view transcript for player
-    view: View,
-
-    // mask generator
-    mask_rng: ElementRNG<B, ViewRNG>,
-
-    // shares of wire masks (initially holds the masks for the inputs)
-    masks: RingVector<B>,
-}
-
-pub struct Execution<'a, B: RingBatch, T: Transcript<B>, const N: usize, const NT: usize> {
-    beaver: PreprocessingFull<B, ViewRNG, N, true>,
-    public: PublicState<'a, B, T>,
-    players: Box<[PlayerState<B>; N]>,
-}
-
-pub struct Proof<B: RingBatch, const N: usize, const NT: usize> {
-    transcripts: Vec<RingVector<B>>,
-    _ph: PhantomData<B>,
-}
-
+/*
 impl<B: RingBatch, const N: usize, const NT: usize> Proof<B, N, NT> {
     ///
     /// - seeds: A list of PRNG seeds used for every execution (of both pre-processing an online).
@@ -153,160 +193,45 @@ impl<B: RingBatch, const N: usize, const NT: usize> Proof<B, N, NT> {
         }
     }
 }
-
-impl<'a, B: RingBatch, T: Transcript<B>, const N: usize, const NT: usize>
-    Execution<'a, B, T, N, NT>
-{
-    /// Takes the seed for the random tapes (used for pre-processing and input masking)
-    ///
-    ///
-    fn new(
-        keys: &[[u8; KEY_SIZE]; N],
-        transcript: &'a mut T,
-        inputs: &RingVector<B>,
-        capacity: usize,
-    ) -> Self {
-        // generate initial player states
-        // TODO: this runs out of stack memory
-        let mut players: Box<[PlayerState<B>; N]> = arr_map!(keys, |key| {
-            let view = View::new_keyed(key);
-            let mask_rng = ElementRNG::new(view.rng(LABEL_RNG_MASKS));
-            PlayerState {
-                view,
-                mask_rng,
-                masks: RingVector::with_capacity(capacity),
-            }
-        });
-
-        // create pre-processing instance
-        let beaver: PreprocessingFull<B, ViewRNG, N, true> =
-            PreprocessingFull::new(arr_map!(&*players, |player| {
-                player.view.rng(LABEL_RNG_BEAVER)
-            }));
-
-        // create the global channel
-        let mut public: PublicState<'a, B, T> = PublicState {
-            transcript,
-            wires: RingVector::with_capacity(inputs.len()),
-        };
-
-        // TODO: consider packing as detailed in the paper
-        // (allowing parallel operation on all shares, but makes the generic interface harder)
-        //
-        // This code is not exactly efficient: it operates bitwise for GF(2)
-        for i in 0..inputs.len() {
-            let mut masked = inputs.get(i).unwrap();
-            for player in players.iter_mut() {
-                let mask = player.mask_rng.gen();
-                masked = masked - mask;
-                player.masks.set(i, mask)
-            }
-            public.wires.set(i, masked);
-        }
-
-        // bundle up the initial state for the interpreter
-        Execution {
-            beaver,
-            public,
-            players,
-        }
-    }
-
-    ///
-    pub fn step(&mut self, ins: &Instruction<B::Element>) -> Option<()> {
-        match ins {
-            Instruction::AddConst(dst, src, c) => {
-                let w = self.public.wires.get(*src)?;
-                self.public.wires.set(*dst, *c + w);
-            }
-
-            Instruction::MulConst(dst, src, c) => {
-                let w = self.public.wires.get(*src)?;
-                self.public.wires.set(*dst, *c * w);
-
-                for player in self.players.iter_mut() {
-                    let w = player.masks.get(*src)?;
-                    player.masks.set(*dst, *c * w);
-                }
-            }
-            Instruction::Add(dst, src1, src2) => {
-                let w1 = self.public.wires.get(*src1)?;
-                let w2 = self.public.wires.get(*src2)?;
-                self.public.wires.set(*dst, w1 + w2);
-
-                for player in self.players.iter_mut() {
-                    let w1 = player.masks.get(*src1)?;
-                    let w2 = player.masks.get(*src2)?;
-                    player.masks.set(*dst, w1 + w2);
-                }
-            }
-            Instruction::Mul(dst, src1, src2) => {
-                let w1 = self.public.wires.get(*src1)?;
-                let w2 = self.public.wires.get(*src2)?;
-
-                // generate the next beaver triple
-                let tp = self.beaver.next();
-
-                // compute the reconstructed value
-                let mut s: B::Element = B::Element::zero();
-
-                // locally compute shares
-                for (share, player) in tp.iter().zip(self.players.iter_mut()) {
-                    // generate new mask to mask reconstruction (and result)
-                    let mask = player.mask_rng.gen();
-
-                    // compute local share
-                    let share = w1 * share.0 + w2 * share.1 + share.2 + mask;
-
-                    // store the new mask
-                    player.masks.set(*dst, mask);
-
-                    // add the share (broadcast message) to the transcript
-                    self.public.transcript.write(share);
-
-                    s = s + share;
-                }
-
-                // reconstruct
-                self.public.wires.set(*dst, s + w1 * w2);
-            }
-
-            Instruction::Output(src) => {}
-        }
-        Some(())
-    }
-}
+*/
 
 #[cfg(test)]
 #[cfg(not(debug_assertions))] // omit for testing
 mod benchmark {
     use super::*;
-    use crate::algebra::gf2::{Bit, BitBatch};
+
+    use crate::algebra::gf2p8::GF2P8;
 
     use rayon::prelude::*;
 
-    use test::Bencher;
+    use std::io::{sink, Sink};
 
-    const MULTIPLICATIONS: u64 = 100_000;
+    use rand::rngs::ThreadRng;
+    use rand::thread_rng;
 
-    /*
-    fn bench_online_execution<B: RingBatch, const N: usize, const NT: usize, const R: usize>(
-        b: &mut Bencher,
-    ) {
-        let mut inputs: RingVector<BitBatch> = RingVector::new();
+    use test::{black_box, Bencher};
 
-        inputs.set(0, Bit::new(1));
-        inputs.set(1, Bit::new(1));
+    const MULTIPLICATIONS: u64 = 1_000_000;
+
+    fn bench_online_execution<const N: usize, const NT: usize, const R: usize>(b: &mut Bencher) {
+        let one = <<GF2P8 as Domain>::Sharing as RingModule>::Scalar::ONE;
+        let zero = <<GF2P8 as Domain>::Sharing as RingModule>::Scalar::ZERO;
+        let mut inputs: Vec<<<GF2P8 as Domain>::Sharing as RingModule>::Scalar> =
+            vec![one, one, one];
 
         b.iter(|| {
             let _: Vec<()> = vec![0u8; R]
                 .par_iter()
                 .map(|_| {
-                    let mut exec: Execution<BitBatch, ElementHasher<BitBatch>, N, NT> =
-                        Execution::new(Box<[0u8; 16]>, arr_from_iter!((0..N).map(|_| ElementHasher<BitBatch>::new())), &inputs, 1024);
+                    let keys: [[u8; 16]; 8] = [[0u8; 16]; 8];
+
+                    let mut transcript: RingHasher<<GF2P8 as Domain>::Sharing> = RingHasher::new();
+
+                    let mut exec: Execution<GF2P8, Sink, _, 8, 8> =
+                        Execution::new(&keys, sink(), &inputs[..], &mut transcript);
 
                     for _ in 0..MULTIPLICATIONS {
-                        exec.step(&Instruction::Mul(3, 0, 1));
+                        exec.step(&Instruction::Mul(2, 0, 1));
                     }
                 })
                 .collect();
@@ -314,13 +239,15 @@ mod benchmark {
     }
 
     #[bench]
+    fn bench_online_execution_n8(b: &mut Bencher) {
+        bench_online_execution::<8, 8, 44>(b);
+    }
+
+    /*
+    #[bench]
     fn bench_online_execution_n64(b: &mut Bencher) {
         bench_online_execution::<BitBatch, 64, 64, 23>(b);
     }
 
-    #[bench]
-    fn bench_online_execution_n8(b: &mut Bencher) {
-        bench_online_execution::<BitBatch, 8, 8, 44>(b);
-    }
     */
 }

@@ -1,6 +1,7 @@
 use std::io;
 use std::ops::{Add, Mul, Sub};
 
+use rand::distributions::{Distribution, Standard};
 use rand::RngCore;
 
 mod ring;

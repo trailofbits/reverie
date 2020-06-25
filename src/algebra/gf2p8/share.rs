@@ -39,7 +39,7 @@ impl RingModule for BitSharing {
     const DIMENSION: usize = 8;
 
     #[inline(always)]
-    fn action(&self, s: &Self::Scalar) -> Self {
+    fn action(&self, s: Self::Scalar) -> Self {
         debug_assert!(s.0 < 2, "scalar is not bit");
         BitSharing(s.0 * self.0)
     }
@@ -51,7 +51,7 @@ impl RingModule for BitSharing {
     }
 
     #[inline(always)]
-    fn set(&self, s: &Self::Scalar, n: usize) -> Self {
+    fn set(&self, s: Self::Scalar, n: usize) -> Self {
         debug_assert!(s.0 < 2, "scalar is not bit");
         debug_assert!(n < 8, "set out of range");
 

@@ -62,7 +62,7 @@ impl RingModule for BitBatch {
     }
 
     #[inline(always)]
-    fn set(&self, s: &Self::Scalar, n: usize) -> Self {
+    fn set(&self, s: Self::Scalar, n: usize) -> Self {
         debug_assert!(s.0 < 2, "scalar is not bit");
         debug_assert!(n < Self::DIMENSION, "set out of range");
 
@@ -76,7 +76,7 @@ impl RingModule for BitBatch {
     }
 
     #[inline(always)]
-    fn action(&self, s: &Self::Scalar) -> Self {
+    fn action(&self, s: Self::Scalar) -> Self {
         let mut res: [u8; BATCH_SIZE_BYTES] = [0; BATCH_SIZE_BYTES];
         for i in 0..BATCH_SIZE_BYTES {
             res[i] = s.0 * self.0[i];
