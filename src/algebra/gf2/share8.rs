@@ -2,9 +2,9 @@ use super::*;
 
 // vector element
 #[derive(Copy, Clone, Debug)]
-pub struct BitSharing(pub(super) u8);
+pub struct BitSharing8(pub(super) u8);
 
-impl Add for BitSharing {
+impl Add for BitSharing8 {
     type Output = Self;
 
     fn add(self, other: Self) -> Self::Output {
@@ -12,7 +12,7 @@ impl Add for BitSharing {
     }
 }
 
-impl Sub for BitSharing {
+impl Sub for BitSharing8 {
     type Output = Self;
 
     fn sub(self, other: Self) -> Self::Output {
@@ -20,7 +20,7 @@ impl Sub for BitSharing {
     }
 }
 
-impl Mul for BitSharing {
+impl Mul for BitSharing8 {
     type Output = Self;
 
     fn mul(self, other: Self) -> Self::Output {
@@ -28,12 +28,12 @@ impl Mul for BitSharing {
     }
 }
 
-impl RingElement for BitSharing {
+impl RingElement for BitSharing8 {
     const ONE: Self = Self(0xff);
     const ZERO: Self = Self(0x00);
 }
 
-impl RingModule for BitSharing {
+impl RingModule for BitSharing8 {
     type Scalar = BitScalar;
 
     const DIMENSION: usize = 8;
@@ -41,7 +41,7 @@ impl RingModule for BitSharing {
     #[inline(always)]
     fn action(&self, s: Self::Scalar) -> Self {
         debug_assert!(s.0 < 2, "scalar is not bit");
-        BitSharing(s.0 * self.0)
+        BitSharing8(s.0 * self.0)
     }
 
     #[inline(always)]
@@ -58,17 +58,17 @@ impl RingModule for BitSharing {
         let mut r: u8 = self.0;
         r &= !(1 << n); // clear nth bit
         r |= s.0 << n; // set nth bit
-        BitSharing(r)
+        BitSharing8(r)
     }
 }
 
-impl Serializable for BitSharing {
+impl Serializable for BitSharing8 {
     fn serialize<W: io::Write>(&self, w: &mut W) -> io::Result<()> {
         w.write_all(&self.0.to_le_bytes())
     }
 }
 
-impl Sharing for BitSharing {
+impl Sharing for BitSharing8 {
     // Reconstruction for the share module is the sum of the ring elements
     // This can be implemented by xoring all the bits together,
     // but calculating the parity via count_ones is faster on x86.

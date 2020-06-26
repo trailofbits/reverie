@@ -10,40 +10,46 @@ pub trait Transcript<T> {
     fn append(&mut self, message: T);
 }
 
-impl<T> Transcript<T> for RingHasher<T>
-where
-    T: Serializable,
-{
-    fn append(&mut self, message: T) {
-        self.update(message)
+struct StoredTranscript<T: Serializable> {
+    msgs: Vec<T>,
+    hasher: RingHasher<T>,
+}
+
+impl<T: Serializable> StoredTranscript<T> {
+    fn new() -> Self {
+        StoredTranscript {
+            msgs: Vec::new(),
+            hasher: RingHasher::new(),
+        }
     }
 }
 
 pub struct Execution<
     'a,
+    'b,
     D: Domain,                 // algebraic domain
     W: Write,                  // writer for player 0 shares
     T: Transcript<D::Sharing>, // transcript for public channel
     const N: usize,
     const NT: usize,
 > {
-    preprocessing: ProverOnlinePreprocessing<D, W, ViewRNG, N>,
-    transcript: &'a mut T,
+    preprocessing: ProverOnlinePreprocessing<'a, D, W, ViewRNG, N>,
+    transcript: &'b mut T,
     mask: SharingRng<D, ViewRNG, N>,
     wire: Vec<(<D::Sharing as RingModule>::Scalar, D::Sharing)>,
 }
 
-impl<'a, D: Domain, W: Write, T: Transcript<D::Sharing>, const N: usize, const NT: usize>
-    Execution<'a, D, W, T, N, NT>
+impl<'a, 'b, D: Domain, W: Write, T: Transcript<D::Sharing>, const N: usize, const NT: usize>
+    Execution<'a, 'b, D, W, T, N, NT>
 {
     /// Takes the seed for the random tapes (used for pre-processing and input masking)
     ///
     ///
     pub fn new(
         keys: &[[u8; KEY_SIZE]; N],
-        zero: W,
+        zero: &'a mut W,
         inputs: &[<D::Sharing as RingModule>::Scalar],
-        transcript: &'a mut T,
+        transcript: &'b mut T,
     ) -> Self {
         // create just-in-time pre-processing instance
 

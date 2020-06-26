@@ -11,7 +11,7 @@ impl Add for BitBatch {
 
     #[inline(always)]
     fn add(self, other: Self) -> Self::Output {
-        // LLVM optimizes this into a single AND between 64-bit integers
+        // LLVM optimizes this into a single XOR between 64-bit integers
         let mut res: [u8; BATCH_SIZE_BYTES] = [0; BATCH_SIZE_BYTES];
         for i in 0..BATCH_SIZE_BYTES {
             res[i] = self.0[i] ^ other.0[i];

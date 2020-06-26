@@ -23,7 +23,7 @@ impl<R: Serializable> RingHasher<R> {
         }
     }
 
-    pub fn update(&mut self, elem: R) {
+    pub fn update(&mut self, elem: &R) {
         let _ = elem.serialize(&mut self.hasher);
     }
 

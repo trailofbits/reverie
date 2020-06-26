@@ -1,6 +1,6 @@
 use super::*;
 
-use std::rc::Rc;
+use std::sync::Arc;
 
 use blake3::Hasher;
 
@@ -11,9 +11,9 @@ const PRF_RIGHT: [u8; 16] = [1; 16];
 /// We assume that the number of elements in the tree is a power of two for simplicity.
 #[derive(Debug, Clone)]
 pub enum TreePRF<const N: usize> {
-    Punctured,                                // child has been punctured
-    Leaf([u8; KEY_SIZE]),                     // used for leaf nodes and full sub-trees
-    Internal(Rc<TreePRF<N>>, Rc<TreePRF<N>>), // used for punctured children
+    Punctured,                                  // child has been punctured
+    Leaf([u8; KEY_SIZE]),                       // used for leaf nodes and full sub-trees
+    Internal(Arc<TreePRF<N>>, Arc<TreePRF<N>>), // used for punctured children
 }
 
 fn double_prng(key: &[u8; KEY_SIZE]) -> ([u8; KEY_SIZE], [u8; KEY_SIZE]) {
@@ -51,13 +51,13 @@ impl<const N: usize> TreePRF<N> {
                     // puncture recursively
                     if (idx >> level) & 1 == 0 {
                         TreePRF::Internal(
-                            Rc::new(left.puncture_internal(idx, level - 1)),
-                            Rc::new(right),
+                            Arc::new(left.puncture_internal(idx, level - 1)),
+                            Arc::new(right),
                         )
                     } else {
                         TreePRF::Internal(
-                            Rc::new(left),
-                            Rc::new(right.puncture_internal(idx, level - 1)),
+                            Arc::new(left),
+                            Arc::new(right.puncture_internal(idx, level - 1)),
                         )
                     }
                 }
@@ -69,13 +69,13 @@ impl<const N: usize> TreePRF<N> {
                 // puncture recursively
                 if (idx >> level) & 1 == 0 {
                     TreePRF::Internal(
-                        Rc::new(left.puncture_internal(idx, level - 1)),
-                        Rc::clone(right),
+                        Arc::new(left.puncture_internal(idx, level - 1)),
+                        Arc::clone(right),
                     )
                 } else {
                     TreePRF::Internal(
-                        Rc::clone(left),
-                        Rc::new(right.puncture_internal(idx, level - 1)),
+                        Arc::clone(left),
+                        Arc::new(right.puncture_internal(idx, level - 1)),
                     )
                 }
             }

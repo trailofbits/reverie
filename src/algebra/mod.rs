@@ -2,11 +2,11 @@ use std::io;
 use std::ops::{Add, Mul, Sub};
 
 use rand::distributions::{Distribution, Standard};
-use rand::RngCore;
+use rand::{Rng, RngCore};
 
 mod ring;
 
-pub mod gf2p8;
+pub mod gf2;
 
 pub use ring::{RingElement, RingModule};
 
@@ -16,6 +16,15 @@ pub trait Serializable {
 
 pub trait Samplable {
     fn gen<R: RngCore>(rng: &mut R) -> Self;
+}
+
+impl<T> Samplable for T
+where
+    Standard: Distribution<T>,
+{
+    fn gen<R: RngCore>(rng: &mut R) -> T {
+        rng.gen()
+    }
 }
 
 /// A sharing is a serializable ring module with a reconstruction homomorphism:

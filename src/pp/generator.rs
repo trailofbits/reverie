@@ -31,23 +31,25 @@ pub fn correction_hash<'a, D: Domain, R: RngCore>(rngs: &'a mut [R], batches: u6
         // correct player 0 share:
         // Calculate \delta and add to player 0 share:
         // c + \delta = a * b
-        hasher.update(c0 + (a * b - c));
+        hasher.update(&(c0 + (a * b - c)));
     }
 
     hasher.finalize()
 }
 
 /// Implementation of pre-processing phase used by the prover during online execution
-pub struct ProverOnlinePreprocessing<D: Domain, W: Write, R: RngCore, const N: usize> {
+pub struct ProverOnlinePreprocessing<'a, D: Domain, W: Write, R: RngCore, const N: usize> {
     share_a: Vec<D::Sharing>,
     share_b: Vec<D::Sharing>,
     share_c: Vec<D::Sharing>,
-    zero: W,           // writer for player 0 shares
+    zero: &'a mut W,   // writer for player 0 shares
     rngs: Box<[R; N]>, // rngs for players
 }
 
-impl<D: Domain, W: Write, R: RngCore, const N: usize> ProverOnlinePreprocessing<D, W, R, N> {
-    pub fn new(rngs: Box<[R; N]>, zero: W) -> Self {
+impl<'a, D: Domain, W: Write, R: RngCore, const N: usize>
+    ProverOnlinePreprocessing<'a, D, W, R, N>
+{
+    pub fn new(rngs: Box<[R; N]>, zero: &'a mut W) -> Self {
         Self {
             share_a: Vec::with_capacity(D::Batch::DIMENSION),
             share_b: Vec::with_capacity(D::Batch::DIMENSION),

@@ -95,10 +95,11 @@ impl<
         assert_eq!(hidden.len() + opened.len(), R);
 
         // recompute the opened views
-        let mut hashes: Vec<Option<Hash>> = keys
-            .par_iter()
+
+        let mut hashes: Vec<Option<Hash>> = Vec::with_capacity(keys.len());
+        keys.par_iter()
             .map(|seed| seed.map(|seed| preprocess::<D, P, PT>(batches, &seed)))
-            .collect();
+            .collect_into_vec(&mut hashes);
 
         // copy over the provided hashes from the hidden views
         for (&i, hash) in hidden.iter().zip(self.hidden.iter()) {
@@ -134,10 +135,11 @@ impl<
         let batches = Self::beaver_to_batches(beaver);
 
         // generate hashes of every pre-processing execution
-        let hashes: Vec<Hash> = keys
-            .par_iter()
+
+        let mut hashes: Vec<Hash> = Vec::with_capacity(keys.len());
+        keys.par_iter()
             .map(|seed| preprocess::<D, P, PT>(batches, seed.as_ref().unwrap()))
-            .collect();
+            .collect_into_vec(&mut hashes);
 
         // add every pre-processing execution to a global view
         let mut global: View = View::new();
@@ -172,7 +174,7 @@ impl<
 
 #[cfg(test)]
 mod tests {
-    use super::super::algebra::gf2p8::GF2P8;
+    use super::super::algebra::gf2::GF2P8;
     use super::*;
 
     use rand::Rng;
@@ -185,22 +187,12 @@ mod tests {
         let proof = PreprocessedProof::<GF2P8, 8, 8, 252, 256, 44>::new(BEAVER, seed);
         assert!(proof.verify(BEAVER).is_some());
     }
-
-    /*
-    #[test]
-    fn test_preprocessing_n64() {
-        let mut rng = rand::thread_rng();
-        let seed: [u8; KEY_SIZE] = rng.gen();
-        let proof = PreprocessedProof::<GF2P8, 64, 64, 631, 1024, 23>::new(BEAVER, seed);
-        assert!(proof.verify(BEAVER).is_some());
-    }
-    */
 }
 
 #[cfg(test)]
 #[cfg(not(debug_assertions))] // omit for testing
 mod benchmark {
-    use super::super::algebra::gf2p8::GF2P8;
+    use super::super::algebra::gf2::GF2P8;
     use super::*;
 
     use test::Bencher;
