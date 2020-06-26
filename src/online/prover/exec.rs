@@ -1,13 +1,10 @@
 use super::*;
 
 use crate::algebra::{Domain, RingModule, Serializable, Sharing};
+use crate::consts::{LABEL_RNG_BEAVER, LABEL_RNG_MASKS};
 use crate::pp::ProverOnlinePreprocessing;
 
-use super::SharingRng;
-
 use std::io::Write;
-
-use rayon::prelude::*;
 
 pub trait Transcript<T> {
     fn append(&mut self, message: T);
@@ -42,7 +39,7 @@ impl<'a, D: Domain, W: Write, T: Transcript<D::Sharing>, const N: usize, const N
     /// Takes the seed for the random tapes (used for pre-processing and input masking)
     ///
     ///
-    fn new(
+    pub fn new(
         keys: &[[u8; KEY_SIZE]; N],
         zero: W,
         inputs: &[<D::Sharing as RingModule>::Scalar],
@@ -117,84 +114,6 @@ impl<'a, D: Domain, W: Write, T: Transcript<D::Sharing>, const N: usize, const N
     }
 }
 
-/*
-impl<B: RingBatch, const N: usize, const NT: usize> Proof<B, N, NT> {
-    ///
-    /// - seeds: A list of PRNG seeds used for every execution (of both pre-processing an online).
-    pub fn new(
-        seeds: &[[u8; KEY_SIZE]],
-        program: &[Instruction<B::Element>],
-        inputs: &RingVector<B>,
-    ) -> Proof<B, N, NT> {
-        // expand keys for every player
-        let keys: Vec<Box<[[u8; KEY_SIZE]; N]>> = seeds
-            .par_iter()
-            .map(|seed| {
-                let tree: TreePRF<NT> = TreePRF::new(*seed);
-                arr_map!(&tree.expand(), |x: &Option<[u8; KEY_SIZE]>| x.unwrap())
-            })
-            .collect();
-
-        // first execution to obtain challenges
-        let hashes: Vec<Hash> = keys
-            .par_iter()
-            .map(|keys| {
-                let mut transcript = ElementHasher::<B>::new();
-                let mut exec = Execution::<B, ElementHasher<B>, N, NT>::new(
-                    keys,
-                    &mut transcript,
-                    inputs,
-                    1024,
-                );
-                for ins in program {
-                    exec.step(ins);
-                }
-                transcript.finalize()
-            })
-            .collect();
-
-        // extract which players to open
-        let mut view: View = View::new();
-        {
-            let mut scope = view.scope(LABEL_SCOPE_ONLINE_TRANSCRIPT);
-            for hash in hashes.iter() {
-                scope.join(hash);
-            }
-        }
-        let mut rng = view.rng(LABEL_RNG_OPEN_ONLINE);
-        let mut hidden: Vec<usize> = Vec::with_capacity(seeds.len());
-        for _ in 0..seeds.len() {
-            hidden.push(random_usize::<_, N>(&mut rng));
-        }
-
-        // second execution to obtain proof
-        let jobs: Vec<(&usize, &Box<[[u8; KEY_SIZE]; N]>)> =
-            hidden.iter().zip(keys.iter()).collect();
-        let transcripts: Vec<RingVector<B>> = jobs
-            .par_iter()
-            .map(|(hide, keys)| {
-                let mut transcript = SavedTranscript::new(**hide);
-                let mut exec = Execution::<B, SavedTranscript<B, N>, N, NT>::new(
-                    keys,
-                    &mut transcript,
-                    inputs,
-                    1024,
-                );
-                for ins in program {
-                    exec.step(ins);
-                }
-                transcript.inner()
-            })
-            .collect();
-
-        Proof {
-            _ph: PhantomData,
-            transcripts,
-        }
-    }
-}
-*/
-
 #[cfg(test)]
 #[cfg(not(debug_assertions))] // omit for testing
 mod benchmark {
@@ -242,12 +161,4 @@ mod benchmark {
     fn bench_online_execution_n8(b: &mut Bencher) {
         bench_online_execution::<8, 8, 44>(b);
     }
-
-    /*
-    #[bench]
-    fn bench_online_execution_n64(b: &mut Bencher) {
-        bench_online_execution::<BitBatch, 64, 64, 23>(b);
-    }
-
-    */
 }
