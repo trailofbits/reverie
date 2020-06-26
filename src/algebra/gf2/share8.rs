@@ -92,11 +92,11 @@ mod benchmark {
 
         let mut rng = thread_rng();
 
-        let mut v: [BitSharing; 4] = [
-            BitSharing(rng.gen()),
-            BitSharing(rng.gen()),
-            BitSharing(rng.gen()),
-            BitSharing(rng.gen()),
+        let mut v: [BitSharing8; 4] = [
+            BitSharing8(rng.gen()),
+            BitSharing8(rng.gen()),
+            BitSharing8(rng.gen()),
+            BitSharing8(rng.gen()),
         ];
 
         b.iter(|| {

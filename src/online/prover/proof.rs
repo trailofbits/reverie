@@ -8,20 +8,30 @@ use crate::util::*;
 use blake3::Hash;
 use rayon::prelude::*;
 
-struct StoredTranscript<T: Serializable> {
+pub struct Run<D: Domain, const N: usize, const NT: usize> {
+    zero: Vec<u8>,                                 // sharings for
+    msgs: Vec<<D::Sharing as RingModule>::Scalar>, // messages broadcast by hidden player
+    open: TreePRF<NT>,
+}
+
+pub struct Proof<D: Domain, const N: usize, const NT: usize, const R: usize> {
+    runs: Vec<Run<D, N, NT>>,
+}
+
+pub(super) struct StoredTranscript<T: Serializable> {
     msgs: Vec<T>,
     hasher: RingHasher<T>,
 }
 
 impl<T: Serializable> StoredTranscript<T> {
-    fn new() -> Self {
+    pub fn new() -> Self {
         StoredTranscript {
             msgs: Vec::new(),
             hasher: RingHasher::new(),
         }
     }
 
-    fn end(self) -> (Hash, Vec<T>) {
+    pub fn end(self) -> (Hash, Vec<T>) {
         (self.hasher.finalize(), self.msgs)
     }
 }
@@ -31,16 +41,6 @@ impl<T: Serializable> Transcript<T> for StoredTranscript<T> {
         self.hasher.update(&message);
         self.msgs.push(message);
     }
-}
-
-pub struct Run<D: Domain, const N: usize, const NT: usize> {
-    zero: Vec<u8>,                                 // sharings for
-    msgs: Vec<<D::Sharing as RingModule>::Scalar>, // messages broadcast by hidden player
-    open: TreePRF<NT>,
-}
-
-pub struct Proof<D: Domain, const N: usize, const NT: usize, const R: usize> {
-    runs: Vec<Run<D, N, NT>>,
 }
 
 impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT, R> {

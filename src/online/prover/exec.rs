@@ -10,20 +10,6 @@ pub trait Transcript<T> {
     fn append(&mut self, message: T);
 }
 
-struct StoredTranscript<T: Serializable> {
-    msgs: Vec<T>,
-    hasher: RingHasher<T>,
-}
-
-impl<T: Serializable> StoredTranscript<T> {
-    fn new() -> Self {
-        StoredTranscript {
-            msgs: Vec::new(),
-            hasher: RingHasher::new(),
-        }
-    }
-}
-
 pub struct Execution<
     'a,
     'b,
@@ -33,6 +19,7 @@ pub struct Execution<
     const N: usize,
     const NT: usize,
 > {
+    output: Vec<<D::Sharing as RingModule>::Scalar>,
     preprocessing: ProverOnlinePreprocessing<'a, D, W, ViewRNG, N>,
     transcript: &'b mut T,
     mask: SharingRng<D, ViewRNG, N>,
@@ -71,6 +58,7 @@ impl<'a, 'b, D: Domain, W: Write, T: Transcript<D::Sharing>, const N: usize, con
         }
 
         Execution {
+            output: Vec::new(),
             preprocessing,
             transcript,
             mask,
@@ -115,7 +103,12 @@ impl<'a, 'b, D: Domain, W: Write, T: Transcript<D::Sharing>, const N: usize, con
                 self.wire[*dst] = (r.reconstruct() + sw1.0 * sw2.0, m);
             }
 
-            Instruction::Output(src) => {}
+            Instruction::Output(src) => {
+                let sw = self.wire[*src];
+
+                // reconstruct the mask and decrypt the masked wire
+                self.output.push(sw.0 + sw.1.reconstruct())
+            }
         }
     }
 }
@@ -123,9 +116,11 @@ impl<'a, 'b, D: Domain, W: Write, T: Transcript<D::Sharing>, const N: usize, con
 #[cfg(test)]
 #[cfg(not(debug_assertions))] // omit for testing
 mod benchmark {
+    use super::proof::StoredTranscript;
     use super::*;
 
-    use crate::algebra::gf2p8::GF2P8;
+    use crate::algebra::gf2::{GF2P64, GF2P8};
+    use crate::algebra::RingElement;
 
     use rayon::prelude::*;
 
@@ -136,24 +131,26 @@ mod benchmark {
 
     use test::{black_box, Bencher};
 
-    const MULTIPLICATIONS: u64 = 1_000_000;
+    const MULTIPLICATIONS: u64 = 100_000;
 
-    fn bench_online_execution<const N: usize, const NT: usize, const R: usize>(b: &mut Bencher) {
-        let one = <<GF2P8 as Domain>::Sharing as RingModule>::Scalar::ONE;
-        let zero = <<GF2P8 as Domain>::Sharing as RingModule>::Scalar::ZERO;
-        let mut inputs: Vec<<<GF2P8 as Domain>::Sharing as RingModule>::Scalar> =
-            vec![one, one, one];
+    fn bench_online_execution<D: Domain, const N: usize, const NT: usize, const R: usize>(
+        b: &mut Bencher,
+    ) {
+        let one = <<D::Sharing as RingModule>::Scalar as RingElement>::ONE;
+        let zero = <<D::Sharing as RingModule>::Scalar as RingElement>::ZERO;
+        let mut inputs: Vec<<D::Sharing as RingModule>::Scalar> = vec![one, one, one];
 
         b.iter(|| {
             let _: Vec<()> = vec![0u8; R]
                 .par_iter()
                 .map(|_| {
-                    let keys: [[u8; 16]; 8] = [[0u8; 16]; 8];
+                    let keys: [[u8; 16]; N] = [[0u8; 16]; N];
 
-                    let mut transcript: RingHasher<<GF2P8 as Domain>::Sharing> = RingHasher::new();
+                    let mut transcript: StoredTranscript<D::Sharing> = StoredTranscript::new();
 
-                    let mut exec: Execution<GF2P8, Sink, _, 8, 8> =
-                        Execution::new(&keys, sink(), &inputs[..], &mut transcript);
+                    let mut writer = sink();
+                    let mut exec: Execution<D, Sink, _, N, NT> =
+                        Execution::new(&keys, &mut writer, &inputs[..], &mut transcript);
 
                     for _ in 0..MULTIPLICATIONS {
                         exec.step(&Instruction::Mul(2, 0, 1));
@@ -165,6 +162,11 @@ mod benchmark {
 
     #[bench]
     fn bench_online_execution_n8(b: &mut Bencher) {
-        bench_online_execution::<8, 8, 44>(b);
+        bench_online_execution::<GF2P8, 8, 8, 44>(b);
+    }
+
+    #[bench]
+    fn bench_online_execution_n64(b: &mut Bencher) {
+        bench_online_execution::<GF2P64, 64, 64, 23>(b);
     }
 }

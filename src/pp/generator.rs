@@ -117,7 +117,7 @@ impl<'a, D: Domain, W: Write, R: RngCore, const N: usize>
 #[cfg(not(debug_assertions))] // omit for testing
 mod benchmark {
     use super::*;
-    use crate::algebra::gf2p8::GF2P8;
+    use crate::algebra::gf2::GF2P8;
 
     use std::io::{sink, Sink};
 
@@ -129,8 +129,9 @@ mod benchmark {
     #[bench]
     fn bench_preprocessing_n8_triples(b: &mut Bencher) {
         let mut rngs: Box<[ThreadRng; 8]> = arr_from_iter!((0..8).map(|_| thread_rng()));
+        let mut writer = sink();
         let mut gen: ProverOnlinePreprocessing<GF2P8, Sink, _, 8> =
-            ProverOnlinePreprocessing::new(rngs, sink());
+            ProverOnlinePreprocessing::new(rngs, &mut writer);
 
         b.iter(|| black_box(gen.next()));
     }

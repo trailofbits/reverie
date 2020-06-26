@@ -197,7 +197,7 @@ mod benchmark {
 
     use test::Bencher;
 
-    const BEAVER: u64 = 1_000_000;
+    const BEAVER: u64 = 100_000;
 
     /*
     /// Benchmark proof generation of pre-processing using parameters from the paper
