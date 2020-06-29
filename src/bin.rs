@@ -3,6 +3,7 @@ extern crate reverie;
 use reverie::algebra::gf2::{GF2P64, GF2P8};
 use reverie::algebra::*;
 
+/*
 use reverie::online::{Instruction, Proof};
 use reverie::pp::PreprocessedProof;
 
@@ -74,3 +75,6 @@ fn main() {
         println!("online done");
     }
 }
+*/
+
+fn main() {}

@@ -1,9 +1,17 @@
-use std::io;
+use std::fmt::Debug;
 use std::ops::{Add, Mul, Sub};
 
 /// Represents an associative ring with identity
 pub trait RingElement:
-    Copy + Copy + Send + Sync + Add<Output = Self> + Sub<Output = Self> + Mul<Output = Self>
+    Copy
+    + Copy
+    + Send
+    + Sync
+    + Add<Output = Self>
+    + Sub<Output = Self>
+    + Mul<Output = Self>
+    + Eq
+    + Debug
 {
     // multiplicative identity
     const ONE: Self;

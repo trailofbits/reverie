@@ -25,7 +25,7 @@ pub mod pp;
 pub mod crypto;
 
 // online phase
-pub mod online;
+// pub mod online;
 
 // traits and implementations of the underlying ring
 pub mod algebra;

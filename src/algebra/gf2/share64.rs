@@ -1,7 +1,7 @@
 use super::*;
 
 // vector element
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct BitSharing64(pub(super) u64);
 
 impl Add for BitSharing64 {

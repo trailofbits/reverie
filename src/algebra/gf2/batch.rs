@@ -3,7 +3,7 @@ use super::*;
 pub(super) const BATCH_SIZE_BYTES: usize = 8; // batch is 64-bit / 8 bytes
 pub(super) const BATCH_SIZE_BITS: usize = BATCH_SIZE_BYTES * 8;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BitBatch(pub(super) [u8; BATCH_SIZE_BYTES]);
 
 impl Add for BitBatch {
