@@ -8,9 +8,6 @@ impl Domain for GF2P8 {
     type Batch = BitBatch;
     type Sharing = BitSharing8;
 
-    // across players sharings from a batch of sharings for each player
-    const SHARINGS_PER_BATCH: usize = BATCH_SIZE_BITS;
-
     #[inline(always)]
     fn convert(dst: &mut [Self::Sharing], src: &[Self::Batch]) {
         // do a single bounds check up front
@@ -26,7 +23,7 @@ impl Domain for GF2P8 {
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         {
             // do a single range-check up front
-            assert!(dst.len() >= Self::SHARINGS_PER_BATCH);
+            assert!(dst.len() >= Self::Batch::DIMENSION);
 
             // transpose batch, byte-by-byte
             for i in 0..BATCH_SIZE_BYTES {

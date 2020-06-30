@@ -46,12 +46,9 @@ pub trait Domain {
     /// a sharing of a value across all players
     type Sharing: Sharing + Debug;
 
-    /// See documentation for Domain::convert
-    const SHARINGS_PER_BATCH: usize;
-
     /// Map from:
     ///
-    /// Self::Batch ^ Self::Sharing::DIMENSION -> Self::Sharing ^ Self::SHARINGS_PER_BATCH
+    /// Self::Batch ^ Self::Sharing::DIMENSION -> Self::Sharing ^ Self::Batch::DIMENSION
     ///
     /// This corresponds to a transpose of the following matrix:
     ///
@@ -81,7 +78,7 @@ fn test_domain<D: Domain>() {
 
     fn rnd_sharings<D: Domain, R: RngCore>(rng: &mut R) -> Vec<D::Sharing> {
         let batches = rnd_batches::<D, R>(rng);
-        let mut sharings = vec![D::Sharing::ZERO; D::SHARINGS_PER_BATCH];
+        let mut sharings = vec![D::Sharing::ZERO; D::Batch::DIMENSION];
         D::convert(&mut sharings, &batches);
         sharings
     }
@@ -89,7 +86,7 @@ fn test_domain<D: Domain>() {
     // check that convert_inv is the inverse of convert
     {
         let batches = rnd_batches::<D, _>(&mut rng);
-        let mut sharings: Vec<D::Sharing> = vec![D::Sharing::ZERO; D::SHARINGS_PER_BATCH];
+        let mut sharings: Vec<D::Sharing> = vec![D::Sharing::ZERO; D::Batch::DIMENSION];
 
         D::convert(&mut sharings, &batches);
 

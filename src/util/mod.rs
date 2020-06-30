@@ -1,6 +1,8 @@
 mod subset;
+mod writer;
 
 pub use subset::*;
+pub use writer::*;
 
 use std::mem;
 
@@ -13,16 +15,16 @@ pub struct ArrayIter<A, const L: usize> {
     next: usize,
 }
 
-impl <A, const L: usize>ArrayIter<A, L> {
+impl<A, const L: usize> ArrayIter<A, L> {
     pub fn new(array: Box<[A; L]>) -> Self {
-        ArrayIter{
+        ArrayIter {
             array: unsafe { mem::transmute(array) },
-            next: 0
+            next: 0,
         }
     }
 }
 
-impl <A, const L: usize> Iterator for ArrayIter<A, L> {
+impl<A, const L: usize> Iterator for ArrayIter<A, L> {
     type Item = A;
     fn next(&mut self) -> Option<Self::Item> {
         if self.next >= L {
@@ -44,7 +46,8 @@ macro_rules! arr_map_stack {
             v: &[A; L],
             m: F,
         ) -> [B; L] {
-            let mut res: [mem::MaybeUninit<B>; L] = unsafe { mem::MaybeUninit::uninit().assume_init() };
+            let mut res: [mem::MaybeUninit<B>; L] =
+                unsafe { mem::MaybeUninit::uninit().assume_init() };
             for (i, e) in v.iter().enumerate() {
                 res[i] = mem::MaybeUninit::new(m(e));
             }
@@ -155,8 +158,6 @@ macro_rules! arr_map_owned {
     }};
 }
 
-
-
 /// TODO: Consider a variant with stronger types:
 /// Enforce equality between the length of the iter and array at compile time.
 macro_rules! arr_from_iter {
@@ -165,11 +166,9 @@ macro_rules! arr_from_iter {
 
         #[inline(always)]
         #[allow(dead_code)]
-        fn map<
-            I: Iterator<Item = A>,
-            A: Sized,
-            const L: usize,
-        >(mut iter: I) -> Box<[mem::MaybeUninit<A>; L]> {
+        fn map<I: Iterator<Item = A>, A: Sized, const L: usize>(
+            mut iter: I,
+        ) -> Box<[mem::MaybeUninit<A>; L]> {
             let mut res: Box<[mem::MaybeUninit<A>; L]> = unsafe { Box::new_uninit().assume_init() };
             for i in 0..L {
                 res[i] = mem::MaybeUninit::new(iter.next().unwrap());
@@ -177,7 +176,6 @@ macro_rules! arr_from_iter {
             debug_assert!(iter.next().is_none(), "iterator longer than array");
             res
         }
-        
         #[inline(always)]
         #[allow(dead_code)]
         fn type_check<A: Sized, const L: usize>(

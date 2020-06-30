@@ -1,4 +1,5 @@
 use crate::algebra::Serializable;
+use crate::util::Writer;
 
 use std::io;
 use std::io::Write;
@@ -31,5 +32,11 @@ impl<R: Serializable> RingHasher<R> {
         let _ = self.hasher.write(&self.length.to_le_bytes());
         let _ = self.hasher.flush();
         self.hasher.get_ref().finalize()
+    }
+}
+
+impl<R: Serializable> Writer<R> for RingHasher<R> {
+    fn write(&mut self, elem: &R) {
+        let _ = elem.serialize(&mut self.hasher);
     }
 }

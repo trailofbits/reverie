@@ -8,6 +8,7 @@ use crate::consts::*;
 use crate::crypto::*;
 use crate::fs::*;
 use crate::util::*;
+use crate::Instruction;
 
 use std::marker::PhantomData;
 use std::mem;
@@ -42,8 +43,9 @@ pub struct PreprocessedProof<
 ///
 /// Returns a commitment to the view of all players.
 fn preprocess<D: Domain, const P: usize, const PT: usize>(
-    batches: u64,          // number of Beaver multiplication triples
     seed: &[u8; KEY_SIZE], // random tape used for phase
+    program: &[Instruction<<D::Sharing as RingModule>::Scalar>],
+    inputs: usize,
 ) -> Hash {
     // the root PRF from which each players random tape is derived using a PRF tree
     let root: TreePRF<PT> = TreePRF::new(*seed);
@@ -56,7 +58,18 @@ fn preprocess<D: Domain, const P: usize, const PT: usize>(
 
     // generate the beaver triples and write the corrected shares to the transcript
     let mut rngs: Box<[ViewRNG; P]> = arr_map!(&views, |view: &View| view.rng(LABEL_RNG_BEAVER));
-    correction_hash::<D, _>(&mut rngs[..], batches)
+
+    let mut hasher = RingHasher::new();
+    let mut exec: PreprocessingExecution<D, _, _, P> =
+        PreprocessingExecution::new(&mut rngs, &mut hasher, inputs);
+
+    // execute every instruction in the program
+    for ins in program {
+        exec.step(ins)
+    }
+
+    // return the transcript hash for the corrections
+    hasher.finalize()
 }
 
 impl<
@@ -68,14 +81,11 @@ impl<
         const H: usize,
     > PreprocessedProof<D, P, PT, R, RT, H>
 {
-    fn beaver_to_batches(beaver: u64) -> u64 {
-        (beaver + (D::Batch::DIMENSION as u64) - 1) / (D::Batch::DIMENSION as u64)
-    }
-
-    pub fn verify(&self, beaver: u64) -> Option<&[Hash; H]> {
-        // compute the number of required batches
-        let batches = Self::beaver_to_batches(beaver);
-
+    pub fn verify(
+        &self,
+        program: &[Instruction<<D::Sharing as RingModule>::Scalar>],
+        inputs: usize,
+    ) -> Option<&[Hash; H]> {
         // derive keys and hidden execution indexes
         let keys: Box<[_; R]> = self.random.expand();
         let mut hidden: Vec<usize> = Vec::with_capacity(R);
@@ -98,7 +108,7 @@ impl<
 
         let mut hashes: Vec<Option<Hash>> = Vec::with_capacity(keys.len());
         keys.par_iter()
-            .map(|seed| seed.map(|seed| preprocess::<D, P, PT>(batches, &seed)))
+            .map(|seed| seed.map(|seed| preprocess::<D, P, PT>(&seed, program, inputs)))
             .collect_into_vec(&mut hashes);
 
         // copy over the provided hashes from the hidden views
@@ -126,19 +136,20 @@ impl<
         }
     }
 
-    pub fn new(beaver: u64, seed: [u8; KEY_SIZE]) -> Self {
+    pub fn new(
+        seed: [u8; KEY_SIZE],
+        program: &[Instruction<<D::Sharing as RingModule>::Scalar>],
+        inputs: usize,
+    ) -> Self {
         // define PRF tree and obtain key material for every pre-processing execution
         let root: TreePRF<RT> = TreePRF::new(seed);
         let keys: Box<[_; R]> = root.expand();
-
-        // batches = ceil(beaver / BATCH_SIZE)
-        let batches = Self::beaver_to_batches(beaver);
 
         // generate hashes of every pre-processing execution
 
         let mut hashes: Vec<Hash> = Vec::with_capacity(keys.len());
         keys.par_iter()
-            .map(|seed| preprocess::<D, P, PT>(batches, seed.as_ref().unwrap()))
+            .map(|seed| preprocess::<D, P, PT>(seed.as_ref().unwrap(), program, inputs))
             .collect_into_vec(&mut hashes);
 
         // add every pre-processing execution to a global view
@@ -178,14 +189,14 @@ mod tests {
     use super::*;
 
     use rand::Rng;
-    const BEAVER: u64 = 1000;
 
     #[test]
     fn test_preprocessing_n8() {
+        let program = vec![Instruction::Mul(0, 1, 2); 1024]; // maybe generate random program?
         let mut rng = rand::thread_rng();
         let seed: [u8; KEY_SIZE] = rng.gen();
-        let proof = PreprocessedProof::<GF2P8, 8, 8, 252, 256, 44>::new(BEAVER, seed);
-        assert!(proof.verify(BEAVER).is_some());
+        let proof = PreprocessedProof::<GF2P8, 8, 8, 252, 256, 44>::new(seed, &program, 1024);
+        assert!(proof.verify(&program, 1024).is_some());
     }
 }
 
@@ -197,7 +208,7 @@ mod benchmark {
 
     use test::Bencher;
 
-    const BEAVER: u64 = 100_000;
+    const MULT: usize = 100_000;
 
     /*
     /// Benchmark proof generation of pre-processing using parameters from the paper
@@ -220,7 +231,10 @@ mod benchmark {
     /// t =  44 (online phase executions (hidden pre-processing executions))
     #[bench]
     fn bench_preprocessing_proof_gen_n8(b: &mut Bencher) {
-        b.iter(|| PreprocessedProof::<GF2P8, 8, 8, 252, 256, 44>::new(BEAVER, [0u8; KEY_SIZE]));
+        let program = vec![Instruction::Mul(0, 1, 2); MULT]; // maybe generate random program?
+        b.iter(|| {
+            PreprocessedProof::<GF2P8, 8, 8, 252, 256, 44>::new([0u8; KEY_SIZE], &program, 64)
+        });
     }
 
     /*
@@ -246,7 +260,9 @@ mod benchmark {
     /// t =  44 (online phase executions (hidden pre-processing executions))
     #[bench]
     fn bench_preprocessing_proof_verify_n8(b: &mut Bencher) {
-        let proof = PreprocessedProof::<GF2P8, 8, 8, 252, 256, 44>::new(BEAVER, [0u8; KEY_SIZE]);
-        b.iter(|| proof.verify(BEAVER));
+        let program = vec![Instruction::Mul(0, 1, 2); MULT]; // maybe generate random program?
+        let proof =
+            PreprocessedProof::<GF2P8, 8, 8, 252, 256, 44>::new([0u8; KEY_SIZE], &program, 64);
+        b.iter(|| proof.verify(&program, 64));
     }
 }
