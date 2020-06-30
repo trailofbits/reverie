@@ -9,7 +9,7 @@ use blake3::Hash;
 use rayon::prelude::*;
 
 pub struct Run<D: Domain, const N: usize, const NT: usize> {
-    zero: Vec<u8>,                                 // sharings for
+    zero: Vec<D::Batch>,                           // sharings for
     msgs: Vec<<D::Sharing as RingModule>::Scalar>, // messages broadcast by hidden player
     open: TreePRF<NT>,
 }
@@ -36,10 +36,10 @@ impl<T: Serializable> StoredTranscript<T> {
     }
 }
 
-impl<T: Serializable> Transcript<T> for StoredTranscript<T> {
-    fn append(&mut self, message: T) {
+impl<T: Serializable + Copy> Writer<T> for StoredTranscript<T> {
+    fn write(&mut self, message: &T) {
         self.hasher.update(&message);
-        self.msgs.push(message);
+        self.msgs.push(*message);
     }
 }
 
@@ -50,8 +50,12 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
         inputs: &[<D::Sharing as RingModule>::Scalar],
     ) -> Proof<D, N, NT, R> {
         // execute the online phase R times
-        let mut execs: Vec<((Hash, Vec<D::Sharing>), TreePRF<NT>, Option<Vec<u8>>, usize)> =
-            Vec::with_capacity(R);
+        let mut execs: Vec<(
+            (Hash, Vec<D::Sharing>),
+            TreePRF<NT>,
+            Option<(Hash, Vec<D::Batch>)>,
+            usize,
+        )> = Vec::with_capacity(R);
 
         seeds
             .par_iter()
@@ -63,19 +67,16 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
 
                 // prepare execution environment
                 let mut transcript = StoredTranscript::<D::Sharing>::new();
-                let mut zero = Vec::new();
-                let mut exec = Execution::<D, Vec<u8>, _, N, NT>::new(
+                let mut zero = StoredTranscript::<D::Batch>::new();
+                // execute program one instruction at a time
+                execute::<D, StoredTranscript<D::Batch>, StoredTranscript<D::Sharing>, N, NT>(
                     &keys,
                     &mut zero,
                     inputs,
                     &mut transcript,
+                    program,
                 );
-
-                // execute program one instruction at a time
-                for ins in program {
-                    exec.step(ins);
-                }
-                (transcript.end(), tree, Some(zero), 0)
+                (transcript.end(), tree, Some(zero.end()), 0)
             })
             .collect_into_vec(&mut execs);
 
@@ -100,7 +101,7 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
                 let hide = run.3;
 
                 // clear the player 0 corrections if not opened
-                let mut zero = run.2.take().unwrap();
+                let mut zero = run.2.take().unwrap().1;
                 if hide != 0 {
                     zero.clear();
                 }

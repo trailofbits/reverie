@@ -3,9 +3,9 @@ extern crate reverie;
 use reverie::algebra::gf2::{GF2P64, GF2P8};
 use reverie::algebra::*;
 
-/*
-use reverie::online::{Instruction, Proof};
+use reverie::online::Proof;
 use reverie::pp::PreprocessedProof;
+use reverie::Instruction;
 
 use std::env;
 
@@ -41,7 +41,7 @@ fn main() {
 
         let program = vec![Instruction::Mul(2, 0, 1); multiplications as usize];
 
-        PreprocessedProof::<GF2P8, 8, 8, 252, 256, 44>::new(multiplications, [0u8; 16]);
+        PreprocessedProof::<GF2P8, 8, 8, 252, 256, 44>::new([0u8; 16], &program[..], inputs.len());
 
         println!("preprocessing done");
 
@@ -63,7 +63,11 @@ fn main() {
 
         let program = vec![Instruction::Mul(2, 0, 1); multiplications as usize];
 
-        PreprocessedProof::<GF2P64, 64, 64, 631, 1024, 23>::new(multiplications, [0u8; 16]);
+        PreprocessedProof::<GF2P64, 64, 64, 631, 1024, 23>::new(
+            [0u8; 16],
+            &program[..],
+            inputs.len(),
+        );
 
         println!("preprocessing done");
 
@@ -75,6 +79,3 @@ fn main() {
         println!("online done");
     }
 }
-*/
-
-fn main() {}

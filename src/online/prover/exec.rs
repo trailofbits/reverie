@@ -1,33 +1,113 @@
 use super::*;
 
-use crate::algebra::{Domain, RingModule, Serializable, Sharing};
+use crate::algebra::{Domain, RingElement, RingModule, Serializable, Sharing};
 use crate::consts::{LABEL_RNG_BEAVER, LABEL_RNG_MASKS};
-use crate::pp::ProverOnlinePreprocessing;
+use crate::pp::PreprocessingExecution;
+use crate::util::Writer;
 
 use std::io::Write;
 
-pub trait Transcript<T> {
-    fn append(&mut self, message: T);
-}
-
-pub struct Execution<
+pub struct OnlineExecution<
     'a,
     'b,
-    D: Domain,                 // algebraic domain
-    W: Write,                  // writer for player 0 shares
-    T: Transcript<D::Sharing>, // transcript for public channel
+    'c,
+    D: Domain,             // algebraic domain
+    W: Writer<D::Batch>,   // writer for player 0 shares
+    T: Writer<D::Sharing>, // transcript for public channel
     const N: usize,
     const NT: usize,
 > {
     output: Vec<<D::Sharing as RingModule>::Scalar>,
-    preprocessing: ProverOnlinePreprocessing<'a, D, W, ViewRNG, N>,
-    transcript: &'b mut T,
-    mask: SharingRng<D, ViewRNG, N>,
-    wire: Vec<(<D::Sharing as RingModule>::Scalar, D::Sharing)>,
+    transcript: &'c mut T,
+    preprocessing: PreprocessingExecution<'a, 'b, D, W, ViewRNG, N>,
+    wires: Vec<<D::Sharing as RingModule>::Scalar>,
 }
 
-impl<'a, 'b, D: Domain, W: Write, T: Transcript<D::Sharing>, const N: usize, const NT: usize>
-    Execution<'a, 'b, D, W, T, N, NT>
+pub fn execute<
+    D: Domain,
+    W: Writer<D::Batch>,
+    T: Writer<D::Sharing>,
+    const N: usize,
+    const NT: usize,
+>(
+    keys: &[[u8; KEY_SIZE]; N],
+    zero: &mut W,
+    inputs: &[<D::Sharing as RingModule>::Scalar],
+    transcript: &mut T,
+    mut program: &[Instruction<<D::Sharing as RingModule>::Scalar>],
+) {
+    // create pre-processing instance
+    let views: Box<[View; N]> = arr_map!(keys, |key| View::new_keyed(key));
+    let mut rngs: Box<[ViewRNG; N]> = arr_map!(&views, |view| { view.rng(LABEL_RNG_BEAVER) });
+    let mut preprocessing: PreprocessingExecution<D, W, ViewRNG, N> =
+        PreprocessingExecution::new(&mut *rngs, zero, inputs.len());
+
+    // mask the inputs
+    let mut wires: Vec<<D::Sharing as RingModule>::Scalar> = Vec::with_capacity(inputs.len());
+    for (i, input) in inputs.iter().enumerate() {
+        let mask: D::Sharing = preprocessing.masks[i];
+        wires.push(*input - mask.reconstruct());
+    }
+
+    let mut ab_gamma = vec![<D::Sharing as RingElement>::ZERO; D::Batch::DIMENSION];
+
+    while program.len() > 0 {
+        let mut next = 0;
+        let steps = preprocessing.next_batch(&mut ab_gamma[..], program);
+
+        for i in 0..steps {
+            match program[i] {
+                Instruction::AddConst(dst, src, c) => {
+                    let sw = wires[src];
+                    wires[dst] = sw + c;
+                }
+                Instruction::MulConst(dst, src, c) => {
+                    let sw = wires[src];
+                    wires[dst] = sw * c;
+                }
+                Instruction::Add(dst, src1, src2) => {
+                    let sw1 = wires[src1];
+                    let sw2 = wires[src2];
+                    wires[dst] = sw1 + sw2;
+                }
+                Instruction::Mul(dst, src1, src2) => {
+                    let sw1 = wires[src1];
+                    let sw2 = wires[src2];
+
+                    // calculate reconstruction shares for every player
+                    let a: D::Sharing = preprocessing.masks[src1];
+                    let b: D::Sharing = preprocessing.masks[src2];
+                    let recon = a.action(sw1) + b.action(sw2) + ab_gamma[next];
+
+                    // append messages from all players to transcript
+                    transcript.write(&recon);
+
+                    // reconstruct and correct share
+                    wires[dst] = recon.reconstruct() + sw1 * sw2;
+
+                    // we used an ab_gamma sharing
+                    next += 1
+                }
+                Instruction::Output(src) => (),
+            }
+        }
+
+        // move to next batch
+        program = &program[steps..];
+    }
+}
+
+/*
+impl<
+        'a,
+        'b,
+        'c,
+        D: Domain,
+        W: Writer<D::Batch>,
+        T: Writer<D::Sharing>,
+        const N: usize,
+        const NT: usize,
+    > OnlineExecution<'a, 'b, 'c, D, W, T, N, NT>
 {
     /// Takes the seed for the random tapes (used for pre-processing and input masking)
     ///
@@ -38,77 +118,91 @@ impl<'a, 'b, D: Domain, W: Write, T: Transcript<D::Sharing>, const N: usize, con
         inputs: &[<D::Sharing as RingModule>::Scalar],
         transcript: &'b mut T,
     ) -> Self {
-        // create just-in-time pre-processing instance
-
+        // create pre-processing instance (pre-processing is executed in parallel:
+        // the online phase encapsulates an pre-processing instance which does not have access to the witness)
         let views: Box<[View; N]> = arr_map!(keys, |key| View::new_keyed(key));
-        let preprocessing = ProverOnlinePreprocessing::new(
+        let preprocessing = PreprocessingExecution::new(
             arr_map!(&views, |view| { view.rng(LABEL_RNG_BEAVER) }),
             zero,
+            inputs.len(),
         );
 
-        // encrypt the inputs
-
-        let mut mask = SharingRng::new(arr_map!(&views, |view| { view.rng(LABEL_RNG_MASKS) }));
-        let mut wire: Vec<(<D::Sharing as RingModule>::Scalar, D::Sharing)> =
-            Vec::with_capacity(inputs.len());
-
-        for input in inputs {
-            let m: D::Sharing = mask.gen();
-            wire.push((*input - m.reconstruct(), m));
+        // mask the inputs
+        let mut wires: Vec<<D::Sharing as RingModule>::Scalar> = Vec::with_capacity(inputs.len());
+        for (i, input) in inputs.iter().enumerate() {
+            let mask: D::Sharing = preprocessing.masks[i];
+            wires.push(*input - mask.reconstruct());
         }
 
-        Execution {
+        OnlineExecution {
             output: Vec::new(),
+            ab_gamma: vec![<D::Sharing as RingElement>::ZERO; D::Batch::DIMENSION],
+            ab_gamma_next: D::Batch::DIMENSION,
             preprocessing,
             transcript,
-            mask,
-            wire,
+            wires,
         }
     }
 
     ///
-    pub fn step(&mut self, ins: &Instruction<<D::Sharing as RingModule>::Scalar>) {
+    fn step(&mut self, ins: &Instruction<<D::Sharing as RingModule>::Scalar>) -> bool {
         match ins {
             Instruction::AddConst(dst, src, c) => {
-                let sw = self.wire[*src];
-                self.wire[*dst] = (sw.0 + (*c), sw.1);
+                let sw = self.wires[*src];
+                self.wires[*dst] = sw + *c;
+                false
             }
 
             Instruction::MulConst(dst, src, c) => {
-                let sw = self.wire[*src];
-                self.wire[*dst] = (sw.0 * (*c), sw.1.action(*c));
+                let sw = self.wires[*src];
+                self.wires[*dst] = sw * *c;
+                false
             }
             Instruction::Add(dst, src1, src2) => {
-                let sw1 = self.wire[*src1];
-                let sw2 = self.wire[*src2];
-                self.wire[*dst] = (sw1.0 + sw2.0, sw1.1 + sw2.1);
+                let sw1 = self.wires[*src1];
+                let sw2 = self.wires[*src2];
+                self.wires[*dst] = sw1 + sw2;
+                false
             }
             Instruction::Mul(dst, src1, src2) => {
-                let sw1 = self.wire[*src1];
-                let sw2 = self.wire[*src2];
-
-                // generate the next beaver triple
-                let (a, b, ab) = self.preprocessing.next();
-
-                // generate new mask to mask reconstruction (and result)
-                let m = self.mask.gen();
+                let sw1 = self.wires[*src1];
+                let sw2 = self.wires[*src2];
 
                 // calculate reconstruction shares for every player
-                let r = a.action(sw1.0) + b.action(sw2.0) + ab + m;
+                let a = self.preprocessing.masks[*src1];
+                let b = self.preprocessing.masks[*src2];
+
+                let abm = self.ab_gamma[self.ab_gamma_next];
+                let recon = a.action(sw1) + b.action(sw2) + abm;
 
                 // append messages from all players to transcript
-                self.transcript.append(r);
+                self.transcript.write(&recon);
 
                 // reconstruct and correct share
-                self.wire[*dst] = (r.reconstruct() + sw1.0 * sw2.0, m);
+                self.wires[*dst] = recon.reconstruct() + sw1 * sw2;
+
+                // we used an ab_gamma sharing
+                self.ab_gamma_next += 1;
+                true
             }
 
-            Instruction::Output(src) => {
-                let sw = self.wire[*src];
+            Instruction::Output(src) => false,
+        }
+    }
 
-                // reconstruct the mask and decrypt the masked wire
-                self.output.push(sw.0 + sw.1.reconstruct())
+    pub fn execute(mut self, mut program: &[Instruction<<D::Sharing as RingModule>::Scalar>]) {
+        loop {
+            let steps = self
+                .preprocessing
+                .next_batch(&mut self.ab_gamma[..], program);
+            self.ab_gamma_next = 0;
+
+            for i in 0..steps {
+                self.step(&program[i]);
             }
+
+            // move to next batch
+            program = &program[steps..];
         }
     }
 }
@@ -170,3 +264,4 @@ mod benchmark {
         bench_online_execution::<GF2P64, 64, 64, 23>(b);
     }
 }
+*/

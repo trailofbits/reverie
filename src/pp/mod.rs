@@ -64,8 +64,9 @@ fn preprocess<D: Domain, const P: usize, const PT: usize>(
         PreprocessingExecution::new(&mut rngs, &mut hasher, inputs);
 
     // execute every instruction in the program
+    let mut v: [_; 0] = [];
     for ins in program {
-        exec.step(ins)
+        exec.step(&mut v, ins);
     }
 
     // return the transcript hash for the corrections
@@ -231,7 +232,7 @@ mod benchmark {
     /// t =  44 (online phase executions (hidden pre-processing executions))
     #[bench]
     fn bench_preprocessing_proof_gen_n8(b: &mut Bencher) {
-        let program = vec![Instruction::Mul(0, 1, 2); MULT]; // maybe generate random program?
+        let program = vec![Instruction::Mul(0, 1, 2); MULT];
         b.iter(|| {
             PreprocessedProof::<GF2P8, 8, 8, 252, 256, 44>::new([0u8; KEY_SIZE], &program, 64)
         });
@@ -260,7 +261,7 @@ mod benchmark {
     /// t =  44 (online phase executions (hidden pre-processing executions))
     #[bench]
     fn bench_preprocessing_proof_verify_n8(b: &mut Bencher) {
-        let program = vec![Instruction::Mul(0, 1, 2); MULT]; // maybe generate random program?
+        let program = vec![Instruction::Mul(0, 1, 2); MULT];
         let proof =
             PreprocessedProof::<GF2P8, 8, 8, 252, 256, 44>::new([0u8; KEY_SIZE], &program, 64);
         b.iter(|| proof.verify(&program, 64));
