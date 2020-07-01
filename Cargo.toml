@@ -1,19 +1,20 @@
 [package]
-name = "reverie"
-version = "0.1.0"
 authors = ["Mathias Hall-Andersen <mathias@hall-andersen.dk>"]
 edition = "2018"
+name = "reverie"
+version = "0.1.0"
 
 [dependencies]
 blake3 = "0.3.4"
-rayon = "1.3"
-serde = { version = "1.0", features = ["derive"] }
-subtle = "2.2.3"
-hex = "0.4"
+cpuprofiler = {version = "*", optional = true}
 fnv = "1.0.7"
+hex = "0.4"
 rand = "0.7.3"
 rand_core = "*"
+rayon = "1.3"
+serde = {version = "1.0", features = ["derive"]}
 static_assertions = "1.1.0"
+subtle = "2.2.3"
 
 [dev-dependencies]
 aes = "0.3.2" # for comparision in benchmarks
@@ -24,4 +25,4 @@ name = "reverie"
 path = "src/bin.rs"
 
 [features]
-unstable = []
+profiler = ["cpuprofiler"]

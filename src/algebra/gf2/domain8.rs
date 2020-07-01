@@ -45,7 +45,7 @@ impl Domain for GF2P8 {
                     // calculate the 8 sharings
                     let mut idx = i * 8;
                     for _ in 0..8 {
-                        *dst.get_unchecked_mut(idx) = BitSharing8((_m_pmovmskb(v) & 0xff) as u8);
+                        dst[idx] = BitSharing8((_m_pmovmskb(v) & 0xff) as u8);
                         v = _mm_add_pi8(v, v);
                         idx += 1;
                     }

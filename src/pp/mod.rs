@@ -44,7 +44,7 @@ pub struct PreprocessedProof<
 /// Returns a commitment to the view of all players.
 fn preprocess<D: Domain, const P: usize, const PT: usize>(
     seed: &[u8; KEY_SIZE], // random tape used for phase
-    program: &[Instruction<<D::Sharing as RingModule>::Scalar>],
+    mut program: &[Instruction<<D::Sharing as RingModule>::Scalar>],
     inputs: usize,
 ) -> Hash {
     // the root PRF from which each players random tape is derived using a PRF tree
@@ -58,15 +58,15 @@ fn preprocess<D: Domain, const P: usize, const PT: usize>(
 
     // generate the beaver triples and write the corrected shares to the transcript
     let mut rngs: Box<[ViewRNG; P]> = arr_map!(&views, |view: &View| view.rng(LABEL_RNG_BEAVER));
-
     let mut hasher = RingHasher::new();
-    let mut exec: PreprocessingExecution<D, _, _, P> =
+    let mut exec: PreprocessingExecution<D, _, _, P, false> =
         PreprocessingExecution::new(&mut rngs, &mut hasher, inputs);
 
     // execute every instruction in the program
-    let mut v: [_; 0] = [];
-    for ins in program {
-        exec.step(&mut v, ins);
+    while program.len() > 0 {
+        let mut v: [_; 0] = [];
+        let steps = exec.next_batch(&mut v, &program[..]);
+        program = &program[steps..];
     }
 
     // return the transcript hash for the corrections

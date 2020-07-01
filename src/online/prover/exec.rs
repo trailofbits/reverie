@@ -19,7 +19,7 @@ pub struct OnlineExecution<
 > {
     output: Vec<<D::Sharing as RingModule>::Scalar>,
     transcript: &'c mut T,
-    preprocessing: PreprocessingExecution<'a, 'b, D, W, ViewRNG, N>,
+    preprocessing: PreprocessingExecution<'a, 'b, D, W, ViewRNG, N, true>,
     wires: Vec<<D::Sharing as RingModule>::Scalar>,
 }
 
@@ -39,7 +39,7 @@ pub fn execute<
     // create pre-processing instance
     let views: Box<[View; N]> = arr_map!(keys, |key| View::new_keyed(key));
     let mut rngs: Box<[ViewRNG; N]> = arr_map!(&views, |view| { view.rng(LABEL_RNG_BEAVER) });
-    let mut preprocessing: PreprocessingExecution<D, W, ViewRNG, N> =
+    let mut preprocessing: PreprocessingExecution<D, W, ViewRNG, N, true> =
         PreprocessingExecution::new(&mut *rngs, zero, inputs.len());
 
     // mask the inputs
@@ -49,8 +49,10 @@ pub fn execute<
         wires.push(*input - mask.reconstruct());
     }
 
+    // a * b + \gamma sharings
     let mut ab_gamma = vec![<D::Sharing as RingElement>::ZERO; D::Batch::DIMENSION];
 
+    // execute program in batches of D::Batch::DIMENSION multiplications
     while program.len() > 0 {
         let mut next = 0;
         let steps = preprocessing.next_batch(&mut ab_gamma[..], program);
@@ -79,14 +81,14 @@ pub fn execute<
                     let b: D::Sharing = preprocessing.masks[src2];
                     let recon = a.action(sw1) + b.action(sw2) + ab_gamma[next];
 
+                    // we used an ab_gamma sharing
+                    next += 1;
+
                     // append messages from all players to transcript
                     transcript.write(&recon);
 
                     // reconstruct and correct share
                     wires[dst] = recon.reconstruct() + sw1 * sw2;
-
-                    // we used an ab_gamma sharing
-                    next += 1
                 }
                 Instruction::Output(src) => (),
             }

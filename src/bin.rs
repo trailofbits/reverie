@@ -7,6 +7,12 @@ use reverie::online::Proof;
 use reverie::pp::PreprocessedProof;
 use reverie::Instruction;
 
+#[cfg(feature = "profiler")]
+extern crate cpuprofiler;
+
+#[cfg(feature = "profiler")]
+use cpuprofiler::PROFILER;
+
 use std::env;
 
 #[derive(PartialEq, Eq)]
@@ -30,6 +36,10 @@ fn main() {
 
     // second arg the number of multiplications to bench
     let multiplications: u64 = args.next().unwrap().parse().unwrap();
+
+    // start profiler
+    #[cfg(feature = "profiler")]
+    PROFILER.lock().unwrap().start("./reverie.prof").unwrap();
 
     if system == ProofSystem::GF2P8 {
         let one = <<GF2P8 as Domain>::Sharing as RingModule>::Scalar::ONE;
@@ -78,4 +88,8 @@ fn main() {
 
         println!("online done");
     }
+
+    // stop profiler
+    #[cfg(feature = "profiler")]
+    PROFILER.lock().unwrap().stop().unwrap();
 }

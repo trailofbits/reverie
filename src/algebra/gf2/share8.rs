@@ -111,4 +111,20 @@ mod benchmark {
             })
         });
     }
+
+    #[bench]
+    fn bench_gf2p8_action(b: &mut Bencher) {
+        // all this work to avoid LLVM optimizing everything away.
+
+        let mut rng = thread_rng();
+
+        let mut v = BitSharing8(rng.gen());
+        let mut s = BitScalar(rng.gen::<u8>() & 1);
+
+        b.iter(|| {
+            black_box(for _ in 0..1_000_000 {
+                black_box({ v.action(s) });
+            })
+        });
+    }
 }
