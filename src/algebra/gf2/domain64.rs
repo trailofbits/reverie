@@ -1,5 +1,7 @@
 use super::*;
 
+use std::mem::MaybeUninit;
+
 pub struct GF2P64 {}
 
 impl Domain for GF2P64 {
@@ -133,7 +135,84 @@ impl Domain for GF2P64 {
 
     #[inline(always)]
     fn convert_inv(dst: &mut [Self::Batch], src: &[Self::Sharing]) {
-        unimplemented!()
+        assert_eq!(src.len(), Self::Batch::DIMENSION);
+        assert_eq!(dst.len(), Self::Sharing::DIMENSION);
+
+        // not supported on other platforms currently
+        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+        unimplemented!();
+
+        // x86 / x86_64 SSE, MMX impl.
+        #[target_feature(enable = "sse")]
+        #[target_feature(enable = "mmx")]
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        unsafe {
+            let mut sharings: [[u8; 8]; Self::Batch::DIMENSION] =
+                MaybeUninit::uninit().assume_init();
+
+            for i in 0..Self::Batch::DIMENSION {
+                sharings[i] = src[i].0.to_le_bytes();
+            }
+
+            macro_rules! pack {
+                ( $x:expr, $y:expr ) => {
+                    *sharings.get_unchecked($x).get_unchecked($y) as i8
+                };
+            }
+
+            macro_rules! pack8 {
+                ( $x:expr, $y:expr ) => {
+                    _mm_set_pi8(
+                        pack!($x, $y),
+                        pack!($x + 1, $y),
+                        pack!($x + 2, $y),
+                        pack!($x + 3, $y),
+                        pack!($x + 4, $y),
+                        pack!($x + 5, $y),
+                        pack!($x + 6, $y),
+                        pack!($x + 7, $y),
+                    )
+                };
+            }
+
+            // transpose batch, byte-by-byte
+            for i in 0..(Self::Sharing::DIMENSION / 8) {
+                // pack 1 byte from 64 different players
+                let mut v: [__m64; 8] = [
+                    pack8!(0x00, i),
+                    pack8!(0x08, i),
+                    pack8!(0x10, i),
+                    pack8!(0x18, i),
+                    pack8!(0x20, i),
+                    pack8!(0x28, i),
+                    pack8!(0x30, i),
+                    pack8!(0x38, i),
+                ];
+
+                // calculate the 8 sharings
+                let mut idx = i * 8;
+
+                for _ in 0..8 {
+                    dst[idx] = BitBatch([
+                        (_m_pmovmskb(*v.get_unchecked(0)) & 0xff) as u8,
+                        (_m_pmovmskb(*v.get_unchecked(1)) & 0xff) as u8,
+                        (_m_pmovmskb(*v.get_unchecked(2)) & 0xff) as u8,
+                        (_m_pmovmskb(*v.get_unchecked(3)) & 0xff) as u8,
+                        //
+                        (_m_pmovmskb(*v.get_unchecked(4)) & 0xff) as u8,
+                        (_m_pmovmskb(*v.get_unchecked(5)) & 0xff) as u8,
+                        (_m_pmovmskb(*v.get_unchecked(6)) & 0xff) as u8,
+                        (_m_pmovmskb(*v.get_unchecked(7)) & 0xff) as u8,
+                    ]);
+
+                    for i in 0..8 {
+                        v[i] = _mm_add_pi8(v[i], v[i]);
+                    }
+
+                    idx += 1;
+                }
+            }
+        }
     }
 }
 

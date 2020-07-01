@@ -84,7 +84,7 @@ fn test_domain<D: Domain>() {
     }
 
     // check that convert_inv is the inverse of convert
-    {
+    for _ in 0..1000 {
         let batches = rnd_batches::<D, _>(&mut rng);
         let mut sharings: Vec<D::Sharing> = vec![D::Sharing::ZERO; D::Batch::DIMENSION];
 
@@ -102,7 +102,7 @@ fn test_domain<D: Domain>() {
     }
 
     // check that reconstruction is homomorphic
-    {
+    for _ in 0..1000 {
         let sharings_1 = rnd_sharings::<D, _>(&mut rng);
         let sharings_2 = rnd_sharings::<D, _>(&mut rng);
 
@@ -119,4 +119,9 @@ fn test_domain<D: Domain>() {
 #[test]
 fn test_gf2_p8() {
     test_domain::<gf2::GF2P8>();
+}
+
+#[test]
+fn test_gf2_p64() {
+    test_domain::<gf2::GF2P64>();
 }
