@@ -1,5 +1,5 @@
 pub mod prover;
-mod verifier;
+pub mod verifier;
 
 pub use prover::Proof;
 

@@ -3,6 +3,6 @@ mod proof;
 
 use exec::execute;
 
-use super::{Instruction, RingHasher, SharingRng, View, ViewRNG, KEY_SIZE};
+use super::{Instruction, RingHasher, View, ViewRNG, KEY_SIZE};
 
 pub use proof::Proof;

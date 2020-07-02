@@ -1,6 +1,6 @@
 use super::*;
 
-use crate::algebra::{Domain, RingModule, Serializable, Sharing};
+use crate::algebra::{Domain, RingElement, RingModule, Serializable, Sharing};
 use crate::consts::{LABEL_RNG_OPEN_ONLINE, LABEL_SCOPE_ONLINE_TRANSCRIPT};
 use crate::crypto::TreePRF;
 use crate::util::*;
@@ -9,8 +9,8 @@ use blake3::Hash;
 use rayon::prelude::*;
 
 pub struct Run<D: Domain, const N: usize, const NT: usize> {
-    zero: Vec<D::Batch>,                           // sharings for
-    msgs: Vec<<D::Sharing as RingModule>::Scalar>, // messages broadcast by hidden player
+    zero: Vec<D::Batch>, // sharings for
+    msgs: Vec<D::Batch>, // messages broadcast by hidden player
     open: TreePRF<NT>,
 }
 
@@ -98,25 +98,38 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
         execs
             .par_iter_mut()
             .map(|run| {
-                let hide = run.3;
+                let omit = run.3;
 
                 // clear the player 0 corrections if not opened
                 let mut zero = run.2.take().unwrap().1;
-                if hide != 0 {
+                if omit != 0 {
                     zero.clear();
                 }
 
-                // extract messages from player "hide"
-                let mut msgs = Vec::with_capacity((run.0).1.len());
-                for msg in (run.0).1.iter() {
-                    msgs.push(msg.get(hide));
+                // pad transcript to batch multiple
+                // (not added to the transcript hash)
+                let transcript = &mut (run.0).1;
+                let num_batches =
+                    (transcript.len() + D::Batch::DIMENSION - 1) / D::Batch::DIMENSION;
+                transcript.resize(num_batches * D::Batch::DIMENSION, D::Sharing::ZERO);
+
+                // extract broadcast messages from omitted player
+                // done by transposing groups of sharings back into per-player-batches then saving the appropriate batch
+                let mut msgs = Vec::with_capacity(num_batches);
+                let mut batches: [D::Batch; N] = [D::Batch::ZERO; N];
+                for i in 0..num_batches {
+                    D::convert_inv(
+                        &mut batches,
+                        &transcript[i * D::Batch::DIMENSION..(i + 1) * D::Batch::DIMENSION],
+                    );
+                    msgs.push(batches[omit]);
                 }
 
                 // puncture the PRF to hide the random tape of the hidden player
                 Run {
                     zero,
                     msgs,
-                    open: run.1.clone().puncture(hide),
+                    open: run.1.clone().puncture(omit),
                 }
             })
             .collect_into_vec(&mut runs);

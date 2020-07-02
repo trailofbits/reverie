@@ -6,7 +6,7 @@ use crate::Instruction;
 use rand_core::RngCore;
 
 /// Implementation of pre-processing phase used by the prover during online execution
-pub struct BeaverStack<
+struct BeaverStack<
     'a,
     'b,
     D: Domain,
@@ -122,7 +122,7 @@ pub struct PreprocessingExecution<
     const O: bool,
 > {
     beaver: BeaverStack<'a, 'b, D, R, W, N, O>,
-    pub masks: Vec<D::Sharing>,
+    pub masks: VecMap<D::Sharing>,
 }
 
 impl<'a, 'b, D: Domain, W: Writer<D::Batch>, R: RngCore, const N: usize, const O: bool>
@@ -150,17 +150,8 @@ impl<'a, 'b, D: Domain, W: Writer<D::Batch>, R: RngCore, const N: usize, const O
         // return pre-processing with input wire masks set
         PreprocessingExecution {
             beaver: BeaverStack::new(zero, rngs),
-            masks,
+            masks: masks.into(),
         }
-    }
-
-    #[inline(always)]
-    fn set(&mut self, idx: usize, val: D::Sharing) {
-        if idx >= self.masks.len() {
-            self.masks.resize(idx + 1, D::Sharing::ZERO);
-        }
-        debug_assert!(idx < self.masks.len());
-        self.masks[idx] = val;
     }
 
     #[inline(always)]
@@ -185,30 +176,30 @@ impl<'a, 'b, D: Domain, W: Writer<D::Batch>, R: RngCore, const N: usize, const O
                 Instruction::AddConst(_dst, _src, _c) => (), // noop in pre-processing
                 Instruction::MulConst(dst, src, c) => {
                     // resolve input
-                    let sw = self.masks[*src];
+                    let sw = self.masks.get(*src);
 
                     // let the single element act on the vector
-                    self.set(*dst, sw.action(*c));
+                    self.masks.set(*dst, sw.action(*c));
                 }
                 Instruction::Add(dst, src1, src2) => {
                     // resolve inputs
-                    let sw1 = self.masks[*src1];
-                    let sw2 = self.masks[*src2];
+                    let sw1 = self.masks.get(*src1);
+                    let sw2 = self.masks.get(*src2);
 
                     // compute the sum and set output wire
-                    self.set(*dst, sw1 + sw2);
+                    self.masks.set(*dst, sw1 + sw2);
                 }
                 Instruction::Mul(dst, src1, src2) => {
                     // resolve inputs
-                    let sw1 = self.masks[*src1];
-                    let sw2 = self.masks[*src2];
+                    let sw1 = self.masks.get(*src1);
+                    let sw2 = self.masks.get(*src2);
 
                     // push the masks to the Beaver stack
                     debug_assert!(self.beaver.next < D::Batch::DIMENSION);
                     let gamma = self.beaver.push(sw1, sw2);
 
                     // assign mask to output
-                    self.set(*dst, gamma);
+                    self.masks.set(*dst, gamma);
 
                     // check if current batch is full
                     if self.beaver.next == D::Batch::DIMENSION {

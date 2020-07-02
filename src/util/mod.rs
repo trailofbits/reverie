@@ -1,7 +1,9 @@
 mod subset;
+mod vec;
 mod writer;
 
 pub use subset::*;
+pub use vec::VecMap;
 pub use writer::*;
 
 use std::mem;

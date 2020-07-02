@@ -1,7 +1,6 @@
 mod constants;
-mod generator;
-
-pub use generator::*;
+pub mod prover;
+pub mod verifier;
 
 use crate::algebra::*;
 use crate::consts::*;
@@ -59,8 +58,8 @@ fn preprocess<D: Domain, const P: usize, const PT: usize>(
     // generate the beaver triples and write the corrected shares to the transcript
     let mut rngs: Box<[ViewRNG; P]> = arr_map!(&views, |view: &View| view.rng(LABEL_RNG_BEAVER));
     let mut hasher = RingHasher::new();
-    let mut exec: PreprocessingExecution<D, _, _, P, false> =
-        PreprocessingExecution::new(&mut rngs, &mut hasher, inputs);
+    let mut exec: prover::PreprocessingExecution<D, _, _, P, false> =
+        prover::PreprocessingExecution::new(&mut rngs, &mut hasher, inputs);
 
     // execute every instruction in the program
     while program.len() > 0 {

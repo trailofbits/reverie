@@ -2,7 +2,7 @@ use super::*;
 
 use crate::algebra::{Domain, RingElement, RingModule, Serializable, Sharing};
 use crate::consts::{LABEL_RNG_BEAVER, LABEL_RNG_MASKS};
-use crate::pp::PreprocessingExecution;
+use crate::pp::prover::PreprocessingExecution;
 use crate::util::Writer;
 
 use std::io::Write;
@@ -45,7 +45,7 @@ pub fn execute<
     // mask the inputs
     let mut wires: Vec<<D::Sharing as RingModule>::Scalar> = Vec::with_capacity(inputs.len());
     for (i, input) in inputs.iter().enumerate() {
-        let mask: D::Sharing = preprocessing.masks[i];
+        let mask: D::Sharing = preprocessing.masks.get(i);
         wires.push(*input - mask.reconstruct());
     }
 
@@ -77,8 +77,8 @@ pub fn execute<
                     let sw2 = wires[src2];
 
                     // calculate reconstruction shares for every player
-                    let a: D::Sharing = preprocessing.masks[src1];
-                    let b: D::Sharing = preprocessing.masks[src2];
+                    let a: D::Sharing = preprocessing.masks.get(src1);
+                    let b: D::Sharing = preprocessing.masks.get(src2);
                     let recon = a.action(sw1) + b.action(sw2) + ab_gamma[next];
 
                     // we used an ab_gamma sharing
