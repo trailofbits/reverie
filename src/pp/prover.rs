@@ -6,9 +6,10 @@ use crate::Instruction;
 use rand_core::RngCore;
 
 /// Implementation of pre-processing phase used by the prover during online execution
-struct BeaverStack<
+pub struct PreprocessingExecution<
     'a,
     'b,
+    'c,
     D: Domain,
     R: RngCore,
     W: Writer<D::Batch>,
@@ -16,6 +17,9 @@ struct BeaverStack<
     const O: bool,
 > {
     next: usize,
+    program: &'c [Instruction<<D::Sharing as RingModule>::Scalar>],
+    masks: VecMap<D::Sharing>,
+    share_ab_gamma: Vec<D::Sharing>,
     share_a: Vec<D::Sharing>, // beta sharings (from input)
     share_b: Vec<D::Sharing>, // alpha sharings (from input)
     share_g: Vec<D::Sharing>, // gamma sharings (output)
@@ -24,36 +28,50 @@ struct BeaverStack<
     zero: &'a mut W,          // writer for player 0 shares
 }
 
-impl<'a, 'b, D: Domain, R: RngCore, W: Writer<D::Batch>, const N: usize, const O: bool>
-    BeaverStack<'a, 'b, D, R, W, N, O>
+impl<'a, 'b, 'c, D: Domain, W: Writer<D::Batch>, R: RngCore, const N: usize, const O: bool>
+    PreprocessingExecution<'a, 'b, 'c, D, R, W, N, O>
 {
-    #[inline(always)]
-    fn new_gamma(&mut self) {
-        // generate output maskings and reconstruct it
-        for i in 0..N {
-            self.batch_g[i] = D::Batch::gen(&mut self.rngs[i]);
+    pub fn new(
+        rngs: &'b mut [R; N],
+        zero: &'a mut W,
+        inputs: usize,
+        program: &'c [Instruction<<D::Sharing as RingModule>::Scalar>],
+    ) -> Self {
+        // compute then number of input masking batches/shares generated
+        let num_batches = (inputs + D::Batch::DIMENSION - 1) / D::Batch::DIMENSION;
+        let num_shares = num_batches * D::Batch::DIMENSION;
+        debug_assert!(num_shares >= inputs);
+
+        // generate input masks
+        let mut masks: Vec<D::Sharing> = vec![D::Sharing::ZERO; num_shares];
+        let mut batches: [D::Batch; N] = [D::Batch::ZERO; N];
+        for i in 0..num_batches {
+            for j in 0..N {
+                batches[j] = D::Batch::gen(&mut rngs[j]);
+            }
+            D::convert(&mut masks[i * D::Batch::DIMENSION..], &batches[..]);
         }
 
-        // transpose gamma batches into gamma sharings
-        D::convert(&mut self.share_g[..], &self.batch_g[..]);
-    }
+        // discard the excess input masks
+        masks.truncate(inputs);
 
-    pub fn new(zero: &'a mut W, rngs: &'b mut [R; N]) -> Self {
-        let mut ins = Self {
-            next: 0,
+        // return pre-processing with input wire masks set
+        PreprocessingExecution {
+            next: D::Batch::DIMENSION,
             rngs,
+            program,
             batch_g: [D::Batch::ZERO; N],
+            share_ab_gamma: vec![D::Sharing::ZERO; D::Batch::DIMENSION],
             share_g: vec![D::Sharing::ZERO; D::Batch::DIMENSION],
             share_a: vec![D::Sharing::ZERO; D::Batch::DIMENSION],
             share_b: vec![D::Sharing::ZERO; D::Batch::DIMENSION],
             zero,
-        };
-        ins.new_gamma();
-        ins
+            masks: masks.into(),
+        }
     }
 
     #[inline(always)]
-    pub fn generate(&mut self, ab_gamma: &mut [D::Sharing]) {
+    pub fn generate(&mut self) {
         let mut batches_a: [D::Batch; N] = [D::Batch::ZERO; N];
         let mut batches_b: [D::Batch; N] = [D::Batch::ZERO; N];
         let mut batches_c: [D::Batch; N] = [D::Batch::ZERO; N];
@@ -86,126 +104,60 @@ impl<'a, 'b, D: Domain, R: RngCore, W: Writer<D::Batch>, const N: usize, const O
 
         // return ab_gamma shares if online execution
         if O {
-            debug_assert_eq!(ab_gamma.len(), D::Batch::DIMENSION);
             batches_gab[0] = batches_gab[0] + delta;
-            D::convert(ab_gamma, &batches_gab);
+            D::convert(&mut self.share_ab_gamma[..], &batches_gab);
         }
 
         // write player0 correction bits
         self.zero.write(&delta);
-
-        // get new batch of gamma shares
-        self.new_gamma();
-
-        // reset input pointer
-        self.next = 0;
     }
 
     #[inline(always)]
-    pub fn push(&mut self, a: D::Sharing, b: D::Sharing) -> D::Sharing {
-        self.share_a[self.next] = a;
-        self.share_b[self.next] = b;
-        let gamma = self.share_g[self.next];
-        self.next += 1;
-        gamma
-    }
-}
-
-/// Implementation of pre-processing phase used by the prover during online execution
-pub struct PreprocessingExecution<
-    'a,
-    'b,
-    D: Domain,
-    W: Writer<D::Batch>,
-    R: RngCore,
-    const N: usize,
-    const O: bool,
-> {
-    beaver: BeaverStack<'a, 'b, D, R, W, N, O>,
-    pub masks: VecMap<D::Sharing>,
-}
-
-impl<'a, 'b, D: Domain, W: Writer<D::Batch>, R: RngCore, const N: usize, const O: bool>
-    PreprocessingExecution<'a, 'b, D, W, R, N, O>
-{
-    pub fn new(rngs: &'b mut [R; N], zero: &'a mut W, inputs: usize) -> Self {
-        // compute then number of input masking batches/shares generated
-        let num_batches = (inputs + D::Batch::DIMENSION - 1) / D::Batch::DIMENSION;
-        let num_shares = num_batches * D::Batch::DIMENSION;
-        debug_assert!(num_shares >= inputs);
-
-        // generate input masks
-        let mut masks: Vec<D::Sharing> = vec![D::Sharing::ZERO; num_shares];
-        let mut batches: [D::Batch; N] = [D::Batch::ZERO; N];
-        for i in 0..num_batches {
-            for j in 0..N {
-                batches[j] = D::Batch::gen(&mut rngs[j]);
-            }
-            D::convert(&mut masks[i * D::Batch::DIMENSION..], &batches[..]);
+    fn pack_batch(&mut self) {
+        // generate sharings for the output of the next batch of multiplications
+        for i in 0..N {
+            self.batch_g[i] = D::Batch::gen(&mut self.rngs[i]);
         }
-
-        // discard the excess input masks
-        masks.truncate(inputs);
-
-        // return pre-processing with input wire masks set
-        PreprocessingExecution {
-            beaver: BeaverStack::new(zero, rngs),
-            masks: masks.into(),
-        }
-    }
-
-    #[inline(always)]
-    pub fn next_batch(
-        &mut self,
-        ab_gamma: &mut [D::Sharing],
-        look_ahead: &[Instruction<<D::Sharing as RingModule>::Scalar>],
-    ) -> usize {
-        // check that it is aligned (many only arise due to buggy programming)
-        debug_assert_eq!(
-            self.beaver.next, 0,
-            "beaver stack is not empty at the start of next_batch"
-        );
-        debug_assert!(
-            O == false || ab_gamma.len() == D::Batch::DIMENSION,
-            "a * b + \\gamma share buffer invalid dimension"
-        );
+        D::convert(&mut self.share_g[..], &self.batch_g[..]);
 
         // look forward in program until executed enough multiplications
-        for (i, ins) in look_ahead.iter().enumerate() {
-            match ins {
+        let mut mults = 0;
+        for (i, ins) in self.program.iter().enumerate() {
+            match *ins {
                 Instruction::AddConst(_dst, _src, _c) => (), // noop in pre-processing
                 Instruction::MulConst(dst, src, c) => {
                     // resolve input
-                    let sw = self.masks.get(*src);
+                    let sw = self.masks.get(src);
 
                     // let the single element act on the vector
-                    self.masks.set(*dst, sw.action(*c));
+                    self.masks.set(dst, sw.action(c));
                 }
                 Instruction::Add(dst, src1, src2) => {
                     // resolve inputs
-                    let sw1 = self.masks.get(*src1);
-                    let sw2 = self.masks.get(*src2);
+                    let sw1 = self.masks.get(src1);
+                    let sw2 = self.masks.get(src2);
 
                     // compute the sum and set output wire
-                    self.masks.set(*dst, sw1 + sw2);
+                    self.masks.set(dst, sw1 + sw2);
                 }
                 Instruction::Mul(dst, src1, src2) => {
                     // resolve inputs
-                    let sw1 = self.masks.get(*src1);
-                    let sw2 = self.masks.get(*src2);
+                    let sw1 = self.masks.get(src1);
+                    let sw2 = self.masks.get(src2);
 
                     // push the masks to the Beaver stack
-                    debug_assert!(self.beaver.next < D::Batch::DIMENSION);
-                    let gamma = self.beaver.push(sw1, sw2);
+                    self.share_a[mults] = sw1;
+                    self.share_b[mults] = sw2;
+                    let gamma = self.share_g[mults];
+                    mults += 1;
 
                     // assign mask to output
-                    self.masks.set(*dst, gamma);
+                    self.masks.set(dst, gamma);
 
-                    // check if current batch is full
-                    if self.beaver.next == D::Batch::DIMENSION {
-                        self.beaver.generate(ab_gamma);
-                        debug_assert_eq!(self.beaver.next, 0);
-                        return i + 1;
+                    // if the batch is full, stop.
+                    if mults == D::Batch::DIMENSION {
+                        self.program = &self.program[i..];
+                        return;
                     }
                 }
                 Instruction::Output(_src) => (),
@@ -214,11 +166,39 @@ impl<'a, 'b, D: Domain, W: Writer<D::Batch>, R: RngCore, const N: usize, const O
 
         // we are at the end of the program look_ahead
         // push final dummy values to the Beaver stack.
-        while self.beaver.next < D::Batch::DIMENSION {
-            self.beaver.push(D::Sharing::ZERO, D::Sharing::ZERO);
+        self.share_a.resize(D::Batch::DIMENSION, D::Sharing::ZERO);
+        self.share_b.resize(D::Batch::DIMENSION, D::Sharing::ZERO);
+
+        // no more program remaining
+        self.program = &self.program[..0];
+    }
+
+    pub fn finish(&mut self) {
+        while self.program.len() > 0 {
+            self.pack_batch();
+            self.generate();
         }
-        self.beaver.generate(ab_gamma);
-        look_ahead.len()
+    }
+}
+
+impl<'a, 'b, 'c, D: Domain, R: RngCore, W: Writer<D::Batch>, const N: usize, const O: bool>
+    Preprocessing<D> for PreprocessingExecution<'a, 'b, 'c, D, R, W, N, O>
+{
+    fn mask(&self, idx: usize) -> D::Sharing {
+        self.masks.get(idx)
+    }
+
+    /// Return the next ab_gamma sharings for reconstruction
+    fn next_ab_gamma(&mut self) -> D::Sharing {
+        match self.share_ab_gamma.get(self.next) {
+            Some(s) => *s,
+            None => {
+                debug_assert_eq!(self.next, D::Batch::DIMENSION);
+                self.pack_batch();
+                self.next = 1;
+                self.share_ab_gamma[0]
+            }
+        }
     }
 }
 

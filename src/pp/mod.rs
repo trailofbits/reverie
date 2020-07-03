@@ -15,6 +15,12 @@ use std::mem;
 use rand_core::RngCore;
 use rayon::prelude::*;
 
+pub trait Preprocessing<D: Domain> {
+    fn mask(&self, idx: usize) -> D::Sharing;
+
+    fn next_ab_gamma(&mut self) -> D::Sharing;
+}
+
 /// Represents repeated execution of the pre-processing phase.
 /// The pre-precessing phase is executed R times, then fed to a random oracle,
 /// which dictates the subset of executions to open.
@@ -59,14 +65,10 @@ fn preprocess<D: Domain, const P: usize, const PT: usize>(
     let mut rngs: Box<[ViewRNG; P]> = arr_map!(&views, |view: &View| view.rng(LABEL_RNG_BEAVER));
     let mut hasher = RingHasher::new();
     let mut exec: prover::PreprocessingExecution<D, _, _, P, false> =
-        prover::PreprocessingExecution::new(&mut rngs, &mut hasher, inputs);
+        prover::PreprocessingExecution::new(&mut rngs, &mut hasher, inputs, program);
 
-    // execute every instruction in the program
-    while program.len() > 0 {
-        let mut v: [_; 0] = [];
-        let steps = exec.next_batch(&mut v, &program[..]);
-        program = &program[steps..];
-    }
+    // process entire program
+    exec.finish();
 
     // return the transcript hash for the corrections
     hasher.finalize()
