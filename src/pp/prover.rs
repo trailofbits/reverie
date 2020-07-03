@@ -25,7 +25,7 @@ pub struct PreprocessingExecution<
     share_g: Vec<D::Sharing>, // gamma sharings (output)
     batch_g: [D::Batch; N],   // gamma batch
     rngs: &'b mut [R; N],     // rngs
-    zero: &'a mut W,          // writer for player 0 shares
+    corrections: &'a mut W,   // writer for player 0 shares
 }
 
 impl<'a, 'b, 'c, D: Domain, W: Writer<D::Batch>, R: RngCore, const N: usize, const O: bool>
@@ -33,7 +33,7 @@ impl<'a, 'b, 'c, D: Domain, W: Writer<D::Batch>, R: RngCore, const N: usize, con
 {
     pub fn new(
         rngs: &'b mut [R; N],
-        zero: &'a mut W,
+        corrections: &'a mut W,
         inputs: usize,
         program: &'c [Instruction<<D::Sharing as RingModule>::Scalar>],
     ) -> Self {
@@ -65,13 +65,13 @@ impl<'a, 'b, 'c, D: Domain, W: Writer<D::Batch>, R: RngCore, const N: usize, con
             share_g: vec![D::Sharing::ZERO; D::Batch::DIMENSION],
             share_a: vec![D::Sharing::ZERO; D::Batch::DIMENSION],
             share_b: vec![D::Sharing::ZERO; D::Batch::DIMENSION],
-            zero,
+            corrections,
             masks: masks.into(),
         }
     }
 
     #[inline(always)]
-    pub fn generate(&mut self) {
+    fn generate(&mut self) {
         let mut batches_a: [D::Batch; N] = [D::Batch::ZERO; N];
         let mut batches_b: [D::Batch; N] = [D::Batch::ZERO; N];
         let mut batches_c: [D::Batch; N] = [D::Batch::ZERO; N];
@@ -96,6 +96,9 @@ impl<'a, 'b, 'c, D: Domain, W: Writer<D::Batch>, R: RngCore, const N: usize, con
 
             // generate shares of [\lambda_{ab}] + [\lambda_\gamma]
             batches_gab[i] = batches_c[i] + self.batch_g[i];
+
+            #[cfg(test)]
+            println!("batches_gab[{}] = {:?}", i, batches_gab[i]);
         }
 
         // correct shares for player 0 (correction bits)
@@ -109,7 +112,7 @@ impl<'a, 'b, 'c, D: Domain, W: Writer<D::Batch>, R: RngCore, const N: usize, con
         }
 
         // write player0 correction bits
-        self.zero.write(&delta);
+        self.corrections.write(&delta);
     }
 
     #[inline(always)]
@@ -195,6 +198,7 @@ impl<'a, 'b, 'c, D: Domain, R: RngCore, W: Writer<D::Batch>, const N: usize, con
             None => {
                 debug_assert_eq!(self.next, D::Batch::DIMENSION);
                 self.pack_batch();
+                self.generate();
                 self.next = 1;
                 self.share_ab_gamma[0]
             }

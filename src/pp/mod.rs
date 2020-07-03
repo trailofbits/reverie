@@ -49,7 +49,7 @@ pub struct PreprocessedProof<
 /// Returns a commitment to the view of all players.
 fn preprocess<D: Domain, const P: usize, const PT: usize>(
     seed: &[u8; KEY_SIZE], // random tape used for phase
-    mut program: &[Instruction<<D::Sharing as RingModule>::Scalar>],
+    program: &[Instruction<<D::Sharing as RingModule>::Scalar>],
     inputs: usize,
 ) -> Hash {
     // the root PRF from which each players random tape is derived using a PRF tree

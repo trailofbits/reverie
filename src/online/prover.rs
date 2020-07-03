@@ -1,4 +1,5 @@
 use super::*;
+use super::{Instruction, Proof, RingHasher, Run, View, ViewRNG, KEY_SIZE};
 
 use crate::algebra::{Domain, RingElement, RingModule, Serializable, Sharing};
 use crate::consts::{LABEL_RNG_BEAVER, LABEL_RNG_MASKS};
@@ -36,6 +37,12 @@ impl<T: Serializable + Copy> Writer<T> for StoredTranscript<T> {
     }
 }
 
+impl<T: Serializable + Copy> Writer<T> for Vec<T> {
+    fn write(&mut self, message: &T) {
+        self.push(*message);
+    }
+}
+
 impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT, R> {
     pub fn new(
         seeds: &[[u8; KEY_SIZE]; R],
@@ -46,57 +53,66 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
         let mut execs: Vec<(
             (Hash, Vec<D::Sharing>),
             TreePRF<NT>,
-            Option<(Hash, Vec<D::Batch>)>,
+            Option<Vec<D::Batch>>,
             Option<Vec<<D::Sharing as RingModule>::Scalar>>,
             usize,
         )> = Vec::with_capacity(R);
 
-        seeds
-            .par_iter()
-            .map(|seed| {
-                // expand seed into RNG keys for players
-                let tree: TreePRF<NT> = TreePRF::new(*seed);
-                let keys: Box<[[u8; KEY_SIZE]; N]> =
-                    arr_map!(&tree.expand(), |x: &Option<[u8; KEY_SIZE]>| x.unwrap());
+        #[cfg(test)]
+        let runs = seeds.iter();
 
-                // prepare execution environment
-                let mut transcript = StoredTranscript::<D::Sharing>::new();
-                let mut zero = StoredTranscript::<D::Batch>::new();
+        #[cfg(not(test))]
+        let runs = seeds.par_iter();
 
-                // create pre-processing instance
-                let views: Box<[View; N]> = arr_map!(&keys, |key| View::new_keyed(key));
+        let runs = runs.map(|seed| {
+            // expand seed into RNG keys for players
+            let tree: TreePRF<NT> = TreePRF::new(*seed);
+            let keys: Box<[[u8; KEY_SIZE]; N]> =
+                arr_map!(&tree.expand(), |x: &Option<[u8; KEY_SIZE]>| x.unwrap());
 
-                let mut rngs: Box<[ViewRNG; N]> =
-                    arr_map!(&views, |view| { view.rng(LABEL_RNG_BEAVER) });
+            // create pre-processing instance
+            let views: Box<[View; N]> = arr_map!(&keys, |key| View::new_keyed(key));
 
-                let preprocessing: PreprocessingExecution<D, ViewRNG, _, N, true> =
-                    PreprocessingExecution::new(&mut *rngs, &mut zero, inputs.len(), program);
+            let mut rngs: Box<[ViewRNG; N]> =
+                arr_map!(&views, |view| { view.rng(LABEL_RNG_BEAVER) });
 
-                // mask the inputs
-                let mut wires: Vec<<D::Sharing as RingModule>::Scalar> =
-                    Vec::with_capacity(inputs.len());
+            let mut corrections = Vec::<D::Batch>::new();
 
-                for (i, input) in inputs.iter().enumerate() {
-                    let mask: D::Sharing = preprocessing.mask(i);
-                    wires.push(*input - mask.reconstruct());
-                }
+            let preprocessing: PreprocessingExecution<D, ViewRNG, _, N, true> =
+                PreprocessingExecution::new(&mut *rngs, &mut corrections, inputs.len(), program);
 
-                // execute program one instruction at a time
-                execute::<D, StoredTranscript<D::Sharing>, _, N>(
-                    &mut transcript,
-                    wires.clone(),
-                    preprocessing,
-                    program,
-                );
-                (
-                    transcript.end(), // transcript for the broadcast channel
-                    tree,             // PRF for deriving all random tapes
-                    Some(zero.end()), // player zero corrections extracted from pre-processing
-                    Some(wires),      // the initial wire values (masked witness)
-                    0,                // player to omit (unfilled)
-                )
-            })
-            .collect_into_vec(&mut execs);
+            // mask the inputs
+            let mut wires: Vec<<D::Sharing as RingModule>::Scalar> =
+                Vec::with_capacity(inputs.len());
+
+            for (i, input) in inputs.iter().enumerate() {
+                let mask: D::Sharing = preprocessing.mask(i);
+                wires.push(*input - mask.reconstruct());
+            }
+
+            // execute program one instruction at a time
+            let mut transcript = StoredTranscript::<D::Sharing>::new();
+
+            execute::<D, StoredTranscript<D::Sharing>, _, N>(
+                &mut transcript,
+                wires.clone(),
+                preprocessing,
+                program,
+            );
+            (
+                transcript.end(),  // transcript for the broadcast channel
+                tree,              // PRF for deriving all random tapes
+                Some(corrections), // player zero corrections extracted from pre-processing
+                Some(wires),       // the initial wire values (masked witness)
+                0,                 // player to omit (unfilled)
+            )
+        });
+
+        #[cfg(test)]
+        execs.extend(runs);
+
+        #[cfg(not(test))]
+        runs.collect_into_vec(&mut execs);
 
         // extract which players to omit in every run (Fiat-Shamir)
         let mut view: View = View::new();
@@ -109,6 +125,9 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
         let mut rng = view.rng(LABEL_RNG_OPEN_ONLINE);
         for i in 0..R {
             execs[i].4 = random_usize::<_, N>(&mut rng);
+
+            #[cfg(test)]
+            println!("omitted: {}", execs[i].4);
         }
 
         // compile views of opened players
@@ -116,12 +135,12 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
         execs
             .par_iter_mut()
             .map(|run| {
-                let omit = run.4;
+                let omitted = run.4;
 
                 // clear the player 0 corrections if not opened
-                let mut zero = run.2.take().unwrap().1;
-                if omit != 0 {
-                    zero.clear();
+                let mut corrections = run.2.take().unwrap();
+                if omitted == 0 {
+                    corrections.clear();
                 }
 
                 // pad transcript to batch multiple
@@ -133,22 +152,22 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
 
                 // extract broadcast messages from omitted player
                 // NOTE: Done by transposing groups of sharings back into per-player-batches then saving the appropriate batch
-                let mut msgs = Vec::with_capacity(num_batches);
+                let mut broadcast = Vec::with_capacity(num_batches);
                 let mut batches: [D::Batch; N] = [D::Batch::ZERO; N];
                 for i in 0..num_batches {
                     D::convert_inv(
                         &mut batches,
                         &transcript[i * D::Batch::DIMENSION..(i + 1) * D::Batch::DIMENSION],
                     );
-                    msgs.push(batches[omit]);
+                    broadcast.push(batches[omitted]);
                 }
 
                 // puncture the PRF to hide the random tape of the hidden player
                 Run {
-                    zero,
-                    msgs,
-                    wires: run.3.take().unwrap(),
-                    open: run.1.clone().puncture(omit),
+                    corrections,
+                    broadcast,
+                    inputs: run.3.take().unwrap(),
+                    open: run.1.clone().puncture(omitted),
                 }
             })
             .collect_into_vec(&mut runs);
