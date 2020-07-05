@@ -12,35 +12,97 @@ use crate::util::*;
 use blake3::Hash;
 use rayon::prelude::*;
 
-pub(super) struct StoredTranscript<T: Serializable> {
-    msgs: Vec<T>,
-    hasher: RingHasher<T>,
-}
-
-impl<T: Serializable> StoredTranscript<T> {
-    pub fn new() -> Self {
-        StoredTranscript {
-            msgs: Vec::new(),
-            hasher: RingHasher::new(),
-        }
-    }
-
-    pub fn end(self) -> (Hash, Vec<T>) {
-        (self.hasher.finalize(), self.msgs)
-    }
-}
-
-impl<T: Serializable + Copy> Writer<T> for StoredTranscript<T> {
-    fn write(&mut self, message: &T) {
-        self.hasher.update(&message);
-        self.msgs.push(*message);
-    }
-}
-
 impl<T: Serializable + Copy> Writer<T> for Vec<T> {
     fn write(&mut self, message: &T) {
         self.push(*message);
     }
+}
+
+fn execute_prover<D: Domain, P: Preprocessing<D>, const N: usize>(
+    wires: Vec<<D::Sharing as RingModule>::Scalar>,
+    mut preprocessing: P,
+    program: &[Instruction<<D::Sharing as RingModule>::Scalar>],
+) -> (Vec<D::Sharing>, Vec<D::Sharing>, Hash) {
+    #[cfg(test)]
+    println!("execute_prover");
+
+    let mut wires: VecMap<<D::Sharing as RingModule>::Scalar> = wires.into();
+    let mut multiplications: Vec<D::Sharing> = Vec::new();
+    let mut reconstructions: Vec<D::Sharing> = Vec::new();
+    let mut hasher: RingHasher<D::Sharing> = RingHasher::new();
+    for step in program {
+        match *step {
+            Instruction::AddConst(dst, src, c) => {
+                let sw = wires.get(src);
+                wires.set(dst, sw + c);
+            }
+            Instruction::MulConst(dst, src, c) => {
+                let sw = wires.get(src);
+                wires.set(dst, sw * c);
+            }
+            Instruction::Add(dst, src1, src2) => {
+                let sw1 = wires.get(src1);
+                let sw2 = wires.get(src2);
+                wires.set(dst, sw1 + sw2);
+            }
+            Instruction::Mul(dst, src1, src2) => {
+                // calculate reconstruction shares for every player
+                let a_w = wires.get(src1);
+                let b_w = wires.get(src2);
+                let a_m: D::Sharing = preprocessing.mask(src1);
+                let b_m: D::Sharing = preprocessing.mask(src2);
+                let ab_gamma: D::Sharing = preprocessing.next_ab_gamma();
+                let recon = a_m.action(b_w) + b_m.action(a_w) + ab_gamma;
+
+                // reconstruct
+                hasher.write(&recon);
+                multiplications.push(recon);
+
+                // corrected wire
+                let c_w = recon.reconstruct() + a_w * b_w;
+
+                // append messages from all players to transcript
+                #[cfg(test)]
+                {
+                    let c_m = preprocessing.mask(dst);
+
+                    println!("mult");
+                    println!("  a_w = {:?}", a_w);
+                    println!("  b_w = {:?}", b_w);
+                    println!("  a_m = {:?}", a_m);
+                    println!("  b_m = {:?}", b_m);
+                    println!("  c_m = {:?}", c_m);
+                    println!("  ab + \\gamma = {:?}", ab_gamma);
+                    println!("  recon = {:?}", recon);
+
+                    // assert that pre-processing is generating valid Beaver triples
+                    let a = a_m.reconstruct();
+                    let b = b_m.reconstruct();
+                    let ab = (ab_gamma - c_m).reconstruct();
+                    assert_eq!(a * b, ab);
+
+                    // assert operation computed correctly
+                    let i1 = a_w + a_m.reconstruct();
+                    let i2 = b_w + b_m.reconstruct();
+                    let o = c_w + preprocessing.mask(dst).reconstruct();
+                    assert_eq!(i1 * i2, o, "i1 = {:?}, i2 = {:?}, o = {:?}", i1, i2, o);
+                }
+
+                // reconstruct and correct share
+                wires.set(dst, c_w);
+            }
+            Instruction::Output(src) => {
+                let m: D::Sharing = preprocessing.mask(src);
+                #[cfg(test)]
+                {
+                    println!("output: {:?}", m.reconstruct() + wires.get(src));
+                }
+                hasher.write(&m);
+                reconstructions.push(m);
+            }
+        }
+    }
+    (multiplications, reconstructions, hasher.finalize())
 }
 
 impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT, R> {
@@ -49,14 +111,18 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
         program: &[Instruction<<D::Sharing as RingModule>::Scalar>],
         inputs: &[<D::Sharing as RingModule>::Scalar],
     ) -> Proof<D, N, NT, R> {
+        struct Exec<D: Domain, const N: usize, const NT: usize, const R: usize> {
+            reconstructions: Option<Vec<D::Sharing>>,
+            multiplications: Option<Vec<D::Sharing>>,
+            hash: Hash,
+            prf: TreePRF<NT>,
+            corrections: Option<Vec<D::Batch>>,
+            wires: Option<Vec<<D::Sharing as RingModule>::Scalar>>,
+            omitted: usize,
+        }
+
         // execute the online phase R times
-        let mut execs: Vec<(
-            (Hash, Vec<D::Sharing>),
-            TreePRF<NT>,
-            Option<Vec<D::Batch>>,
-            Option<Vec<<D::Sharing as RingModule>::Scalar>>,
-            usize,
-        )> = Vec::with_capacity(R);
+        let mut execs: Vec<Exec<D, N, NT, R>> = Vec::with_capacity(R);
 
         #[cfg(test)]
         let runs = seeds.iter();
@@ -90,22 +156,18 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
                 wires.push(*input - mask.reconstruct());
             }
 
-            // execute program one instruction at a time
-            let mut transcript = StoredTranscript::<D::Sharing>::new();
+            let (multiplications, reconstructions, hash) =
+                execute_prover::<D, _, N>(wires.clone(), preprocessing, program);
 
-            execute::<D, StoredTranscript<D::Sharing>, _, N>(
-                &mut transcript,
-                wires.clone(),
-                preprocessing,
-                program,
-            );
-            (
-                transcript.end(),  // transcript for the broadcast channel
-                tree,              // PRF for deriving all random tapes
-                Some(corrections), // player zero corrections extracted from pre-processing
-                Some(wires),       // the initial wire values (masked witness)
-                0,                 // player to omit (unfilled)
-            )
+            Exec {
+                multiplications: Some(multiplications),
+                reconstructions: Some(reconstructions),
+                hash,
+                prf: tree,
+                corrections: Some(corrections),
+                wires: Some(wires),
+                omitted: 0,
+            }
         });
 
         #[cfg(test)]
@@ -119,55 +181,41 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
         {
             let mut scope = view.scope(LABEL_SCOPE_ONLINE_TRANSCRIPT);
             for run in execs.iter() {
-                scope.join(&(run.0).0);
+                scope.join(&run.hash);
             }
         }
         let mut rng = view.rng(LABEL_RNG_OPEN_ONLINE);
         for i in 0..R {
-            execs[i].4 = random_usize::<_, N>(&mut rng);
+            execs[i].omitted = random_usize::<_, N>(&mut rng);
 
             #[cfg(test)]
-            println!("omitted: {}", execs[i].4);
+            println!("omitted: {}", execs[i].omitted);
         }
 
         // compile views of opened players
         let mut runs: Vec<Run<D, N, NT>> = Vec::with_capacity(R);
         execs
             .par_iter_mut()
-            .map(|run| {
-                let omitted = run.4;
-
-                // clear the player 0 corrections if not opened
-                let mut corrections = run.2.take().unwrap();
-                if omitted == 0 {
+            .map(|run: &mut _| {
+                let mut corrections = run.corrections.take().unwrap();
+                if run.omitted == 0 {
                     corrections.clear();
                 }
 
-                // pad transcript to batch multiple
-                // (not added to the transcript hash)
-                let transcript = &mut (run.0).1;
-                let num_batches =
-                    (transcript.len() + D::Batch::DIMENSION - 1) / D::Batch::DIMENSION;
-                transcript.resize(num_batches * D::Batch::DIMENSION, D::Sharing::ZERO);
-
-                // extract broadcast messages from omitted player
-                // NOTE: Done by transposing groups of sharings back into per-player-batches then saving the appropriate batch
-                let mut broadcast = Vec::with_capacity(num_batches);
-                let mut batches: [D::Batch; N] = [D::Batch::ZERO; N];
-                for i in 0..num_batches {
-                    D::convert_inv(
-                        &mut batches,
-                        &transcript[i * D::Batch::DIMENSION..(i + 1) * D::Batch::DIMENSION],
-                    );
-                    broadcast.push(batches[omitted]);
-                }
-
+                // extract messages broadcast by omitted player and
                 // puncture the PRF to hide the random tape of the hidden player
                 Run {
                     corrections,
-                    broadcast,
-                    inputs: run.3.take().unwrap(),
-                    open: run.1.clone().puncture(omitted),
+                    multiplications: shares_to_batches::<D, N>(
+                        run.multiplications.take().unwrap(),
+                        run.omitted,
+                    ),
+                    reconstructions: shares_to_batches::<D, N>(
+                        run.reconstructions.take().unwrap(),
+                        run.omitted,
+                    ),
+                    inputs: run.wires.take().unwrap(),
+                    open: run.prf.puncture(run.omitted),
                 }
             })
             .collect_into_vec(&mut runs);

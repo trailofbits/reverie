@@ -1,8 +1,16 @@
 use super::*;
 
+use std::fmt;
+
 // vector element
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub struct BitSharing8(pub(super) u8);
+
+impl fmt::Debug for BitSharing8 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_fmt(format_args!("<{:08b}> [{}]", self.0, self.reconstruct().0))
+    }
+}
 
 impl Add for BitSharing8 {
     type Output = Self;
@@ -47,6 +55,7 @@ impl RingModule for BitSharing8 {
     #[inline(always)]
     fn get(&self, n: usize) -> Self::Scalar {
         debug_assert!(n < 8, "get out of range");
+        let n = 7 - n;
         BitScalar((self.0 >> n) & 1)
     }
 
@@ -54,6 +63,7 @@ impl RingModule for BitSharing8 {
     fn set(&self, s: Self::Scalar, n: usize) -> Self {
         debug_assert!(s.0 < 2, "scalar is not bit");
         debug_assert!(n < 8, "set out of range");
+        let n = 7 - n;
 
         let mut r: u8 = self.0;
         r &= !(1 << n); // clear nth bit

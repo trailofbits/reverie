@@ -47,6 +47,7 @@ impl RingModule for BitSharing64 {
     #[inline(always)]
     fn get(&self, n: usize) -> Self::Scalar {
         debug_assert!(n < Self::DIMENSION, "get out of range");
+        let n = 63 - n;
         BitScalar(((self.0 >> n) & 1) as u8)
     }
 
@@ -54,6 +55,7 @@ impl RingModule for BitSharing64 {
     fn set(&self, s: Self::Scalar, n: usize) -> Self {
         debug_assert!(s.0 < 2, "scalar is not bit");
         debug_assert!(n < Self::DIMENSION, "set out of range");
+        let n = 63 - n;
 
         let mut r = self.0;
         r &= !(1 << n); // clear nth bit

@@ -95,38 +95,50 @@ impl<'a, 'b, 'c, 'd, D: Domain, R: RngCore, const N: usize>
         // compute random c sharing and reconstruct a,b sharings
         for i in 0..N {
             if i == self.omitted {
+                batches_c[i] = D::Batch::ZERO;
+                batches_gab[i] = self.broadcast[0];
+                self.broadcast = &self.broadcast[1..];
+
                 #[cfg(test)]
-                println!("batches_gab[{}] = {:?} (omitted)", i, self.broadcast[0]);
-                continue;
+                println!("batches_gab[{}] = {:?} (omitted)", i, batches_gab[i]);
+            } else {
+                batches_c[i] = D::Batch::gen(&mut self.rngs[i]);
+                if i == 0 {
+                    // correct shares for player 0 (correction bits)
+                    batches_c[0] = batches_c[0] + self.corrections[0];
+                    self.corrections = &self.corrections[1..];
+                }
+                batches_gab[i] = batches_c[i] + self.batch_g[i];
+
+                #[cfg(test)]
+                println!("batches_gab[{}] = {:?}", i, batches_gab[i]);
             }
-
-            // generate shares of [\lambda_{ab}] + [\lambda_\gamma]
-            batches_c[i] = D::Batch::gen(&mut self.rngs[i]);
-            batches_gab[i] = batches_c[i] + self.batch_g[i];
-
-            #[cfg(test)]
-            println!("batches_gab[{}] = {:?}", i, batches_gab[i]);
-        }
-
-        // correct shares for player 0 (correction bits)
-        if self.omitted != 0 {
-            batches_c[0] = batches_c[0] + self.corrections[0];
-            self.corrections = &self.corrections[1..];
         }
 
         // return ab_gamma shares
-        batches_gab[self.omitted] = batches_gab[self.omitted] + self.broadcast[0];
         D::convert(&mut self.share_ab_gamma[..], &batches_gab);
-        self.broadcast = &self.broadcast[1..];
     }
 
     #[inline(always)]
     fn pack_batch(&mut self) {
         // generate sharings for the output of the next batch of multiplications
         for i in 0..N {
-            self.batch_g[i] = D::Batch::gen(&mut self.rngs[i]);
+            if i != self.omitted {
+                self.batch_g[i] = D::Batch::gen(&mut self.rngs[i]);
+            }
         }
+        debug_assert_eq!(self.batch_g[self.omitted], D::Batch::ZERO);
         D::convert(&mut self.share_g[..], &self.batch_g[..]);
+
+        #[cfg(test)]
+        {
+            for share in self.share_g.iter() {
+                debug_assert_eq!(
+                    share.get(self.omitted),
+                    <D::Sharing as RingModule>::Scalar::ZERO
+                );
+            }
+        }
 
         // look forward in program until executed enough multiplications
         let mut mults = 0;
@@ -158,6 +170,20 @@ impl<'a, 'b, 'c, 'd, D: Domain, R: RngCore, const N: usize>
                     self.share_b[mults] = sw2;
                     let gamma = self.share_g[mults];
                     mults += 1;
+
+                    // check that all shares for the omitted player are zero
+                    debug_assert_eq!(
+                        gamma.get(self.omitted),
+                        <D::Sharing as RingModule>::Scalar::ZERO
+                    );
+                    debug_assert_eq!(
+                        sw1.get(self.omitted),
+                        <D::Sharing as RingModule>::Scalar::ZERO
+                    );
+                    debug_assert_eq!(
+                        sw2.get(self.omitted),
+                        <D::Sharing as RingModule>::Scalar::ZERO
+                    );
 
                     // assign mask to output
                     self.masks.set(dst, gamma);

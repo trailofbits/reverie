@@ -9,64 +9,62 @@ use crate::Instruction;
 
 use crate::algebra::{Domain, RingElement, RingModule, Samplable, Sharing};
 
+pub trait Transcript<D: Domain> {
+    fn write_multiplication(&mut self, val: D::Sharing);
+    fn write_reconstruction(&mut self, val: D::Sharing);
+}
+
+pub trait Output<D: Domain> {
+    fn hidden_share(&mut self) -> D::Sharing;
+}
+
+pub fn shares_to_batches<D: Domain, const N: usize>(
+    mut shares: Vec<D::Sharing>,
+    idx: usize,
+) -> Vec<D::Batch> {
+    // pad to multiple of batch dimension
+    let num_batches = (shares.len() + D::Batch::DIMENSION - 1) / D::Batch::DIMENSION;
+    shares.resize(num_batches * D::Batch::DIMENSION, D::Sharing::ZERO);
+
+    // extract the player batches from D::Batch::DIMENSION player sharings
+    let mut batches = Vec::with_capacity(num_batches);
+    for i in 0..num_batches {
+        let mut batch = [D::Batch::ZERO; N];
+        D::convert_inv(
+            &mut batch,
+            &shares[i * D::Batch::DIMENSION..(i + 1) * D::Batch::DIMENSION],
+        );
+
+        #[cfg(test)]
+        println!("batches[omitted] = {:?}", batch[idx]);
+        batches.push(batch[idx]);
+    }
+    batches
+}
+
+pub fn shares_to_scalar<D: Domain, const N: usize>(
+    shares: &[D::Sharing],
+    idx: usize,
+) -> Vec<<D::Sharing as RingModule>::Scalar> {
+    let mut scalars = Vec::with_capacity(shares.len());
+    for share in shares {
+        scalars.push(share.get(idx))
+    }
+    scalars
+}
+
 /// Represents the state required to partially re-execute a single repetition of the online phase.
 pub struct Run<D: Domain, const N: usize, const NT: usize> {
+    corrections: Vec<D::Batch>,     // correction shares for player0
+    multiplications: Vec<D::Batch>, // messages broadcast by hidden player
+    reconstructions: Vec<D::Batch>, //
     inputs: Vec<<D::Sharing as RingModule>::Scalar>, // initial wire values (masked witness)
-    corrections: Vec<D::Batch>,                      // correction shares for player0
-    broadcast: Vec<D::Batch>,                        // messages broadcast by hidden player
-    open: TreePRF<NT>, // PRF used to derive random tapes for the opened players
+    open: TreePRF<NT>,              // PRF to derive random tapes for the opened players
 }
 
 /// A proof of the online phase consists of a collection of runs to amplify soundness.
 pub struct Proof<D: Domain, const N: usize, const NT: usize, const R: usize> {
     runs: Vec<Run<D, N, NT>>,
-}
-
-pub fn execute<D: Domain, T: Writer<D::Sharing>, P: Preprocessing<D>, const N: usize>(
-    transcript: &mut T,
-    wires: Vec<<D::Sharing as RingModule>::Scalar>,
-    mut preprocessing: P,
-    program: &[Instruction<<D::Sharing as RingModule>::Scalar>],
-) {
-    let mut wires: VecMap<<D::Sharing as RingModule>::Scalar> = wires.into();
-    for step in program {
-        match *step {
-            Instruction::AddConst(dst, src, c) => {
-                let sw = wires.get(src);
-                wires.set(dst, sw + c);
-            }
-            Instruction::MulConst(dst, src, c) => {
-                let sw = wires.get(src);
-                wires.set(dst, sw * c);
-            }
-            Instruction::Add(dst, src1, src2) => {
-                let sw1 = wires.get(src1);
-                let sw2 = wires.get(src2);
-                wires.set(dst, sw1 + sw2);
-            }
-            Instruction::Mul(dst, src1, src2) => {
-                let sw1 = wires.get(src1);
-                let sw2 = wires.get(src2);
-
-                // calculate reconstruction shares for every player
-                let a: D::Sharing = preprocessing.mask(src1);
-                let b: D::Sharing = preprocessing.mask(src2);
-                let recon = a.action(sw1) + b.action(sw2) + preprocessing.next_ab_gamma();
-
-                // append messages from all players to transcript
-                #[cfg(test)]
-                println!("{:?}", &recon);
-
-                transcript.write(&recon);
-
-                // reconstruct and correct share
-                wires.set(dst, recon.reconstruct() + sw1 * sw2);
-            }
-            Instruction::Output(src) => (),
-        }
-    }
-
-    println!("\n\n");
 }
 
 #[cfg(test)]
@@ -93,7 +91,12 @@ mod tests {
 
     #[test]
     fn test_online_gf2p8() {
-        let program: Vec<Instruction<BitScalar>> = vec![Instruction::Mul(8, 0, 1)];
+        let program: Vec<Instruction<BitScalar>> = vec![
+            Instruction::Mul(8, 0, 1),
+            Instruction::Add(9, 0, 1),
+            Instruction::Output(8),
+            Instruction::Output(9),
+        ];
 
         let inputs: Vec<BitScalar> = vec![
             BitScalar::ONE,  // 0

@@ -1,10 +1,21 @@
 use super::*;
 
+use std::fmt;
+
 pub(super) const BATCH_SIZE_BYTES: usize = 8; // batch is 64-bit / 8 bytes
 pub(super) const BATCH_SIZE_BITS: usize = BATCH_SIZE_BYTES * 8;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct BitBatch(pub(super) [u8; BATCH_SIZE_BYTES]);
+
+impl fmt::Debug for BitBatch {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_fmt(format_args!(
+            "{:08b}-{:08b}-{:08b}-{:08b}-{:08b}-{:08b}-{:08b}-{:08b}",
+            self.0[0], self.0[1], self.0[2], self.0[3], self.0[4], self.0[5], self.0[6], self.0[7]
+        ))
+    }
+}
 
 impl Add for BitBatch {
     type Output = Self;

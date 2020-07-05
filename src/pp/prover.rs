@@ -75,7 +75,6 @@ impl<'a, 'b, 'c, D: Domain, W: Writer<D::Batch>, R: RngCore, const N: usize, con
         let mut batches_a: [D::Batch; N] = [D::Batch::ZERO; N];
         let mut batches_b: [D::Batch; N] = [D::Batch::ZERO; N];
         let mut batches_c: [D::Batch; N] = [D::Batch::ZERO; N];
-        let mut batches_gab: [D::Batch; N] = [D::Batch::ZERO; N];
 
         // transpose sharings into per player batches
         D::convert_inv(&mut batches_a[..], &self.share_a[..]);
@@ -93,12 +92,6 @@ impl<'a, 'b, 'c, D: Domain, W: Writer<D::Batch>, R: RngCore, const N: usize, con
             a = a + batches_a[i];
             b = b + batches_b[i];
             c = c + batches_c[i];
-
-            // generate shares of [\lambda_{ab}] + [\lambda_\gamma]
-            batches_gab[i] = batches_c[i] + self.batch_g[i];
-
-            #[cfg(test)]
-            println!("batches_gab[{}] = {:?}", i, batches_gab[i]);
         }
 
         // correct shares for player 0 (correction bits)
@@ -107,7 +100,10 @@ impl<'a, 'b, 'c, D: Domain, W: Writer<D::Batch>, R: RngCore, const N: usize, con
 
         // return ab_gamma shares if online execution
         if O {
-            batches_gab[0] = batches_gab[0] + delta;
+            let mut batches_gab: [D::Batch; N] = [D::Batch::ZERO; N];
+            for i in 0..N {
+                batches_gab[i] = batches_c[i] + self.batch_g[i];
+            }
             D::convert(&mut self.share_ab_gamma[..], &batches_gab);
         }
 
