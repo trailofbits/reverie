@@ -35,7 +35,7 @@ mod consts;
 
 use crate::algebra::RingElement;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum Instruction<E: RingElement> {
     AddConst(usize, usize, E), // addition of constant
     MulConst(usize, usize, E), // multiplication by constant

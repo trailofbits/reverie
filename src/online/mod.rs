@@ -1,13 +1,15 @@
 pub mod prover;
 pub mod verifier;
 
+#[cfg(test)]
+mod tests;
+
 use crate::crypto::{RingHasher, TreePRF, KEY_SIZE};
 use crate::fs::{View, ViewRNG};
 use crate::pp::Preprocessing;
-use crate::util::{VecMap, Writer};
 use crate::Instruction;
 
-use crate::algebra::{Domain, RingElement, RingModule, Samplable, Sharing};
+use crate::algebra::{Domain, RingElement, RingModule};
 
 pub trait Transcript<D: Domain> {
     fn write_multiplication(&mut self, val: D::Sharing);
@@ -65,49 +67,4 @@ pub struct Run<D: Domain, const N: usize, const NT: usize> {
 /// A proof of the online phase consists of a collection of runs to amplify soundness.
 pub struct Proof<D: Domain, const N: usize, const NT: usize, const R: usize> {
     runs: Vec<Run<D, N, NT>>,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::algebra::gf2::*;
-    use rand::thread_rng;
-    use rand_core::RngCore;
-
-    fn test_proof<D: Domain, const N: usize, const NT: usize, const R: usize>(
-        program: &[Instruction<<D::Sharing as RingModule>::Scalar>],
-        inputs: &[<D::Sharing as RingModule>::Scalar],
-    ) {
-        let mut rng = thread_rng();
-        let mut seeds: [[u8; KEY_SIZE]; R] = [[0; KEY_SIZE]; R];
-        for i in 0..R {
-            rng.fill_bytes(&mut seeds[i]);
-        }
-
-        let proof: Proof<D, N, NT, R> = Proof::new(&seeds, program, inputs);
-
-        assert!(proof.verify(program));
-    }
-
-    #[test]
-    fn test_online_gf2p8() {
-        let program: Vec<Instruction<BitScalar>> = vec![
-            Instruction::Mul(8, 0, 1),
-            Instruction::Add(9, 0, 1),
-            Instruction::Output(8),
-            Instruction::Output(9),
-        ];
-
-        let inputs: Vec<BitScalar> = vec![
-            BitScalar::ONE,  // 0
-            BitScalar::ONE,  // 1
-            BitScalar::ONE,  // 2
-            BitScalar::ONE,  // 3
-            BitScalar::ZERO, // 4
-            BitScalar::ZERO, // 5
-            BitScalar::ZERO, // 6
-            BitScalar::ZERO, // 7
-        ];
-        test_proof::<GF2P8, 8, 8, 1>(&program[..], &inputs[..]);
-    }
 }

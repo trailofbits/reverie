@@ -33,17 +33,63 @@ fn execute_prover<D: Domain, P: Preprocessing<D>, const N: usize>(
     for step in program {
         match *step {
             Instruction::AddConst(dst, src, c) => {
-                let sw = wires.get(src);
-                wires.set(dst, sw + c);
+                let a_w = wires.get(src);
+                wires.set(dst, a_w + c);
+
+                {
+                    println!("prover:add-const");
+                    println!("  src  = {}", src);
+                    println!("  dst  = {}", dst);
+                    println!("  c    = {:?}", c);
+
+                    let r_w = wires.get(dst);
+                    let r_m = preprocessing.mask(dst).reconstruct();
+                    let a_m = preprocessing.mask(src).reconstruct();
+
+                    let r = r_w + r_m;
+                    let a = a_w + a_m;
+
+                    debug_assert_eq!(preprocessing.mask(src), preprocessing.mask(dst));
+                    debug_assert_eq!(a + c, r);
+                }
             }
             Instruction::MulConst(dst, src, c) => {
                 let sw = wires.get(src);
+                #[cfg(test)]
+                {
+                    println!("prover:mul-const");
+                    println!("  src  = {}", src);
+                    println!("  dst  = {}", dst);
+                    println!("  c    = {:?}", c);
+                }
                 wires.set(dst, sw * c);
             }
             Instruction::Add(dst, src1, src2) => {
-                let sw1 = wires.get(src1);
-                let sw2 = wires.get(src2);
-                wires.set(dst, sw1 + sw2);
+                let a_w = wires.get(src1);
+                let b_w = wires.get(src2);
+
+                wires.set(dst, a_w + b_w);
+
+                #[cfg(test)]
+                {
+                    println!("prover:add");
+                    println!("  src1 = {}", src1);
+                    println!("  src2 = {}", src2);
+                    println!("  dst  = {}", dst);
+                    println!("  a_w  = {:?}", a_w);
+                    println!("  b_w  = {:?}", b_w);
+
+                    let c_w = wires.get(dst);
+                    let c_m = preprocessing.mask(dst).reconstruct();
+                    let a_m = preprocessing.mask(src1).reconstruct();
+                    let b_m = preprocessing.mask(src2).reconstruct();
+
+                    let c = c_w + c_m;
+                    let a = a_w + a_m;
+                    let b = b_w + b_m;
+
+                    debug_assert_eq!(c, a + b);
+                }
             }
             Instruction::Mul(dst, src1, src2) => {
                 // calculate reconstruction shares for every player
@@ -66,12 +112,15 @@ fn execute_prover<D: Domain, P: Preprocessing<D>, const N: usize>(
                 {
                     let c_m = preprocessing.mask(dst);
 
-                    println!("mult");
-                    println!("  a_w = {:?}", a_w);
-                    println!("  b_w = {:?}", b_w);
-                    println!("  a_m = {:?}", a_m);
-                    println!("  b_m = {:?}", b_m);
-                    println!("  c_m = {:?}", c_m);
+                    println!("prover:mult");
+                    println!("  src1 = {}", src1);
+                    println!("  src2 = {}", src2);
+                    println!("  dst  = {}", dst);
+                    println!("  a_w  = {:?}", a_w);
+                    println!("  b_w  = {:?}", b_w);
+                    println!("  a_m  = {:?}", a_m);
+                    println!("  b_m  = {:?}", b_m);
+                    println!("  c_m  = {:?}", c_m);
                     println!("  ab + \\gamma = {:?}", ab_gamma);
                     println!("  recon = {:?}", recon);
 
@@ -95,7 +144,8 @@ fn execute_prover<D: Domain, P: Preprocessing<D>, const N: usize>(
                 let m: D::Sharing = preprocessing.mask(src);
                 #[cfg(test)]
                 {
-                    println!("output: {:?}", m.reconstruct() + wires.get(src));
+                    println!("prover:output");
+                    println!("  val[{}] = {:?}", src, m.reconstruct() + wires.get(src));
                 }
                 hasher.write(&m);
                 reconstructions.push(m);

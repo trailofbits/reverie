@@ -1,7 +1,15 @@
 use super::*;
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+use std::fmt;
+
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub struct BitScalar(pub(super) u8);
+
+impl fmt::Debug for BitScalar {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_fmt(format_args!("{}", self.0))
+    }
+}
 
 impl Add for BitScalar {
     type Output = Self;

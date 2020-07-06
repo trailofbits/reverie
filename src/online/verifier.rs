@@ -114,12 +114,10 @@ fn execute_verify<D: Domain, P: Preprocessing<D>, const N: usize>(
     for step in program {
         match *step {
             Instruction::AddConst(dst, src, c) => {
-                let sw = wires.get(src);
-                wires.set(dst, sw + c);
+                wires.set(dst, wires.get(src) + c);
             }
             Instruction::MulConst(dst, src, c) => {
-                let sw = wires.get(src);
-                wires.set(dst, sw * c);
+                wires.set(dst, wires.get(src) * c);
             }
             Instruction::Add(dst, src1, src2) => {
                 let sw1 = wires.get(src1);
@@ -162,10 +160,6 @@ fn execute_verify<D: Domain, P: Preprocessing<D>, const N: usize>(
             Instruction::Output(src) => {
                 let hidden_share = output_shares.next_output_share();
                 let mask = preprocessing.mask(src) + hidden_share;
-                #[cfg(test)]
-                {
-                    println!("hidden share: {:?}", hidden_share);
-                }
                 output.push(mask.reconstruct() + wires.get(src));
                 hasher.write(&mask);
             }
@@ -175,9 +169,12 @@ fn execute_verify<D: Domain, P: Preprocessing<D>, const N: usize>(
 }
 
 impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT, R> {
-    pub fn verify(&self, program: &[Instruction<<D::Sharing as RingModule>::Scalar>]) -> bool {
+    pub fn verify(
+        &self,
+        program: &[Instruction<<D::Sharing as RingModule>::Scalar>],
+    ) -> Option<Vec<<D::Sharing as RingModule>::Scalar>> {
         if self.runs.len() != R {
-            return false;
+            return None;
         }
 
         // re-execute the online phase R times
@@ -229,6 +226,9 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
         #[cfg(not(test))]
         runs.collect_into_vec(&mut execs);
 
+        // output produced by first repetitions (should be the same across all executions)
+        let output = &(execs[0].0)[..];
+
         // extract which players to omit in every run (Fiat-Shamir)
         let mut view: View = View::new();
         {
@@ -240,12 +240,17 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
         let mut rng = view.rng(LABEL_RNG_OPEN_ONLINE);
         for (run, exec) in self.runs.iter().zip(execs.iter()) {
             if exec.2 != random_usize::<_, N>(&mut rng) {
-                return false;
+                return None;
             }
-            println!("{:?}", &exec.0[..]);
+
+            // check output (usually a single bit)
+            if &exec.0[..] != output {
+                return None;
+            }
         }
 
-        // otherwise looks good
-        true
+        // otherwise return the output
+        // (usually a field element, indicating whether the witness satisfies the relation computed)
+        Some(execs.pop().unwrap().0)
     }
 }

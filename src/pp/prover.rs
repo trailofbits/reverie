@@ -56,8 +56,8 @@ impl<'a, 'b, 'c, D: Domain, W: Writer<D::Batch>, R: RngCore, const N: usize, con
         masks.truncate(inputs);
 
         // return pre-processing with input wire masks set
-        PreprocessingExecution {
-            next: D::Batch::DIMENSION,
+        let mut ins = PreprocessingExecution {
+            next: 0,
             rngs,
             program,
             batch_g: [D::Batch::ZERO; N],
@@ -67,7 +67,11 @@ impl<'a, 'b, 'c, D: Domain, W: Writer<D::Batch>, R: RngCore, const N: usize, con
             share_b: vec![D::Sharing::ZERO; D::Batch::DIMENSION],
             corrections,
             masks: masks.into(),
-        }
+        };
+
+        // generate the initial batch
+        ins.pack_batch();
+        ins
     }
 
     #[inline(always)]
@@ -98,7 +102,20 @@ impl<'a, 'b, 'c, D: Domain, W: Writer<D::Batch>, R: RngCore, const N: usize, con
         let delta = a * b - c;
         batches_c[0] = batches_c[0] + delta;
 
-        // return ab_gamma shares if online execution
+        // sanity check in tests
+        #[cfg(test)]
+        {
+            let mut share_c = vec![D::Sharing::ZERO; D::Batch::DIMENSION];
+            D::convert(&mut share_c[..], &batches_c);
+            for i in 0..D::Batch::DIMENSION {
+                debug_assert_eq!(
+                    share_c[i].reconstruct(),
+                    self.share_a[i].reconstruct() * self.share_b[i].reconstruct()
+                )
+            }
+        }
+
+        // compute ab_gamma shares if online execution
         if O {
             let mut batches_gab: [D::Batch; N] = [D::Batch::ZERO; N];
             for i in 0..N {
@@ -123,7 +140,12 @@ impl<'a, 'b, 'c, D: Domain, W: Writer<D::Batch>, R: RngCore, const N: usize, con
         let mut mults = 0;
         for (i, ins) in self.program.iter().enumerate() {
             match *ins {
-                Instruction::AddConst(_dst, _src, _c) => (), // noop in pre-processing
+                Instruction::AddConst(dst, src, _c) => {
+                    // noop in pre-processing
+                    #[cfg(test)]
+                    println!("process {} {}", dst, src);
+                    self.masks.set(dst, self.masks.get(src));
+                }
                 Instruction::MulConst(dst, src, c) => {
                     // resolve input
                     let sw = self.masks.get(src);
@@ -132,50 +154,44 @@ impl<'a, 'b, 'c, D: Domain, W: Writer<D::Batch>, R: RngCore, const N: usize, con
                     self.masks.set(dst, sw.action(c));
                 }
                 Instruction::Add(dst, src1, src2) => {
-                    // resolve inputs
-                    let sw1 = self.masks.get(src1);
-                    let sw2 = self.masks.get(src2);
-
-                    // compute the sum and set output wire
-                    self.masks.set(dst, sw1 + sw2);
+                    self.masks
+                        .set(dst, self.masks.get(src1) + self.masks.get(src2));
                 }
                 Instruction::Mul(dst, src1, src2) => {
-                    // resolve inputs
-                    let sw1 = self.masks.get(src1);
-                    let sw2 = self.masks.get(src2);
-
                     // push the masks to the Beaver stack
-                    self.share_a[mults] = sw1;
-                    self.share_b[mults] = sw2;
-                    let gamma = self.share_g[mults];
-                    mults += 1;
+                    self.share_a[mults] = self.masks.get(src1);
+                    self.share_b[mults] = self.masks.get(src2);
 
                     // assign mask to output
-                    self.masks.set(dst, gamma);
+                    self.masks.set(dst, self.share_g[mults]);
+                    mults += 1;
 
                     // if the batch is full, stop.
                     if mults == D::Batch::DIMENSION {
-                        self.program = &self.program[i..];
+                        self.program = &self.program[i + 1..];
+                        self.generate();
                         return;
                     }
+                    debug_assert!(mults < D::Batch::DIMENSION);
                 }
                 Instruction::Output(_src) => (),
             }
         }
 
+        self.program = &self.program[..0];
+
         // we are at the end of the program look_ahead
         // push final dummy values to the Beaver stack.
-        self.share_a.resize(D::Batch::DIMENSION, D::Sharing::ZERO);
-        self.share_b.resize(D::Batch::DIMENSION, D::Sharing::ZERO);
-
-        // no more program remaining
-        self.program = &self.program[..0];
+        if mults > 0 {
+            self.share_a.resize(D::Batch::DIMENSION, D::Sharing::ZERO);
+            self.share_b.resize(D::Batch::DIMENSION, D::Sharing::ZERO);
+            self.generate();
+        }
     }
 
     pub fn finish(&mut self) {
         while self.program.len() > 0 {
             self.pack_batch();
-            self.generate();
         }
     }
 }
@@ -189,16 +205,15 @@ impl<'a, 'b, 'c, D: Domain, R: RngCore, W: Writer<D::Batch>, const N: usize, con
 
     /// Return the next ab_gamma sharings for reconstruction
     fn next_ab_gamma(&mut self) -> D::Sharing {
-        match self.share_ab_gamma.get(self.next) {
-            Some(s) => *s,
-            None => {
-                debug_assert_eq!(self.next, D::Batch::DIMENSION);
-                self.pack_batch();
-                self.generate();
-                self.next = 1;
-                self.share_ab_gamma[0]
-            }
+        assert!(O, "not online execution");
+        debug_assert!(self.next < D::Batch::DIMENSION);
+        let ab_gamma = self.share_ab_gamma[self.next];
+        self.next += 1;
+        if self.next >= D::Batch::DIMENSION {
+            self.pack_batch();
+            self.next = 0;
         }
+        ab_gamma
     }
 }
 
