@@ -1,4 +1,3 @@
-
 use super::*;
 
 use crate::algebra::gf2::*;
@@ -161,7 +160,7 @@ fn test_random_proof<D: Domain, const N: usize, const NT: usize, const R: usize>
 
 #[test]
 fn test_online_gf2p8() {
-    {
+    for _ in 0..10 {
         let program: Vec<Instruction<BitScalar>> = vec![
             Instruction::Add(127, 10, 21),
             Instruction::AddConst(480, 6, BitScalar::ONE),
