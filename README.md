@@ -1,6 +1,5 @@
 # Reverie
 
-![Stable Rust CI Status](https://github.com/trailofbits/zk-proof/workflows/stable/badge.svg)
 ![Nightly Rust CI Status](https://github.com/trailofbits/zk-proof/workflows/nightly/badge.svg)
 
 Reverie is a work-in-process implementation (prover and verifier) of the MPC-in-the-head NIZKPoK outlined in
