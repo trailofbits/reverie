@@ -216,15 +216,3 @@ impl<'a, 'b, 'c, D: Domain, R: RngCore, W: Writer<D::Batch>, const N: usize, con
         ab_gamma
     }
 }
-
-#[cfg(test)]
-mod benchmark {
-    use super::*;
-    use crate::algebra::gf2::GF2P8;
-    use crate::crypto::RingHasher;
-
-    use rand::rngs::ThreadRng;
-    use rand::thread_rng;
-
-    use test::{black_box, Bencher};
-}

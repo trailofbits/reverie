@@ -1,5 +1,6 @@
 use super::*;
 
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 use core::arch::x86_64::*;
 
 pub struct GF2P8 {}

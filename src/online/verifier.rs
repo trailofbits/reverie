@@ -1,60 +1,19 @@
 use crate::util::Writer;
 
 use super::*;
-use super::{Instruction, Proof, RingHasher, Run, View, ViewRNG, KEY_SIZE};
 
-use crate::algebra::{Domain, RingElement, RingModule, Serializable, Sharing};
-use crate::consts::{LABEL_RNG_BEAVER, LABEL_RNG_MASKS};
-use crate::consts::{LABEL_RNG_OPEN_ONLINE, LABEL_SCOPE_ONLINE_TRANSCRIPT};
+use crate::algebra::{Domain, RingElement, RingModule, Sharing};
+use crate::consts::{
+    LABEL_RNG_OPEN_ONLINE, LABEL_RNG_PREPROCESSING, LABEL_SCOPE_CORRECTION,
+    LABEL_SCOPE_ONLINE_TRANSCRIPT,
+};
 use crate::pp::verifier::PreprocessingExecution;
 use crate::util::*;
 
 use blake3::Hash;
+
+#[cfg(not(test))]
 use rayon::prelude::*;
-
-pub(super) struct VerifierTranscript<D: Domain> {
-    next: usize,
-    omitted: usize,
-    reconstruction: Vec<<D::Sharing as RingModule>::Scalar>,
-    hasher: RingHasher<D::Sharing>,
-}
-
-impl<D: Domain> Transcript<D> for VerifierTranscript<D> {
-    fn write_multiplication(&mut self, v: D::Sharing) {
-        self.hasher.update(&v);
-    }
-
-    fn write_reconstruction(&mut self, v: D::Sharing) {
-        debug_assert_eq!(
-            v.get(self.omitted),
-            <D::Sharing as RingModule>::Scalar::ZERO
-        );
-        v.set(
-            self.reconstruction
-                .get(self.next)
-                .map(|x| *x)
-                .unwrap_or(<D::Sharing as RingModule>::Scalar::ZERO),
-            self.omitted,
-        );
-        self.next += 1;
-        self.hasher.update(&v);
-    }
-}
-
-impl<D: Domain> VerifierTranscript<D> {
-    fn new(reconstruction: Vec<<D::Sharing as RingModule>::Scalar>, omitted: usize) -> Self {
-        VerifierTranscript {
-            next: 0,
-            omitted,
-            reconstruction,
-            hasher: RingHasher::new(),
-        }
-    }
-
-    fn finalize(mut self) -> Hash {
-        self.hasher.finalize()
-    }
-}
 
 struct OutputShares<'a, D: Domain, const N: usize> {
     next: usize,
@@ -172,13 +131,13 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
     pub fn verify(
         &self,
         program: &[Instruction<<D::Sharing as RingModule>::Scalar>],
-    ) -> Option<Vec<<D::Sharing as RingModule>::Scalar>> {
+    ) -> Option<(Vec<<D::Sharing as RingModule>::Scalar>, Box<[Hash; R]>)> {
         if self.runs.len() != R {
             return None;
         }
 
         // re-execute the online phase R times
-        let mut execs: Vec<(Vec<<D::Sharing as RingModule>::Scalar>, Hash, usize)> =
+        let mut execs: Vec<(Vec<<D::Sharing as RingModule>::Scalar>, Hash, Hash, usize)> =
             Vec::with_capacity(R);
 
         #[cfg(test)]
@@ -196,9 +155,9 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
             let keys: Box<[[u8; KEY_SIZE]; N]> = arr_map!(&keys, |v| v.unwrap_or([0u8; KEY_SIZE]));
 
             // create preprocessing instance (partial re-execution)
-            let views: Box<[View; N]> = arr_map!(&keys, |key| View::new_keyed(key));
+            let mut views: Box<[View; N]> = arr_map!(&keys, |key| View::new_keyed(key));
             let mut rngs: Box<[ViewRNG; N]> =
-                arr_map!(&views, |view| { view.rng(LABEL_RNG_BEAVER) });
+                arr_map!(&views, |view| { view.rng(LABEL_RNG_PREPROCESSING) });
             let preprocessing: PreprocessingExecution<D, _, N> = PreprocessingExecution::new(
                 &mut rngs,
                 run.inputs.len(),
@@ -209,15 +168,29 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
             );
 
             // execute program one instruction at a time
-            let (output, hash) = execute_verify::<D, _, N>(
+            let (output, broadcast_transcript) = execute_verify::<D, _, N>(
                 run.inputs.clone(),
                 OutputShares::new(&run.reconstructions, omitted),
                 preprocessing,
                 program,
             );
 
+            // add corrections to player0 view
+            {
+                let mut scope = views[0].scope(LABEL_SCOPE_CORRECTION);
+                for delta in run.corrections.iter() {
+                    scope.write(delta)
+                }
+            }
+
+            // compute hash of pre-processing view commitments
+            let mut pp_hash = blake3::Hasher::new();
+            for view in views.iter() {
+                pp_hash.update(view.hash().as_bytes());
+            }
+
             // return hash of broadcast messages
-            (output, hash, omitted)
+            (output, broadcast_transcript, pp_hash.finalize(), omitted)
         });
 
         #[cfg(test)]
@@ -238,8 +211,10 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
             }
         }
         let mut rng = view.rng(LABEL_RNG_OPEN_ONLINE);
-        for (run, exec) in self.runs.iter().zip(execs.iter()) {
-            if exec.2 != random_usize::<_, N>(&mut rng) {
+
+        for exec in execs.iter() {
+            // check that correct index was opened
+            if exec.3 != random_usize::<_, N>(&mut rng) {
                 return None;
             }
 
@@ -249,8 +224,11 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
             }
         }
 
+        // hashes to check against pre-processing proof
+        let pp_hashes = arr_from_iter!(execs.iter().map(|exec| { exec.2 }));
+
         // otherwise return the output
         // (usually a field element, indicating whether the witness satisfies the relation computed)
-        Some(execs.pop().unwrap().0)
+        Some((execs.pop().unwrap().0, pp_hashes))
     }
 }

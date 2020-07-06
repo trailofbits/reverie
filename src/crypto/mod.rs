@@ -12,6 +12,9 @@ pub use tree::TreePRF;
 // we target 128-bits of security
 pub const KEY_SIZE: usize = 16;
 
+// we target 128-bits of security
+pub const HASH_SIZE: usize = 32;
+
 // benchmark to compare the performance of cryptographic primitives
 #[cfg(test)]
 mod tests {

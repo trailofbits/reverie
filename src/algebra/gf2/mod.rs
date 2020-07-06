@@ -20,4 +20,4 @@ pub use share8::BitSharing8;
 pub use domain64::GF2P64;
 pub use domain8::GF2P8;
 
-use batch::{BATCH_SIZE_BITS, BATCH_SIZE_BYTES};
+use batch::BATCH_SIZE_BYTES;

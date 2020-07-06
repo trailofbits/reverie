@@ -1,9 +1,11 @@
 use super::*;
 use super::{Instruction, Proof, RingHasher, Run, View, ViewRNG, KEY_SIZE};
 
-use crate::algebra::{Domain, RingElement, RingModule, Serializable, Sharing};
-use crate::consts::{LABEL_RNG_BEAVER, LABEL_RNG_MASKS};
-use crate::consts::{LABEL_RNG_OPEN_ONLINE, LABEL_SCOPE_ONLINE_TRANSCRIPT};
+use crate::algebra::{Domain, RingModule, Serializable, Sharing};
+use crate::consts::{
+    LABEL_RNG_OPEN_ONLINE, LABEL_RNG_PREPROCESSING, LABEL_SCOPE_CORRECTION,
+    LABEL_SCOPE_ONLINE_TRANSCRIPT,
+};
 use crate::crypto::TreePRF;
 use crate::pp::prover::PreprocessingExecution;
 use crate::pp::Preprocessing;
@@ -167,6 +169,7 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
             hash: Hash,
             prf: TreePRF<NT>,
             corrections: Option<Vec<D::Batch>>,
+            commitments: Box<[Hash; N]>, // commitment to pre-processing views
             wires: Option<Vec<<D::Sharing as RingModule>::Scalar>>,
             omitted: usize,
         }
@@ -186,33 +189,41 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
             let keys: Box<[[u8; KEY_SIZE]; N]> =
                 arr_map!(&tree.expand(), |x: &Option<[u8; KEY_SIZE]>| x.unwrap());
 
-            // create pre-processing instance
-            let views: Box<[View; N]> = arr_map!(&keys, |key| View::new_keyed(key));
-
+            // create fresh view for every player
+            let mut views: Box<[View; N]> = arr_map!(&keys, |key| View::new_keyed(key));
             let mut rngs: Box<[ViewRNG; N]> =
-                arr_map!(&views, |view| { view.rng(LABEL_RNG_BEAVER) });
+                arr_map!(&views, |view| { view.rng(LABEL_RNG_PREPROCESSING) });
 
+            // prepare pre-processing execution (online mode), save the corrections.
             let mut corrections = Vec::<D::Batch>::new();
-
             let preprocessing: PreprocessingExecution<D, ViewRNG, _, N, true> =
                 PreprocessingExecution::new(&mut *rngs, &mut corrections, inputs.len(), program);
 
             // mask the inputs
             let mut wires: Vec<<D::Sharing as RingModule>::Scalar> =
                 Vec::with_capacity(inputs.len());
-
             for (i, input) in inputs.iter().enumerate() {
                 let mask: D::Sharing = preprocessing.mask(i);
                 wires.push(*input - mask.reconstruct());
             }
 
+            // execute the online phase (interspersed with pre-processing)
             let (multiplications, reconstructions, hash) =
                 execute_prover::<D, _, N>(wires.clone(), preprocessing, program);
+
+            // add corrections to player0 view
+            {
+                let mut scope = views[0].scope(LABEL_SCOPE_CORRECTION);
+                for delta in corrections.iter() {
+                    scope.write(delta)
+                }
+            }
 
             Exec {
                 multiplications: Some(multiplications),
                 reconstructions: Some(reconstructions),
                 hash,
+                commitments: arr_map!(&views, |view| view.hash()),
                 prf: tree,
                 corrections: Some(corrections),
                 wires: Some(wires),
@@ -264,6 +275,7 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
                         run.reconstructions.take().unwrap(),
                         run.omitted,
                     ),
+                    commitment: run.commitments[run.omitted],
                     inputs: run.wires.take().unwrap(),
                     open: run.prf.puncture(run.omitted),
                 }

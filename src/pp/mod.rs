@@ -10,9 +10,7 @@ use crate::util::*;
 use crate::Instruction;
 
 use std::marker::PhantomData;
-use std::mem;
 
-use rand_core::RngCore;
 use rayon::prelude::*;
 
 pub trait Preprocessing<D: Domain> {
@@ -57,20 +55,30 @@ fn preprocess<D: Domain, const P: usize, const PT: usize>(
     let keys: Box<[_; P]> = root.expand();
 
     // create a view for every player
-    let views: Box<[View; P]> = arr_map!(&keys, |key: &Option<[u8; KEY_SIZE]>| View::new_keyed(
-        key.as_ref().unwrap()
-    ));
+    let mut views: Box<[View; P]> = arr_map!(
+        &keys,
+        |key: &Option<[u8; KEY_SIZE]>| View::new_keyed(key.as_ref().unwrap())
+    );
 
-    // generate the beaver triples and write the corrected shares to the transcript
-    let mut rngs: Box<[ViewRNG; P]> = arr_map!(&views, |view: &View| view.rng(LABEL_RNG_BEAVER));
-    let mut hasher = RingHasher::new();
-    let mut exec: prover::PreprocessingExecution<D, _, _, P, false> =
-        prover::PreprocessingExecution::new(&mut rngs, &mut hasher, inputs, program);
+    // generate the beaver triples and write the corrected shares to player0 transcript
+    {
+        let mut rngs: Box<[ViewRNG; P]> =
+            arr_map!(&views, |view: &View| view.rng(LABEL_RNG_PREPROCESSING));
+        let mut corr: Scope = views[0].scope(LABEL_SCOPE_CORRECTION);
+        let mut exec: prover::PreprocessingExecution<D, _, _, P, false> =
+            prover::PreprocessingExecution::new(&mut rngs, &mut corr, inputs, program);
 
-    // process entire program
-    exec.finish();
+        // process entire program
+        exec.finish();
+    }
 
-    // return the transcript hash for the corrections
+    // return the hash of the commitments to player state
+    let mut hasher = blake3::Hasher::new();
+    for view in views.iter() {
+        hasher.update(
+            view.hash().as_bytes(), // if the view is keyed, the hash serves as a commitment
+        );
+    }
     hasher.finalize()
 }
 

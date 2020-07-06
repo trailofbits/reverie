@@ -128,16 +128,14 @@ fn test_proof<D: Domain, const N: usize, const NT: usize, const R: usize>(
     let correct_output = evaluate::<D>(program, inputs);
 
     // extract the output from the proof
-    let proof_output = proof.verify(program);
+    let proof_output = proof.verify(program).unwrap();
 
     // since the proof is generated correctly the proof output is "Some"
     // with the same value as the clear evaluation
     assert_eq!(
-        proof_output,
-        Some(correct_output),
+        proof_output.0, correct_output,
         "program = {:?}, inputs = {:?}",
-        program,
-        inputs
+        program, inputs
     );
 }
 

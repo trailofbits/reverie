@@ -1,5 +1,8 @@
 use super::*;
 
+use crate::algebra::Serializable;
+use crate::util::Writer;
+
 use blake3::Hash;
 
 /// Represents a labelled Scope, enabling use to write (key, value) pairs
@@ -27,5 +30,11 @@ impl<'a> Drop for Scope<'a> {
     fn drop(&mut self) {
         let _ = self.view.hasher.write(&self.length.to_le_bytes());
         let _ = self.view.hasher.flush();
+    }
+}
+
+impl<'a, R: Serializable> Writer<R> for Scope<'a> {
+    fn write(&mut self, elem: &R) {
+        let _ = elem.serialize(&mut self.view.hasher);
     }
 }

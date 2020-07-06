@@ -44,8 +44,7 @@ fn main() {
     if system == ProofSystem::GF2P8 {
         let one = <<GF2P8 as Domain>::Sharing as RingModule>::Scalar::ONE;
         let zero = <<GF2P8 as Domain>::Sharing as RingModule>::Scalar::ZERO;
-        let mut inputs: Vec<<<GF2P8 as Domain>::Sharing as RingModule>::Scalar> =
-            vec![one, one, one];
+        let inputs: Vec<<<GF2P8 as Domain>::Sharing as RingModule>::Scalar> = vec![one, one, one];
 
         println!("process: {}", multiplications);
 
@@ -66,8 +65,7 @@ fn main() {
     if system == ProofSystem::GF2P64 {
         let one = <<GF2P64 as Domain>::Sharing as RingModule>::Scalar::ONE;
         let zero = <<GF2P64 as Domain>::Sharing as RingModule>::Scalar::ZERO;
-        let mut inputs: Vec<<<GF2P64 as Domain>::Sharing as RingModule>::Scalar> =
-            vec![one, one, one];
+        let inputs: Vec<<<GF2P64 as Domain>::Sharing as RingModule>::Scalar> = vec![one, one, one];
 
         println!("process: {}", multiplications);
 

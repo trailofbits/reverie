@@ -4,9 +4,6 @@ use std::sync::Arc;
 
 use blake3::Hasher;
 
-const PRF_LEFT: [u8; 16] = [0; 16];
-const PRF_RIGHT: [u8; 16] = [1; 16];
-
 /// Since we have no additional overhead from assuming that the tree is always complete.
 /// We assume that the number of elements in the tree is a power of two for simplicity.
 #[derive(Debug, Clone)]

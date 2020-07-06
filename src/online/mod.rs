@@ -4,12 +4,13 @@ pub mod verifier;
 #[cfg(test)]
 mod tests;
 
+use crate::algebra::{Domain, RingElement, RingModule};
 use crate::crypto::{RingHasher, TreePRF, KEY_SIZE};
 use crate::fs::{View, ViewRNG};
 use crate::pp::Preprocessing;
 use crate::Instruction;
 
-use crate::algebra::{Domain, RingElement, RingModule};
+use blake3::Hash;
 
 pub trait Transcript<D: Domain> {
     fn write_multiplication(&mut self, val: D::Sharing);
@@ -62,6 +63,7 @@ pub struct Run<D: Domain, const N: usize, const NT: usize> {
     reconstructions: Vec<D::Batch>, //
     inputs: Vec<<D::Sharing as RingModule>::Scalar>, // initial wire values (masked witness)
     open: TreePRF<NT>,              // PRF to derive random tapes for the opened players
+    commitment: Hash,               // pre-processing phase commitment
 }
 
 /// A proof of the online phase consists of a collection of runs to amplify soundness.

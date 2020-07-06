@@ -2,7 +2,7 @@ use super::crypto::KEY_SIZE;
 
 use blake3::{Hash, Hasher};
 
-use std::io::{BufWriter, Write};
+use std::io::Write;
 
 mod rng;
 mod scope;

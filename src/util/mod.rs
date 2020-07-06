@@ -12,32 +12,6 @@ pub const fn log2(x: usize) -> usize {
     (mem::size_of::<usize>() * 8) - (x.leading_zeros() as usize) - 1
 }
 
-pub struct ArrayIter<A, const L: usize> {
-    array: Box<[mem::MaybeUninit<A>; L]>,
-    next: usize,
-}
-
-impl<A, const L: usize> ArrayIter<A, L> {
-    pub fn new(array: Box<[A; L]>) -> Self {
-        ArrayIter {
-            array: unsafe { mem::transmute(array) },
-            next: 0,
-        }
-    }
-}
-
-impl<A, const L: usize> Iterator for ArrayIter<A, L> {
-    type Item = A;
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.next >= L {
-            return None;
-        }
-        let res = mem::replace(&mut self.array[self.next], mem::MaybeUninit::uninit());
-        self.next += 1;
-        Some(unsafe { res.assume_init() })
-    }
-}
-
 macro_rules! arr_map_stack {
     ($array:expr, $func:expr) => {{
         use std::mem;
