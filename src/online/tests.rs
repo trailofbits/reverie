@@ -1,84 +1,12 @@
 use super::*;
 
 use crate::algebra::gf2::*;
-use crate::algebra::Samplable;
+use crate::tests::*;
 use crate::util::VecMap;
 
-use rand::seq::SliceRandom;
 use rand::thread_rng;
 use rand::Rng;
 use rand_core::RngCore;
-
-fn random_scalar<D: Domain, R: RngCore>(rng: &mut R) -> <D::Sharing as RingModule>::Scalar {
-    let mut share = vec![D::Sharing::ZERO; D::Batch::DIMENSION];
-    let mut batch = vec![D::Batch::ZERO; D::Sharing::DIMENSION];
-    batch[0] = D::Batch::gen(rng);
-    D::convert(&mut share[..], &mut batch[..]);
-    share[0].get(0)
-}
-
-fn random_input<D: Domain, R: RngCore>(
-    rng: &mut R,
-    length: usize,
-) -> Vec<<D::Sharing as RingModule>::Scalar> {
-    let mut input = Vec::with_capacity(length);
-    for _ in 0..length {
-        input.push(random_scalar::<D, _>(rng))
-    }
-    input
-}
-
-// Generates a random program for property based test
-fn random_program<D: Domain, R: RngCore>(
-    rng: &mut R,
-    inputs: usize,
-    length: usize,
-) -> Vec<Instruction<<D::Sharing as RingModule>::Scalar>> {
-    let mut program: Vec<Instruction<<D::Sharing as RingModule>::Scalar>> = Vec::new();
-    let mut unassigned: Vec<usize> = (inputs..inputs + length).collect();
-    let mut assigned: Vec<usize> = (0..inputs).collect();
-
-    // we assign wires in random order
-    unassigned.shuffle(rng);
-    assert_eq!(unassigned.len(), length);
-
-    for _ in 0..length {
-        let choice = rng.gen::<usize>() % 5;
-
-        // random source indexes
-        let src1: usize = assigned[rng.gen::<usize>() % assigned.len()];
-        let src2: usize = assigned[rng.gen::<usize>() % assigned.len()];
-
-        match choice {
-            0 => {
-                let dst = unassigned.pop().unwrap();
-                program.push(Instruction::Add(dst, src1, src2));
-                assigned.push(dst);
-            }
-            1 => {
-                let dst = unassigned.pop().unwrap();
-                program.push(Instruction::Mul(dst, src1, src2));
-                assigned.push(dst);
-            }
-            2 => {
-                let dst = unassigned.pop().unwrap();
-                program.push(Instruction::AddConst(dst, src1, random_scalar::<D, _>(rng)));
-                assigned.push(dst);
-            }
-            3 => {
-                let dst = unassigned.pop().unwrap();
-                program.push(Instruction::MulConst(dst, src1, random_scalar::<D, _>(rng)));
-                assigned.push(dst);
-            }
-            4 => {
-                program.push(Instruction::Output(src1));
-            }
-            _ => unreachable!(),
-        }
-    }
-
-    program
-}
 
 // Evaluates a program (in the clear)
 fn evaluate<D: Domain>(
@@ -133,9 +61,11 @@ fn test_proof<D: Domain, const N: usize, const NT: usize, const R: usize>(
     // since the proof is generated correctly the proof output is "Some"
     // with the same value as the clear evaluation
     assert_eq!(
-        proof_output.0, correct_output,
+        proof_output.unsafe_output(),
+        correct_output,
         "program = {:?}, inputs = {:?}",
-        program, inputs
+        program,
+        inputs
     );
 }
 
@@ -144,7 +74,7 @@ fn test_random_proof<D: Domain, const N: usize, const NT: usize, const R: usize>
 
     let inputs = (rng.gen::<usize>() % 126) + 1;
     let length = (rng.gen::<usize>() % 1024) + 1;
-    let program = random_program::<D, _>(&mut rng, inputs, length);
+    let program = random_program::<D, _>(&mut rng, inputs, length, true);
     for ins in program.iter() {
         println!("{:?}", ins);
     }

@@ -21,6 +21,12 @@ enum ProofSystem {
     GF2P8,
 }
 
+#[derive(PartialEq, Eq)]
+enum Operation {
+    Multiplication,
+    Addition,
+}
+
 fn main() {
     let mut args = env::args();
 
@@ -34,8 +40,15 @@ fn main() {
         _ => unimplemented!(),
     };
 
-    // second arg the number of multiplications to bench
-    let multiplications: u64 = args.next().unwrap().parse().unwrap();
+    // second arg is the operation to benchmark
+    let operation: Operation = match &args.next().unwrap()[..] {
+        "mul" => Operation::Multiplication,
+        "add" => Operation::Addition,
+        _ => unimplemented!(),
+    };
+
+    // third arg the number of ops to bench
+    let ops: u64 = args.next().unwrap().parse().unwrap();
 
     // start profiler
     #[cfg(feature = "profiler")]
@@ -46,18 +59,25 @@ fn main() {
         let zero = <<GF2P8 as Domain>::Sharing as RingModule>::Scalar::ZERO;
         let inputs: Vec<<<GF2P8 as Domain>::Sharing as RingModule>::Scalar> = vec![one, one, one];
 
-        println!("process: {}", multiplications);
+        println!("process: {}", ops);
 
-        let program = vec![Instruction::Mul(2, 0, 1); multiplications as usize];
+        let program = vec![
+            match operation {
+                Operation::Addition => Instruction::Add(2, 0, 1),
+                Operation::Multiplication => Instruction::Mul(2, 0, 1),
+            };
+            ops as usize
+        ];
 
-        PreprocessedProof::<GF2P8, 8, 8, 252, 256, 44>::new([0u8; 16], &program[..], inputs.len());
+        let (_proof_pp, seeds) = PreprocessedProof::<GF2P8, 8, 8, 252, 256, 44>::new(
+            [0u8; 16],
+            &program[..],
+            inputs.len(),
+        );
 
         println!("preprocessing done");
 
-        // these should be the PRF keys from the unopened pre-computations
-        let keys: [[u8; 16]; 44] = [[0u8; 16]; 44];
-
-        let _: Proof<GF2P8, 8, 8, 44> = Proof::new(&keys, &program, &inputs);
+        let _proof_online: Proof<GF2P8, 8, 8, 44> = Proof::new(&seeds, &program, &inputs);
 
         println!("online done");
     }
@@ -67,11 +87,17 @@ fn main() {
         let zero = <<GF2P64 as Domain>::Sharing as RingModule>::Scalar::ZERO;
         let inputs: Vec<<<GF2P64 as Domain>::Sharing as RingModule>::Scalar> = vec![one, one, one];
 
-        println!("process: {}", multiplications);
+        println!("process: {}", ops);
 
-        let program = vec![Instruction::Mul(2, 0, 1); multiplications as usize];
+        let program = vec![
+            match operation {
+                Operation::Addition => Instruction::Add(2, 0, 1),
+                Operation::Multiplication => Instruction::Mul(2, 0, 1),
+            };
+            ops as usize
+        ];
 
-        PreprocessedProof::<GF2P64, 64, 64, 631, 1024, 23>::new(
+        let (_proof_pp, seeds) = PreprocessedProof::<GF2P64, 64, 64, 631, 1024, 23>::new(
             [0u8; 16],
             &program[..],
             inputs.len(),
@@ -79,10 +105,7 @@ fn main() {
 
         println!("preprocessing done");
 
-        // these should be the PRF keys from the unopened pre-computations
-        let keys: [[u8; 16]; 23] = [[0u8; 16]; 23];
-
-        let _: Proof<GF2P64, 64, 64, 23> = Proof::new(&keys, &program, &inputs);
+        let _proof_online: Proof<GF2P64, 64, 64, 23> = Proof::new(&seeds, &program, &inputs);
 
         println!("online done");
     }

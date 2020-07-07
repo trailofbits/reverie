@@ -113,9 +113,7 @@ mod benchmark {
             black_box({
                 let mut s: BitScalar = BitScalar::ZERO;
                 for i in 0..1_000_000 {
-                    unsafe {
-                        s = s + v[i % 4].reconstruct();
-                    }
+                    s = s + v[i % 4].reconstruct();
                 }
                 s
             })

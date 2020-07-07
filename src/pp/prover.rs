@@ -142,8 +142,6 @@ impl<'a, 'b, 'c, D: Domain, W: Writer<D::Batch>, R: RngCore, const N: usize, con
             match *ins {
                 Instruction::AddConst(dst, src, _c) => {
                     // noop in pre-processing
-                    #[cfg(test)]
-                    println!("process {} {}", dst, src);
                     self.masks.set(dst, self.masks.get(src));
                 }
                 Instruction::MulConst(dst, src, c) => {

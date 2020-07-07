@@ -11,8 +11,6 @@ use crate::pp::verifier::PreprocessingExecution;
 use crate::util::*;
 
 use blake3::Hash;
-
-#[cfg(not(test))]
 use rayon::prelude::*;
 
 struct OutputShares<'a, D: Domain, const N: usize> {
@@ -21,6 +19,33 @@ struct OutputShares<'a, D: Domain, const N: usize> {
     omitted: usize,
     batches: &'a [D::Batch],
     sharings: Vec<D::Sharing>,
+}
+
+/// This ensures that the user can only get access to the output
+/// by validating the online execution against a correctly validated and matching pre-processing execution.
+///
+/// Avoiding potential misuse where the user fails to check the pre-processing.
+pub struct Output<D: Domain, const R: usize> {
+    output: Vec<<D::Sharing as RingModule>::Scalar>,
+    pp_hashes: Box<[Hash; R]>,
+}
+
+impl<D: Domain, const R: usize> Output<D, R> {
+    pub fn check(&self, pp_hashes: &[Hash; R]) -> Option<&[<D::Sharing as RingModule>::Scalar]> {
+        for i in 0..R {
+            if pp_hashes[i] != self.pp_hashes[i] {
+                return None;
+            }
+        }
+        Some(&self.output[..])
+    }
+
+    // provides access to the output without checking the pre-processing
+    // ONLY USED IN TESTS
+    #[cfg(test)]
+    pub(super) fn unsafe_output(&self) -> &[<D::Sharing as RingModule>::Scalar] {
+        &self.output[..]
+    }
 }
 
 impl<'a, D: Domain, const N: usize> OutputShares<'a, D, N> {
@@ -64,9 +89,6 @@ fn execute_verify<D: Domain, P: Preprocessing<D>, const N: usize>(
     mut preprocessing: P,
     program: &[Instruction<<D::Sharing as RingModule>::Scalar>],
 ) -> (Vec<<D::Sharing as RingModule>::Scalar>, Hash) {
-    #[cfg(test)]
-    println!("execute_verify");
-
     let mut hasher: RingHasher<D::Sharing> = RingHasher::new();
     let mut output: Vec<<D::Sharing as RingModule>::Scalar> = Vec::new();
     let mut wires: VecMap<<D::Sharing as RingModule>::Scalar> = wires.into();
@@ -100,6 +122,7 @@ fn execute_verify<D: Domain, P: Preprocessing<D>, const N: usize>(
 
                 // append messages from all players to transcript
                 #[cfg(test)]
+                #[cfg(debug_assertions)]
                 {
                     let c_m = preprocessing.mask(dst);
 
@@ -131,7 +154,7 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
     pub fn verify(
         &self,
         program: &[Instruction<<D::Sharing as RingModule>::Scalar>],
-    ) -> Option<(Vec<<D::Sharing as RingModule>::Scalar>, Box<[Hash; R]>)> {
+    ) -> Option<Output<D, R>> {
         if self.runs.len() != R {
             return None;
         }
@@ -140,10 +163,10 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
         let mut execs: Vec<(Vec<<D::Sharing as RingModule>::Scalar>, Hash, Hash, usize)> =
             Vec::with_capacity(R);
 
-        #[cfg(test)]
+        #[cfg(debug_assertions)]
         let runs = self.runs.iter();
 
-        #[cfg(not(test))]
+        #[cfg(not(debug_assertions))]
         let runs = self.runs.par_iter();
 
         let runs = runs.map(|run| {
@@ -193,10 +216,10 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
             (output, broadcast_transcript, pp_hash.finalize(), omitted)
         });
 
-        #[cfg(test)]
+        #[cfg(debug_assertions)]
         execs.extend(runs);
 
-        #[cfg(not(test))]
+        #[cfg(not(debug_assertions))]
         runs.collect_into_vec(&mut execs);
 
         // output produced by first repetitions (should be the same across all executions)
@@ -229,6 +252,9 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
 
         // otherwise return the output
         // (usually a field element, indicating whether the witness satisfies the relation computed)
-        Some((execs.pop().unwrap().0, pp_hashes))
+        Some(Output {
+            pp_hashes,
+            output: execs.pop().unwrap().0,
+        })
     }
 }

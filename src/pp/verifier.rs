@@ -104,6 +104,7 @@ impl<'a, 'b, 'c, 'd, D: Domain, R: RngCore, const N: usize>
                 self.broadcast = &self.broadcast[1..];
 
                 #[cfg(test)]
+                #[cfg(debug_assertions)]
                 println!("batches_gab[{}] = {:?} (omitted)", i, batches_gab[i]);
             } else {
                 batches_c[i] = D::Batch::gen(&mut self.rngs[i]);
@@ -115,6 +116,7 @@ impl<'a, 'b, 'c, 'd, D: Domain, R: RngCore, const N: usize>
                 batches_gab[i] = batches_c[i] + self.batch_g[i];
 
                 #[cfg(test)]
+                #[cfg(debug_assertions)]
                 println!("batches_gab[{}] = {:?}", i, batches_gab[i]);
             }
         }

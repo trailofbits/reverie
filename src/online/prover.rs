@@ -12,6 +12,7 @@ use crate::pp::Preprocessing;
 use crate::util::*;
 
 use blake3::Hash;
+
 use rayon::prelude::*;
 
 impl<T: Serializable + Copy> Writer<T> for Vec<T> {
@@ -25,9 +26,6 @@ fn execute_prover<D: Domain, P: Preprocessing<D>, const N: usize>(
     mut preprocessing: P,
     program: &[Instruction<<D::Sharing as RingModule>::Scalar>],
 ) -> (Vec<D::Sharing>, Vec<D::Sharing>, Hash) {
-    #[cfg(test)]
-    println!("execute_prover");
-
     let mut wires: VecMap<<D::Sharing as RingModule>::Scalar> = wires.into();
     let mut multiplications: Vec<D::Sharing> = Vec::new();
     let mut reconstructions: Vec<D::Sharing> = Vec::new();
@@ -38,6 +36,8 @@ fn execute_prover<D: Domain, P: Preprocessing<D>, const N: usize>(
                 let a_w = wires.get(src);
                 wires.set(dst, a_w + c);
 
+                #[cfg(test)]
+                #[cfg(debug_assertions)]
                 {
                     println!("prover:add-const");
                     println!("  src  = {}", src);
@@ -58,6 +58,7 @@ fn execute_prover<D: Domain, P: Preprocessing<D>, const N: usize>(
             Instruction::MulConst(dst, src, c) => {
                 let sw = wires.get(src);
                 #[cfg(test)]
+                #[cfg(debug_assertions)]
                 {
                     println!("prover:mul-const");
                     println!("  src  = {}", src);
@@ -73,6 +74,7 @@ fn execute_prover<D: Domain, P: Preprocessing<D>, const N: usize>(
                 wires.set(dst, a_w + b_w);
 
                 #[cfg(test)]
+                #[cfg(debug_assertions)]
                 {
                     println!("prover:add");
                     println!("  src1 = {}", src1);
@@ -109,8 +111,8 @@ fn execute_prover<D: Domain, P: Preprocessing<D>, const N: usize>(
                 // corrected wire
                 let c_w = recon.reconstruct() + a_w * b_w;
 
-                // append messages from all players to transcript
                 #[cfg(test)]
+                #[cfg(debug_assertions)]
                 {
                     let c_m = preprocessing.mask(dst);
 
@@ -145,6 +147,7 @@ fn execute_prover<D: Domain, P: Preprocessing<D>, const N: usize>(
             Instruction::Output(src) => {
                 let m: D::Sharing = preprocessing.mask(src);
                 #[cfg(test)]
+                #[cfg(debug_assertions)]
                 {
                     println!("prover:output");
                     println!("  val[{}] = {:?}", src, m.reconstruct() + wires.get(src));
@@ -177,10 +180,10 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
         // execute the online phase R times
         let mut execs: Vec<Exec<D, N, NT, R>> = Vec::with_capacity(R);
 
-        #[cfg(test)]
+        #[cfg(debug_assertions)]
         let runs = seeds.iter();
 
-        #[cfg(not(test))]
+        #[cfg(not(debug_assertions))]
         let runs = seeds.par_iter();
 
         let runs = runs.map(|seed| {
@@ -231,10 +234,10 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
             }
         });
 
-        #[cfg(test)]
+        #[cfg(debug_assertions)]
         execs.extend(runs);
 
-        #[cfg(not(test))]
+        #[cfg(not(debug_assertions))]
         runs.collect_into_vec(&mut execs);
 
         // extract which players to omit in every run (Fiat-Shamir)
@@ -250,6 +253,7 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
             execs[i].omitted = random_usize::<_, N>(&mut rng);
 
             #[cfg(test)]
+            #[cfg(debug_assertions)]
             println!("omitted: {}", execs[i].omitted);
         }
 

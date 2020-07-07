@@ -146,17 +146,19 @@ impl<
         }
     }
 
+    /// Create a new pre-processing proof.
+    ///
+    ///
     pub fn new(
         seed: [u8; KEY_SIZE],
         program: &[Instruction<<D::Sharing as RingModule>::Scalar>],
         inputs: usize,
-    ) -> Self {
+    ) -> (Self, [[u8; KEY_SIZE]; H]) {
         // define PRF tree and obtain key material for every pre-processing execution
         let root: TreePRF<RT> = TreePRF::new(seed);
         let keys: Box<[_; R]> = root.expand();
 
-        // generate hashes of every pre-processing execution
-
+        // generate transcript hashes of every pre-processing execution
         let mut hashes: Vec<Hash> = Vec::with_capacity(keys.len());
         keys.par_iter()
             .map(|seed| preprocess::<D, P, PT>(seed.as_ref().unwrap(), program, inputs))
@@ -184,12 +186,21 @@ impl<
         // extract hashes for the hidden evaluations
         let hidden: Box<[Hash; H]> = arr_from_iter!(&mut hide.iter().map(|i| hashes[*i].clone()));
 
-        // combine into the proof
-        PreprocessedProof {
-            hidden,
-            random,
-            ph: PhantomData,
+        // extract pre-processing key material for the hidden views
+        let mut seeds: [[u8; KEY_SIZE]; H] = [[0u8; KEY_SIZE]; H];
+        for (to, from) in hide.iter().enumerate() {
+            seeds[to] = keys[*from].unwrap();
         }
+
+        // combine into the proof
+        (
+            PreprocessedProof {
+                hidden,
+                random,
+                ph: PhantomData,
+            },
+            seeds,
+        )
     }
 }
 
@@ -206,7 +217,7 @@ mod tests {
         let mut rng = rand::thread_rng();
         let seed: [u8; KEY_SIZE] = rng.gen();
         let proof = PreprocessedProof::<GF2P8, 8, 8, 252, 256, 44>::new(seed, &program, 1024);
-        assert!(proof.verify(&program, 1024).is_some());
+        assert!(proof.0.verify(&program, 1024).is_some());
     }
 }
 
