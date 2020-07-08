@@ -48,6 +48,52 @@ pub enum Instruction<E: RingElement> {
 }
 
 #[cfg(test)]
+mod testing {
+    use crate::algebra::gf2::*;
+    use crate::algebra::*;
+    use crate::tests::*;
+
+    use crate::online::Proof;
+    use crate::pp::PreprocessedProof;
+
+    use rand::thread_rng;
+    use test::Bencher;
+
+    #[test]
+    fn test_gf2p8() {
+        let mut rng = thread_rng();
+
+        let one = <<GF2P8 as Domain>::Sharing as RingModule>::Scalar::ONE;
+        let zero = <<GF2P8 as Domain>::Sharing as RingModule>::Scalar::ZERO;
+        let inputs: Vec<<<GF2P8 as Domain>::Sharing as RingModule>::Scalar> = vec![one, one, one];
+        let program = random_program::<GF2P8, _>(&mut rng, inputs.len(), 1000, false);
+
+        // evaluate program in the clear
+        let correct_output = evaluate_program::<GF2P8>(&program[..], &inputs[..]);
+
+        // create a proof for the pre-processing phase
+        let (pp_proof, seeds) = PreprocessedProof::<GF2P8, 8, 8, 252, 256, 44>::new(
+            [0u8; 16],
+            &program[..],
+            inputs.len(),
+        );
+
+        // create a proof for the online phase
+        let online_proof: Proof<GF2P8, 8, 8, 44> = Proof::new(&seeds, &program, &inputs);
+
+        // verify the pre-processing phase
+        let pp_hashes = pp_proof.verify(&program[..], inputs.len()).unwrap();
+
+        // verify the online phase
+        let output = online_proof.verify(&program[..]).unwrap();
+
+        // verify that the pre-processing and online phase matches
+        assert_eq!(output.check(&pp_hashes), Some(&correct_output[..]));
+    }
+}
+
+#[cfg(test)]
+#[cfg(not(debug_assertions))] // omit for testing
 mod benchmark {
     use crate::algebra::gf2::*;
     use crate::algebra::*;

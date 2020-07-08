@@ -37,10 +37,6 @@ pub fn shares_to_batches<D: Domain, const N: usize>(
             &mut batch,
             &shares[i * D::Batch::DIMENSION..(i + 1) * D::Batch::DIMENSION],
         );
-
-        #[cfg(test)]
-        #[cfg(debug_assertions)]
-        println!("batches[omitted] = {:?}", batch[idx]);
         batches.push(batch[idx]);
     }
     batches

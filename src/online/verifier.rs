@@ -208,8 +208,16 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
 
             // compute hash of pre-processing view commitments
             let mut pp_hash = blake3::Hasher::new();
-            for view in views.iter() {
-                pp_hash.update(view.hash().as_bytes());
+            for i in 0..N {
+                if i == omitted {
+                    #[cfg(test)]
+                    println!("{:?}", run.commitment);
+                    pp_hash.update(run.commitment.as_bytes());
+                } else {
+                    #[cfg(test)]
+                    println!("{:?}", views[i].hash());
+                    pp_hash.update(views[i].hash().as_bytes());
+                }
             }
 
             // return hash of broadcast messages
