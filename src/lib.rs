@@ -18,20 +18,21 @@ mod util;
 #[cfg(test)]
 mod tests;
 
-// abstraction for Fiat-Shamir
-pub mod fs;
-
 // pre-processing
-pub mod pp;
-
-// puncturable PRF abstractions
-pub mod crypto;
+pub mod preprocessing;
 
 // online phase
 pub mod online;
 
 // traits and implementations of the underlying ring
+// exposed to enable uses to define programs for the supported rings.
 pub mod algebra;
+
+// abstraction for Fiat-Shamir
+mod fs;
+
+// puncturable PRF abstractions
+mod crypto;
 
 // internal constants
 mod consts;
@@ -53,8 +54,8 @@ mod testing {
     use crate::algebra::*;
     use crate::tests::*;
 
-    use crate::online::Proof;
-    use crate::pp::PreprocessedProof;
+    use crate::online;
+    use crate::preprocessing;
 
     use rand::thread_rng;
     use test::Bencher;
@@ -72,14 +73,15 @@ mod testing {
         let correct_output = evaluate_program::<GF2P8>(&program[..], &inputs[..]);
 
         // create a proof for the pre-processing phase
-        let (pp_proof, seeds) = PreprocessedProof::<GF2P8, 8, 8, 252, 256, 44>::new(
+        let (pp_proof, output) = preprocessing::Proof::<GF2P8, 8, 8, 252, 256, 44>::new(
             [0u8; 16],
             &program[..],
             inputs.len(),
         );
 
         // create a proof for the online phase
-        let online_proof: Proof<GF2P8, 8, 8, 44> = Proof::new(&seeds, &program, &inputs);
+        let online_proof: online::Proof<GF2P8, 8, 8, 44> =
+            online::Proof::new(output, &program, &inputs);
 
         // verify the pre-processing phase
         let pp_hashes = pp_proof.verify(&program[..], inputs.len()).unwrap();

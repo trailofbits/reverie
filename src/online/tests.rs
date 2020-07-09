@@ -1,8 +1,8 @@
 use super::*;
 
 use crate::algebra::gf2::*;
+use crate::preprocessing::PreprocessingOutput;
 use crate::tests::*;
-use crate::util::VecMap;
 
 use rand::thread_rng;
 use rand::Rng;
@@ -19,7 +19,7 @@ fn test_proof<D: Domain, const N: usize, const NT: usize, const R: usize>(
     }
 
     // create a proof of the program execution
-    let proof: Proof<D, N, NT, R> = Proof::new(&seeds, program, inputs);
+    let proof: Proof<D, N, NT, R> = Proof::new(PreprocessingOutput::dummy(), program, inputs);
 
     // evaluate program in the clear
     let correct_output = evaluate_program::<D>(program, inputs);

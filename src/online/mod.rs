@@ -7,7 +7,7 @@ mod tests;
 use crate::algebra::{Domain, RingElement, RingModule};
 use crate::crypto::{RingHasher, TreePRF, KEY_SIZE};
 use crate::fs::{View, ViewRNG};
-use crate::pp::Preprocessing;
+use crate::preprocessing::Preprocessing;
 use crate::Instruction;
 
 use blake3::Hash;

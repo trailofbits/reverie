@@ -7,7 +7,7 @@ use crate::consts::{
     LABEL_RNG_OPEN_ONLINE, LABEL_RNG_PREPROCESSING, LABEL_SCOPE_CORRECTION,
     LABEL_SCOPE_ONLINE_TRANSCRIPT,
 };
-use crate::pp::verifier::PreprocessingExecution;
+use crate::preprocessing::verifier::PreprocessingExecution;
 use crate::util::*;
 
 use blake3::Hash;

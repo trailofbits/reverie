@@ -1,9 +1,11 @@
 mod ring;
 mod tree;
 
-use super::util::*;
+use crate::util::*;
 
-pub use blake3::{Hash, Hasher};
+use rand::Rng;
+
+pub use blake3::{Hash, Hasher, OutputReader};
 
 pub use ring::RingHasher;
 
