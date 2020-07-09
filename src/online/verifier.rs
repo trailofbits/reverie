@@ -8,6 +8,7 @@ use crate::consts::{
     LABEL_SCOPE_ONLINE_TRANSCRIPT,
 };
 use crate::preprocessing::verifier::PreprocessingExecution;
+use crate::preprocessing::Preprocessing;
 use crate::util::*;
 
 use blake3::Hash;
@@ -114,13 +115,13 @@ fn execute_verify<D: Domain, P: Preprocessing<D>, const N: usize>(
                 let ab_gamma: D::Sharing = preprocessing.next_ab_gamma();
                 let recon = a_m.action(b_w) + b_m.action(a_w) + ab_gamma;
 
-                // reconstruct
+                // append messages from all players to transcript
                 hasher.write(&recon);
 
                 // corrected wire
                 let c_w = recon.reconstruct() + a_w * b_w;
 
-                // append messages from all players to transcript
+                // debugging output
                 #[cfg(test)]
                 #[cfg(debug_assertions)]
                 {

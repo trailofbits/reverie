@@ -5,6 +5,73 @@ use core::arch::x86_64::*;
 
 pub struct GF2P8 {}
 
+impl GF2P8 {
+    // This codes assumes that a bounds heck has been done prior to the call.
+    #[inline(always)]
+    fn convert_generic(dst: &mut [BitSharing8], src: &[BitBatch]) {
+        let mut idx = 0;
+        for i in 0..BATCH_SIZE_BYTES {
+            // extract a byte from each player batch
+            let mut shares: [u8; 8] = unsafe {
+                [
+                    src.get_unchecked(0).0[i],
+                    src.get_unchecked(1).0[i],
+                    src.get_unchecked(2).0[i],
+                    src.get_unchecked(3).0[i],
+                    src.get_unchecked(4).0[i],
+                    src.get_unchecked(5).0[i],
+                    src.get_unchecked(6).0[i],
+                    src.get_unchecked(7).0[i],
+                ]
+            };
+
+            // extract 8 sharings from a byte-sized batch from each player
+            for _ in 0..8 {
+                // pack a single sharing
+                let mut r: u8 = 0;
+                for j in 0..8 {
+                    r <<= 1;
+                    r |= shares[j] >> 7;
+                    shares[j] <<= 1;
+                }
+
+                // write a single sharing to the output
+                unsafe { *dst.get_unchecked_mut(idx) = BitSharing8(r) };
+                idx += 1;
+            }
+        }
+    }
+
+    // This codes assumes that a bounds heck has been done prior to the call.
+    #[inline(always)]
+    fn convert_inv_generic(dst: &mut [BitBatch], src: &[BitSharing8]) {
+        for i in 0..BATCH_SIZE_BYTES {
+            // for every byte in the batch
+            let off = i * 8;
+            for j in 0..BitSharing8::DIMENSION {
+                // for every player
+                let s = BitSharing8::DIMENSION - 1 - j;
+                let mut b = (src[off].0 >> s) & 1;
+                b <<= 1;
+                b |= (src[off + 1].0 >> s) & 1;
+                b <<= 1;
+                b |= (src[off + 2].0 >> s) & 1;
+                b <<= 1;
+                b |= (src[off + 3].0 >> s) & 1;
+                b <<= 1;
+                b |= (src[off + 4].0 >> s) & 1;
+                b <<= 1;
+                b |= (src[off + 5].0 >> s) & 1;
+                b <<= 1;
+                b |= (src[off + 6].0 >> s) & 1;
+                b <<= 1;
+                b |= (src[off + 7].0 >> s) & 1;
+                dst[j].0[i] = b;
+            }
+        }
+    }
+}
+
 impl Domain for GF2P8 {
     type Batch = BitBatch;
     type Sharing = BitSharing8;
@@ -13,23 +80,16 @@ impl Domain for GF2P8 {
     fn convert(dst: &mut [Self::Sharing], src: &[Self::Batch]) {
         // do a single bounds check up front
         assert_eq!(src.len(), 8);
-
-        // not supported on other platforms currently
-        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-        unimplemented!();
+        assert!(dst.len() >= Self::Batch::DIMENSION);
 
         // x86 / x86_64 SSE, MMX impl.
         #[target_feature(enable = "sse")]
         #[target_feature(enable = "mmx")]
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         {
-            // do a single range-check up front
-            assert!(dst.len() >= Self::Batch::DIMENSION);
-
             // transpose batch, byte-by-byte
             for i in 0..BATCH_SIZE_BYTES {
                 // code for x86 and amd64 using SSE intrinsics
-
                 unsafe {
                     // pack 1 bytes from 8 different shar
                     let mut v = _mm_set_pi8(
@@ -61,10 +121,14 @@ impl Domain for GF2P8 {
                     )
                 }
             }
+            return;
         }
+
+        // otherwise revert to the generic implementation (slow)
+        Self::convert_generic(dst, src);
     }
 
-    // converts 64 sharings between 8 players to 8 batches of 64 sharings,
+    // converts 64 sharings between 8 players to 8 batches of 64 sharings:
     // one batch per player.
     #[inline(always)]
     fn convert_inv(dst: &mut [Self::Batch], src: &[Self::Sharing]) {
@@ -74,10 +138,7 @@ impl Domain for GF2P8 {
         // there will be one batch per player
         assert_eq!(dst.len(), Self::Sharing::DIMENSION);
 
-        // not supported on other platforms currently
-        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-        unimplemented!();
-
+        // x86 / x86_64 SSE, MMX impl.
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         {
             // AVX2 implementation
@@ -181,6 +242,49 @@ impl Domain for GF2P8 {
                     }
                 }
             }
+            return;
+        }
+
+        // otherwise revert to the generic implementation (slow)
+        Self::convert_inv_generic(dst, src);
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    use rand::{thread_rng, Rng};
+
+    // test the platform dependent optimized version against the generic implementation
+    #[test]
+    fn test_convert() {
+        let mut rng = thread_rng();
+        for _ in 0..100 {
+            let batches: [_; 8] = [
+                BitBatch::gen(&mut rng),
+                BitBatch::gen(&mut rng),
+                BitBatch::gen(&mut rng),
+                BitBatch::gen(&mut rng),
+                //
+                BitBatch::gen(&mut rng),
+                BitBatch::gen(&mut rng),
+                BitBatch::gen(&mut rng),
+                BitBatch::gen(&mut rng),
+            ];
+
+            let mut shares_1 = [BitSharing8::ZERO; 64];
+            let mut shares_2 = [BitSharing8::ZERO; 64];
+            GF2P8::convert(&mut shares_1, &batches);
+            GF2P8::convert_generic(&mut shares_2, &batches);
+            debug_assert_eq!(&shares_1[..], &shares_2[..]);
+
+            let mut batches_1 = [BitBatch::ZERO; 8];
+            let mut batches_2 = [BitBatch::ZERO; 8];
+            GF2P8::convert_inv(&mut batches_1, &shares_1);
+            GF2P8::convert_inv_generic(&mut batches_2, &shares_1);
+            debug_assert_eq!(batches_1, batches);
+            debug_assert_eq!(batches_2, batches);
         }
     }
 }

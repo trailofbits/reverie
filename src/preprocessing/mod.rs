@@ -14,19 +14,18 @@ use std::mem;
 
 use rayon::prelude::*;
 
-pub trait Preprocessing<D: Domain> {
+pub(crate) trait Preprocessing<D: Domain> {
     fn mask(&self, idx: usize) -> D::Sharing;
 
     fn next_ab_gamma(&mut self) -> D::Sharing;
 }
 
-/// Represents repeated execution of the pre-processing phase.
-/// The pre-precessing phase is executed R times, then fed to a random oracle,
+/// Represents repeated execution of the preprocessing phase.
+/// The preprocessing phase is executed R times, then fed to a random oracle,
 /// which dictates the subset of executions to open.
 ///
-///
-/// - P  : number of players
-/// - PT : size of PRF tree for players
+/// - N  : number of players
+/// - NT : size of PRF tree for players
 /// - R  : number of repetitions
 /// - RT : size of PRF tree for repetitions
 /// - H  : hidden views (repetitions of online phase)
@@ -43,13 +42,13 @@ pub struct Proof<
     ph: PhantomData<D>,
 }
 
-/// Represents the
+/// Represents the randomness for the preprocessing executions used during the online execution.
 ///
 /// Reusing a PreprocessingOutput for multiple proofs violates zero-knowledge:
 /// leaking the witness / input to the program.
 ///
 /// For this reason PreprocessingOutput does not implement Copy/Clone
-/// and the online phase takes ownership of the struct.
+/// and the online phase takes ownership of the struct, nor does it expose any fields.
 pub struct PreprocessingOutput<D: Domain, const H: usize, const N: usize> {
     pub(crate) seeds: [[u8; KEY_SIZE]; H],
     ph: PhantomData<D>,
@@ -66,9 +65,9 @@ impl<D: Domain, const H: usize, const N: usize> PreprocessingOutput<D, H, N> {
     }
 }
 
-/// Executes the preprocessing (in-the-head) phase once.
-///
-/// Returns a commitment to the view of all players.
+// Executes the preprocessing (in-the-head) phase once.
+//
+// Returns a commitment to the view of all players.
 fn preprocess<D: Domain, const N: usize, const NT: usize>(
     seed: &[u8; KEY_SIZE], // random tape used for phase
     program: &[Instruction<<D::Sharing as RingModule>::Scalar>],
