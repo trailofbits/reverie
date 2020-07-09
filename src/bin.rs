@@ -3,8 +3,8 @@ extern crate reverie;
 use reverie::algebra::gf2::{GF2P64, GF2P8};
 use reverie::algebra::*;
 
-use reverie::online::Proof;
-use reverie::pp::PreprocessedProof;
+use reverie::online;
+use reverie::preprocessing;
 use reverie::Instruction;
 
 #[cfg(feature = "profiler")]
@@ -69,7 +69,7 @@ fn main() {
             ops as usize
         ];
 
-        let (_proof_pp, seeds) = PreprocessedProof::<GF2P8, 8, 8, 252, 256, 44>::new(
+        let (_proof_pp, output) = preprocessing::Proof::<GF2P8, 8, 8, 252, 256, 44>::new(
             [0u8; 16],
             &program[..],
             inputs.len(),
@@ -77,7 +77,8 @@ fn main() {
 
         println!("preprocessing done");
 
-        let _proof_online: Proof<GF2P8, 8, 8, 44> = Proof::new(&seeds, &program, &inputs);
+        let _proof_online: online::Proof<GF2P8, 8, 8, 44> =
+            online::Proof::new(output, &program, &inputs);
 
         println!("online done");
     }
@@ -97,7 +98,7 @@ fn main() {
             ops as usize
         ];
 
-        let (_proof_pp, seeds) = PreprocessedProof::<GF2P64, 64, 64, 631, 1024, 23>::new(
+        let (_proof_pp, output) = preprocessing::Proof::<GF2P64, 64, 64, 631, 1024, 23>::new(
             [0u8; 16],
             &program[..],
             inputs.len(),
@@ -105,7 +106,8 @@ fn main() {
 
         println!("preprocessing done");
 
-        let _proof_online: Proof<GF2P64, 64, 64, 23> = Proof::new(&seeds, &program, &inputs);
+        let _proof_online: online::Proof<GF2P64, 64, 64, 23> =
+            online::Proof::new(output, &program, &inputs);
 
         println!("online done");
     }

@@ -10,26 +10,26 @@ use crate::util::*;
 use crate::Instruction;
 
 use std::marker::PhantomData;
+use std::mem;
 
 use rayon::prelude::*;
 
-pub trait Preprocessing<D: Domain> {
+pub(crate) trait Preprocessing<D: Domain> {
     fn mask(&self, idx: usize) -> D::Sharing;
 
     fn next_ab_gamma(&mut self) -> D::Sharing;
 }
 
-/// Represents repeated execution of the pre-processing phase.
-/// The pre-precessing phase is executed R times, then fed to a random oracle,
+/// Represents repeated execution of the preprocessing phase.
+/// The preprocessing phase is executed R times, then fed to a random oracle,
 /// which dictates the subset of executions to open.
 ///
-///
-/// - P  : number of players
-/// - PT : size of PRF tree for players
+/// - N  : number of players
+/// - NT : size of PRF tree for players
 /// - R  : number of repetitions
 /// - RT : size of PRF tree for repetitions
 /// - H  : hidden views (repetitions of online phase)
-pub struct PreprocessedProof<
+pub struct Proof<
     D: Domain,
     const P: usize,
     const PT: usize,
@@ -37,35 +37,58 @@ pub struct PreprocessedProof<
     const RT: usize,
     const H: usize,
 > {
-    hidden: Box<[Hash; H]>,
-    random: TreePRF<{ RT }>,
+    hidden: Box<[Hash; H]>,  // commitments to the hidden pre-processing executions
+    random: TreePRF<{ RT }>, // punctured PRF used to derive the randomness for the opened pre-processing executions
     ph: PhantomData<D>,
 }
 
-/// Executes the preprocessing (in-the-head) phase once.
+/// Represents the randomness for the preprocessing executions used during the online execution.
 ///
-/// Returns a commitment to the view of all players.
-fn preprocess<D: Domain, const P: usize, const PT: usize>(
+/// Reusing a PreprocessingOutput for multiple proofs violates zero-knowledge:
+/// leaking the witness / input to the program.
+///
+/// For this reason PreprocessingOutput does not implement Copy/Clone
+/// and the online phase takes ownership of the struct, nor does it expose any fields.
+pub struct PreprocessingOutput<D: Domain, const H: usize, const N: usize> {
+    pub(crate) seeds: [[u8; KEY_SIZE]; H],
+    ph: PhantomData<D>,
+}
+
+impl<D: Domain, const H: usize, const N: usize> PreprocessingOutput<D, H, N> {
+    // used during testing
+    #[cfg(test)]
+    pub(crate) fn dummy() -> Self {
+        PreprocessingOutput {
+            seeds: [[0u8; KEY_SIZE]; H],
+            ph: PhantomData,
+        }
+    }
+}
+
+// Executes the preprocessing (in-the-head) phase once.
+//
+// Returns a commitment to the view of all players.
+fn preprocess<D: Domain, const N: usize, const NT: usize>(
     seed: &[u8; KEY_SIZE], // random tape used for phase
     program: &[Instruction<<D::Sharing as RingModule>::Scalar>],
     inputs: usize,
 ) -> Hash {
     // the root PRF from which each players random tape is derived using a PRF tree
-    let root: TreePRF<PT> = TreePRF::new(*seed);
-    let keys: Box<[_; P]> = root.expand();
+    let root: TreePRF<NT> = TreePRF::new(*seed);
+    let keys: Box<[_; N]> = root.expand();
 
     // create a view for every player
-    let mut views: Box<[View; P]> = arr_map!(
+    let mut views: Box<[View; N]> = arr_map!(
         &keys,
         |key: &Option<[u8; KEY_SIZE]>| View::new_keyed(key.as_ref().unwrap())
     );
 
     // generate the beaver triples and write the corrected shares to player0 transcript
     {
-        let mut rngs: Box<[ViewRNG; P]> =
+        let mut rngs: Box<[ViewRNG; N]> =
             arr_map!(&views, |view: &View| view.rng(LABEL_RNG_PREPROCESSING));
         let mut corr: Scope = views[0].scope(LABEL_SCOPE_CORRECTION);
-        let mut exec: prover::PreprocessingExecution<D, _, _, P, false> =
+        let mut exec: prover::PreprocessingExecution<D, _, _, N, false> =
             prover::PreprocessingExecution::new(&mut rngs, &mut corr, inputs, program);
 
         // process entire program
@@ -73,7 +96,7 @@ fn preprocess<D: Domain, const P: usize, const PT: usize>(
     }
 
     // return the hash of the commitments to player state
-    let mut hasher = blake3::Hasher::new();
+    let mut hasher = Hasher::new();
     for view in views.iter() {
         hasher.update(
             view.hash().as_bytes(), // if the view is keyed, the hash serves as a commitment
@@ -84,12 +107,12 @@ fn preprocess<D: Domain, const P: usize, const PT: usize>(
 
 impl<
         D: Domain,
-        const P: usize,
-        const PT: usize,
+        const N: usize,
+        const NT: usize,
         const R: usize,
         const RT: usize,
         const H: usize,
-    > PreprocessedProof<D, P, PT, R, RT, H>
+    > Proof<D, N, NT, R, RT, H>
 {
     pub fn verify(
         &self,
@@ -118,7 +141,7 @@ impl<
 
         let mut hashes: Vec<Option<Hash>> = Vec::with_capacity(keys.len());
         keys.par_iter()
-            .map(|seed| seed.map(|seed| preprocess::<D, P, PT>(&seed, program, inputs)))
+            .map(|seed| seed.map(|seed| preprocess::<D, N, NT>(&seed, program, inputs)))
             .collect_into_vec(&mut hashes);
 
         // copy over the provided hashes from the hidden views
@@ -153,7 +176,7 @@ impl<
         seed: [u8; KEY_SIZE],
         program: &[Instruction<<D::Sharing as RingModule>::Scalar>],
         inputs: usize,
-    ) -> (Self, [[u8; KEY_SIZE]; H]) {
+    ) -> (Self, PreprocessingOutput<D, H, N>) {
         // define PRF tree and obtain key material for every pre-processing execution
         let root: TreePRF<RT> = TreePRF::new(seed);
         let keys: Box<[_; R]> = root.expand();
@@ -161,23 +184,26 @@ impl<
         // generate transcript hashes of every pre-processing execution
         let mut hashes: Vec<Hash> = Vec::with_capacity(keys.len());
         keys.par_iter()
-            .map(|seed| preprocess::<D, P, PT>(seed.as_ref().unwrap(), program, inputs))
+            .map(|seed| preprocess::<D, N, NT>(seed.as_ref().unwrap(), program, inputs))
             .collect_into_vec(&mut hashes);
 
-        // add every pre-processing execution to a global view
-        let mut global: View = View::new();
-        {
-            let mut scope: Scope = global.scope(LABEL_SCOPE_AGGREGATE_COMMIT);
+        // send the pre-processing commitments to the random oracle, receive challenges
+        let mut challenge_rng = {
+            let mut oracle: View = View::new();
+            let mut scope: Scope = oracle.scope(LABEL_SCOPE_AGGREGATE_COMMIT);
             for hash in &hashes {
                 scope.join(&hash);
             }
-        }
+            mem::drop(scope);
+            oracle.rng(LABEL_RNG_OPEN_PREPROCESSING)
+        };
 
-        // extract random indexes not to open (rejection sampling)
-        let hide: [usize; H] =
-            random_subset::<_, R, H>(&mut global.rng(LABEL_RNG_OPEN_PREPROCESSING));
+        // interpret the oracle response as a subset of indexes to hide
+        // (implicitly: which executions to open)
+        let hide: [usize; H] = random_subset::<_, R, H>(&mut challenge_rng);
 
-        // puncture the root prf
+        // puncture the prf at the hidden indexes
+        // (implicitly: pass the randomness for all other executions to the verifier)
         let mut random = root.clone();
         for i in hide.iter() {
             random = random.puncture(*i);
@@ -187,19 +213,24 @@ impl<
         let hidden: Box<[Hash; H]> = arr_from_iter!(&mut hide.iter().map(|i| hashes[*i].clone()));
 
         // extract pre-processing key material for the hidden views
+        // (returned to the prover for use in the online phase)
         let mut seeds: [[u8; KEY_SIZE]; H] = [[0u8; KEY_SIZE]; H];
         for (to, from) in hide.iter().enumerate() {
             seeds[to] = keys[*from].unwrap();
         }
 
-        // combine into the proof
         (
-            PreprocessedProof {
+            // proof (used by the verifier)
+            Proof {
                 hidden,
                 random,
                 ph: PhantomData,
             },
-            seeds,
+            // randomness used to re-executed the hidden views (used by the prover)
+            PreprocessingOutput {
+                seeds,
+                ph: PhantomData,
+            },
         )
     }
 }
@@ -216,7 +247,7 @@ mod tests {
         let program = vec![Instruction::Mul(0, 1, 2); 1024]; // maybe generate random program?
         let mut rng = rand::thread_rng();
         let seed: [u8; KEY_SIZE] = rng.gen();
-        let proof = PreprocessedProof::<GF2P8, 8, 8, 252, 256, 44>::new(seed, &program, 1024);
+        let proof = Proof::<GF2P8, 8, 8, 252, 256, 44>::new(seed, &program, 1024);
         assert!(proof.0.verify(&program, 1024).is_some());
     }
 }

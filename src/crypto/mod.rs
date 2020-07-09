@@ -1,9 +1,9 @@
 mod ring;
 mod tree;
 
-use super::util::*;
+use crate::util::*;
 
-pub use blake3::{Hash, Hasher};
+pub use blake3::{Hash, Hasher, OutputReader};
 
 pub use ring::RingHasher;
 
@@ -11,9 +11,6 @@ pub use tree::TreePRF;
 
 // we target 128-bits of security
 pub const KEY_SIZE: usize = 16;
-
-// we target 128-bits of security
-pub const HASH_SIZE: usize = 32;
 
 // benchmark to compare the performance of cryptographic primitives
 #[cfg(test)]

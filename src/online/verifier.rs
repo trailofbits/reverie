@@ -7,7 +7,8 @@ use crate::consts::{
     LABEL_RNG_OPEN_ONLINE, LABEL_RNG_PREPROCESSING, LABEL_SCOPE_CORRECTION,
     LABEL_SCOPE_ONLINE_TRANSCRIPT,
 };
-use crate::pp::verifier::PreprocessingExecution;
+use crate::preprocessing::verifier::PreprocessingExecution;
+use crate::preprocessing::Preprocessing;
 use crate::util::*;
 
 use blake3::Hash;
@@ -114,13 +115,13 @@ fn execute_verify<D: Domain, P: Preprocessing<D>, const N: usize>(
                 let ab_gamma: D::Sharing = preprocessing.next_ab_gamma();
                 let recon = a_m.action(b_w) + b_m.action(a_w) + ab_gamma;
 
-                // reconstruct
+                // append messages from all players to transcript
                 hasher.write(&recon);
 
                 // corrected wire
                 let c_w = recon.reconstruct() + a_w * b_w;
 
-                // append messages from all players to transcript
+                // debugging output
                 #[cfg(test)]
                 #[cfg(debug_assertions)]
                 {
@@ -209,8 +210,16 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
 
             // compute hash of pre-processing view commitments
             let mut pp_hash = blake3::Hasher::new();
-            for view in views.iter() {
-                pp_hash.update(view.hash().as_bytes());
+            for i in 0..N {
+                if i == omitted {
+                    #[cfg(test)]
+                    println!("{:?}", run.commitment);
+                    pp_hash.update(run.commitment.as_bytes());
+                } else {
+                    #[cfg(test)]
+                    println!("{:?}", views[i].hash());
+                    pp_hash.update(views[i].hash().as_bytes());
+                }
             }
 
             // return hash of broadcast messages

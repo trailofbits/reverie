@@ -7,8 +7,8 @@ use crate::consts::{
     LABEL_SCOPE_ONLINE_TRANSCRIPT,
 };
 use crate::crypto::TreePRF;
-use crate::pp::prover::PreprocessingExecution;
-use crate::pp::Preprocessing;
+use crate::preprocessing::prover::PreprocessingExecution;
+use crate::preprocessing::{Preprocessing, PreprocessingOutput};
 use crate::util::*;
 
 use blake3::Hash;
@@ -161,11 +161,18 @@ fn execute_prover<D: Domain, P: Preprocessing<D>, const N: usize>(
 }
 
 impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT, R> {
+    /// Creates a new proof of program execution on the input provided.
+    ///
+    /// It is crucial for zero-knowledge that the pre-processing output is not reused!
+    /// To help ensure this Proof::new takes ownership of PreprocessedProverOutput,
+    /// which prevents the programmer from accidentally re-using the output
     pub fn new(
-        seeds: &[[u8; KEY_SIZE]; R],
+        preprocessing: PreprocessingOutput<D, R, N>,
         program: &[Instruction<<D::Sharing as RingModule>::Scalar>],
         inputs: &[<D::Sharing as RingModule>::Scalar],
     ) -> Proof<D, N, NT, R> {
+        let seeds: &[[u8; KEY_SIZE]; R] = &preprocessing.seeds;
+
         struct Exec<D: Domain, const N: usize, const NT: usize, const R: usize> {
             reconstructions: Option<Vec<D::Sharing>>,
             multiplications: Option<Vec<D::Sharing>>,

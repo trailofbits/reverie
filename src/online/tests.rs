@@ -1,43 +1,12 @@
 use super::*;
 
 use crate::algebra::gf2::*;
+use crate::preprocessing::PreprocessingOutput;
 use crate::tests::*;
-use crate::util::VecMap;
 
 use rand::thread_rng;
 use rand::Rng;
 use rand_core::RngCore;
-
-// Evaluates a program (in the clear)
-fn evaluate<D: Domain>(
-    program: &[Instruction<<D::Sharing as RingModule>::Scalar>],
-    inputs: &[<D::Sharing as RingModule>::Scalar],
-) -> Vec<<D::Sharing as RingModule>::Scalar> {
-    let mut wires = VecMap::from(inputs.to_owned());
-    let mut output = Vec::new();
-
-    for step in program {
-        match *step {
-            Instruction::Add(dst, src1, src2) => {
-                wires.set(dst, wires.get(src1) + wires.get(src2));
-            }
-            Instruction::Mul(dst, src1, src2) => {
-                wires.set(dst, wires.get(src1) * wires.get(src2));
-            }
-            Instruction::AddConst(dst, src, c) => {
-                wires.set(dst, wires.get(src) + c);
-            }
-            Instruction::MulConst(dst, src, c) => {
-                wires.set(dst, wires.get(src) * c);
-            }
-            Instruction::Output(src) => {
-                output.push(wires.get(src));
-            }
-        }
-    }
-
-    output
-}
 
 fn test_proof<D: Domain, const N: usize, const NT: usize, const R: usize>(
     program: &[Instruction<<D::Sharing as RingModule>::Scalar>],
@@ -50,10 +19,10 @@ fn test_proof<D: Domain, const N: usize, const NT: usize, const R: usize>(
     }
 
     // create a proof of the program execution
-    let proof: Proof<D, N, NT, R> = Proof::new(&seeds, program, inputs);
+    let proof: Proof<D, N, NT, R> = Proof::new(PreprocessingOutput::dummy(), program, inputs);
 
     // evaluate program in the clear
-    let correct_output = evaluate::<D>(program, inputs);
+    let correct_output = evaluate_program::<D>(program, inputs);
 
     // extract the output from the proof
     let proof_output = proof.verify(program).unwrap();
@@ -62,7 +31,7 @@ fn test_proof<D: Domain, const N: usize, const NT: usize, const R: usize>(
     // with the same value as the clear evaluation
     assert_eq!(
         proof_output.unsafe_output(),
-        correct_output,
+        &correct_output[..],
         "program = {:?}, inputs = {:?}",
         program,
         inputs

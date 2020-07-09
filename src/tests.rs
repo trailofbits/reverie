@@ -1,4 +1,5 @@
 use crate::algebra::*;
+use crate::util::VecMap;
 use crate::Instruction;
 
 use rand::seq::SliceRandom;
@@ -22,6 +23,37 @@ pub fn random_input<D: Domain, R: RngCore>(
         input.push(random_scalar::<D, _>(rng))
     }
     input
+}
+
+// Evaluates a program (in the clear)
+pub fn evaluate_program<D: Domain>(
+    program: &[Instruction<<D::Sharing as RingModule>::Scalar>],
+    inputs: &[<D::Sharing as RingModule>::Scalar],
+) -> Vec<<D::Sharing as RingModule>::Scalar> {
+    let mut wires = VecMap::from(inputs.to_owned());
+    let mut output = Vec::new();
+
+    for step in program {
+        match *step {
+            Instruction::Add(dst, src1, src2) => {
+                wires.set(dst, wires.get(src1) + wires.get(src2));
+            }
+            Instruction::Mul(dst, src1, src2) => {
+                wires.set(dst, wires.get(src1) * wires.get(src2));
+            }
+            Instruction::AddConst(dst, src, c) => {
+                wires.set(dst, wires.get(src) + c);
+            }
+            Instruction::MulConst(dst, src, c) => {
+                wires.set(dst, wires.get(src) * c);
+            }
+            Instruction::Output(src) => {
+                output.push(wires.get(src));
+            }
+        }
+    }
+
+    output
 }
 
 // Generates a random program for property based test

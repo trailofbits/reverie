@@ -12,6 +12,7 @@ pub const fn log2(x: usize) -> usize {
     (mem::size_of::<usize>() * 8) - (x.leading_zeros() as usize) - 1
 }
 
+#[allow(unused_macros)]
 macro_rules! arr_map_stack {
     ($array:expr, $func:expr) => {{
         use std::mem;
@@ -34,6 +35,7 @@ macro_rules! arr_map_stack {
     }};
 }
 
+#[allow(unused_macros)]
 macro_rules! arr_map {
     ($array:expr, $func:expr) => {{
         use std::mem;
@@ -77,6 +79,7 @@ macro_rules! arr_map {
     }};
 }
 
+#[allow(unused_macros)]
 macro_rules! arr_map_owned {
     ($array:expr, $func:expr) => {{
         use std::mem;
@@ -136,6 +139,7 @@ macro_rules! arr_map_owned {
 
 /// TODO: Consider a variant with stronger types:
 /// Enforce equality between the length of the iter and array at compile time.
+#[allow(unused_macros)]
 macro_rules! arr_from_iter {
     ($iter:expr) => {{
         use std::mem;
