@@ -12,16 +12,7 @@ use crate::Instruction;
 
 use blake3::Hash;
 
-pub trait Transcript<D: Domain> {
-    fn write_multiplication(&mut self, val: D::Sharing);
-    fn write_reconstruction(&mut self, val: D::Sharing);
-}
-
-pub trait Output<D: Domain> {
-    fn hidden_share(&mut self) -> D::Sharing;
-}
-
-pub fn shares_to_batches<D: Domain, const N: usize>(
+fn shares_to_batches<D: Domain, const N: usize>(
     mut shares: Vec<D::Sharing>,
     idx: usize,
 ) -> Vec<D::Batch> {
@@ -44,17 +35,6 @@ pub fn shares_to_batches<D: Domain, const N: usize>(
         batches.push(batch[idx]);
     }
     batches
-}
-
-pub fn shares_to_scalar<D: Domain, const N: usize>(
-    shares: &[D::Sharing],
-    idx: usize,
-) -> Vec<<D::Sharing as RingModule>::Scalar> {
-    let mut scalars = Vec::with_capacity(shares.len());
-    for share in shares {
-        scalars.push(share.get(idx))
-    }
-    scalars
 }
 
 /// Represents the state required to partially re-execute a single repetition of the online phase.

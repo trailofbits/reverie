@@ -163,6 +163,7 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
         let mut execs: Vec<(Vec<<D::Sharing as RingModule>::Scalar>, Hash, Hash, usize)> =
             Vec::with_capacity(R);
 
+        // do sequential execution in test builds (to ease debugging)
         #[cfg(debug_assertions)]
         let runs = self.runs.iter();
 

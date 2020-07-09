@@ -66,7 +66,7 @@ macro_rules! arr_map {
         let src_ptr = &res_maybe as *const _;
 
         // every element is initialized and the outer container is an array
-        // hence it should be safe to remove the MaybeUninit wrapper.
+        // hence it is safe to remove the MaybeUninit wrapper.
         let res_muted = unsafe { mem::transmute(res_maybe) };
         let dst_ptr = &res_muted as *const _;
 
@@ -123,7 +123,7 @@ macro_rules! arr_map_owned {
         let src_ptr = &res_maybe as *const _;
 
         // every element is initialized and the outer container is an array
-        // hence it should be safe to remove the MaybeUninit wrapper.
+        // hence it is safe to remove the MaybeUninit wrapper.
         let res_muted = unsafe { mem::transmute(res_maybe) };
         let dst_ptr = &res_muted as *const _;
 
@@ -165,7 +165,7 @@ macro_rules! arr_from_iter {
         let src_ptr = &res_maybe as *const _;
 
         // every element is initialized and the outer container is an array
-        // hence it should be safe to remove the MaybeUninit wrapper.
+        // hence it is safe to remove the MaybeUninit wrapper.
         let res_muted = unsafe { mem::transmute(res_maybe) };
         let dst_ptr = &res_muted as *const _;
 

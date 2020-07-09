@@ -180,6 +180,7 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
         // execute the online phase R times
         let mut execs: Vec<Exec<D, N, NT, R>> = Vec::with_capacity(R);
 
+        // do sequential execution in test builds (to ease debugging)
         #[cfg(debug_assertions)]
         let runs = seeds.iter();
 
