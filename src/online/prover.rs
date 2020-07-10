@@ -179,7 +179,7 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
             hash: Hash,
             prf: TreePRF<NT>,
             corrections: Option<Vec<D::Batch>>,
-            commitments: Box<[Hash; N]>, // commitment to pre-processing views
+            commitments: Array<Hash, N>, // commitment to pre-processing views
             wires: Option<Vec<<D::Sharing as RingModule>::Scalar>>,
             omitted: usize,
         }
@@ -197,13 +197,11 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
         let runs = runs.map(|seed| {
             // expand seed into RNG keys for players
             let tree: TreePRF<NT> = TreePRF::new(*seed);
-            let keys: Box<[[u8; KEY_SIZE]; N]> =
-                arr_map!(&tree.expand(), |x: &Option<[u8; KEY_SIZE]>| x.unwrap());
+            let keys: Array<_, N> = tree.expand().map(|x: &Option<[u8; KEY_SIZE]>| x.unwrap());
 
             // create fresh view for every player
-            let mut views: Box<[View; N]> = arr_map!(&keys, |key| View::new_keyed(key));
-            let mut rngs: Box<[ViewRNG; N]> =
-                arr_map!(&views, |view| { view.rng(LABEL_RNG_PREPROCESSING) });
+            let mut views = keys.map(|key| View::new_keyed(key));
+            let mut rngs = views.map(|view| view.rng(LABEL_RNG_PREPROCESSING));
 
             // prepare pre-processing execution (online mode), save the corrections.
             let mut corrections = Vec::<D::Batch>::new();
@@ -234,7 +232,7 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
                 multiplications: Some(multiplications),
                 reconstructions: Some(reconstructions),
                 hash,
-                commitments: arr_map!(&views, |view| view.hash()),
+                commitments: views.map(|view| view.hash()),
                 prf: tree,
                 corrections: Some(corrections),
                 wires: Some(wires),

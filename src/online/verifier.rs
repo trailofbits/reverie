@@ -28,7 +28,7 @@ struct OutputShares<'a, D: Domain, const N: usize> {
 /// Avoiding potential misuse where the user fails to check the pre-processing.
 pub struct Output<D: Domain, const R: usize> {
     output: Vec<<D::Sharing as RingModule>::Scalar>,
-    pp_hashes: Box<[Hash; R]>,
+    pp_hashes: Array<Hash, R>,
 }
 
 impl<D: Domain, const R: usize> Output<D, R> {
@@ -115,13 +115,13 @@ fn execute_verify<D: Domain, P: Preprocessing<D>, const N: usize>(
                 let ab_gamma: D::Sharing = preprocessing.next_ab_gamma();
                 let recon = a_m.action(b_w) + b_m.action(a_w) + ab_gamma;
 
-                // append messages from all players to transcript
+                // reconstruct
                 hasher.write(&recon);
 
                 // corrected wire
                 let c_w = recon.reconstruct() + a_w * b_w;
 
-                // debugging output
+                // append messages from all players to transcript
                 #[cfg(test)]
                 #[cfg(debug_assertions)]
                 {
@@ -173,16 +173,17 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
 
         let runs = runs.map(|run| {
             // expand keys
-            let keys: Box<[Option<[u8; KEY_SIZE]>; N]> = run.open.expand();
+            let keys: Array<_, N> = run.open.expand();
 
             // find the punctured position of the PRF (omitted player index)
             let omitted = keys.iter().position(|key| key.is_none()).unwrap_or(0);
-            let keys: Box<[[u8; KEY_SIZE]; N]> = arr_map!(&keys, |v| v.unwrap_or([0u8; KEY_SIZE]));
+
+            // replace omitted key(s) with dummy
+            let keys = keys.map(|v| v.unwrap_or([0u8; KEY_SIZE]));
 
             // create preprocessing instance (partial re-execution)
-            let mut views: Box<[View; N]> = arr_map!(&keys, |key| View::new_keyed(key));
-            let mut rngs: Box<[ViewRNG; N]> =
-                arr_map!(&views, |view| { view.rng(LABEL_RNG_PREPROCESSING) });
+            let mut views = keys.map(|key| View::new_keyed(key));
+            let mut rngs = views.map(|view| view.rng(LABEL_RNG_PREPROCESSING));
             let preprocessing: PreprocessingExecution<D, _, N> = PreprocessingExecution::new(
                 &mut rngs,
                 run.inputs.len(),
@@ -208,7 +209,7 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
                 }
             }
 
-            // compute hash of pre-processing view commitments
+            // compute hash of pre-processing view commitments (TODO append the commitment included in the run)
             let mut pp_hash = blake3::Hasher::new();
             for i in 0..N {
                 if i == omitted {
@@ -257,13 +258,10 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
             }
         }
 
-        // hashes to check against pre-processing proof
-        let pp_hashes = arr_from_iter!(execs.iter().map(|exec| { exec.2 }));
-
         // otherwise return the output
         // (usually a field element, indicating whether the witness satisfies the relation computed)
         Some(Output {
-            pp_hashes,
+            pp_hashes: Array::from_iter(execs.iter().map(|exec| exec.2)),
             output: execs.pop().unwrap().0,
         })
     }

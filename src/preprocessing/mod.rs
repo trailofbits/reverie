@@ -12,6 +12,9 @@ use crate::Instruction;
 use std::marker::PhantomData;
 use std::mem;
 
+use serde::ser::SerializeTuple;
+use serde::{Deserialize, Serialize, Serializer};
+
 use rayon::prelude::*;
 
 pub(crate) trait Preprocessing<D: Domain> {
@@ -37,9 +40,26 @@ pub struct Proof<
     const RT: usize,
     const H: usize,
 > {
-    hidden: Box<[Hash; H]>,  // commitments to the hidden pre-processing executions
+    hidden: Array<Hash, H>,  // commitments to the hidden pre-processing executions
     random: TreePRF<{ RT }>, // punctured PRF used to derive the randomness for the opened pre-processing executions
     ph: PhantomData<D>,
+}
+
+impl<
+        D: Domain,
+        const P: usize,
+        const PT: usize,
+        const R: usize,
+        const RT: usize,
+        const H: usize,
+    > Serialize for Proof<D, P, PT, R, RT, H>
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        unreachable!()
+    }
 }
 
 /// Represents the randomness for the preprocessing executions used during the online execution.
@@ -75,18 +95,14 @@ fn preprocess<D: Domain, const N: usize, const NT: usize>(
 ) -> Hash {
     // the root PRF from which each players random tape is derived using a PRF tree
     let root: TreePRF<NT> = TreePRF::new(*seed);
-    let keys: Box<[_; N]> = root.expand();
+    let keys: Array<_, N> = root.expand();
 
     // create a view for every player
-    let mut views: Box<[View; N]> = arr_map!(
-        &keys,
-        |key: &Option<[u8; KEY_SIZE]>| View::new_keyed(key.as_ref().unwrap())
-    );
+    let mut views = keys.map(|key: &Option<[u8; KEY_SIZE]>| View::new_keyed(key.as_ref().unwrap()));
 
     // generate the beaver triples and write the corrected shares to player0 transcript
     {
-        let mut rngs: Box<[ViewRNG; N]> =
-            arr_map!(&views, |view: &View| view.rng(LABEL_RNG_PREPROCESSING));
+        let mut rngs = views.map(|view: &View| view.rng(LABEL_RNG_PREPROCESSING));
         let mut corr: Scope = views[0].scope(LABEL_SCOPE_CORRECTION);
         let mut exec: prover::PreprocessingExecution<D, _, _, N, false> =
             prover::PreprocessingExecution::new(&mut rngs, &mut corr, inputs, program);
@@ -120,7 +136,7 @@ impl<
         inputs: usize,
     ) -> Option<&[Hash; H]> {
         // derive keys and hidden execution indexes
-        let keys: Box<[_; R]> = self.random.expand();
+        let keys: Array<_, R> = self.random.expand();
         let mut hidden: Vec<usize> = Vec::with_capacity(R);
         let mut opened: Vec<usize> = Vec::with_capacity(R - H);
         for (i, key) in keys.iter().enumerate() {
@@ -179,7 +195,7 @@ impl<
     ) -> (Self, PreprocessingOutput<D, H, N>) {
         // define PRF tree and obtain key material for every pre-processing execution
         let root: TreePRF<RT> = TreePRF::new(seed);
-        let keys: Box<[_; R]> = root.expand();
+        let keys: Array<_, R> = root.expand();
 
         // generate transcript hashes of every pre-processing execution
         let mut hashes: Vec<Hash> = Vec::with_capacity(keys.len());
@@ -210,7 +226,7 @@ impl<
         }
 
         // extract hashes for the hidden evaluations
-        let hidden: Box<[Hash; H]> = arr_from_iter!(&mut hide.iter().map(|i| hashes[*i].clone()));
+        let hidden: Array<Hash, H> = Array::from_iter(hide.iter().map(|i| hashes[*i].clone()));
 
         // extract pre-processing key material for the hidden views
         // (returned to the prover for use in the online phase)
