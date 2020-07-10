@@ -1,5 +1,4 @@
-use serde::de::Error;
-use serde::de::{self, SeqAccess, Unexpected, Visitor};
+use serde::de::{Error, SeqAccess, Unexpected, Visitor};
 use serde::ser::SerializeTuple;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -14,7 +13,7 @@ impl<'de, T: Deserialize<'de>, const L: usize> Visitor<'de> for ArrayVistor<T, L
     type Value = Array<T, L>;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.write_str("a byte")
+        write!(formatter, "a sequence of bytes {} exactly elements long", L)
     }
 
     fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {

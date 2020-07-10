@@ -4,6 +4,8 @@ use std::sync::Arc;
 
 use blake3::Hasher;
 
+mod serde;
+
 /// Since we have no additional overhead from assuming that the tree is always complete.
 /// We assume that the number of elements in the tree is a power of two for simplicity.
 #[derive(Debug, Clone)]
@@ -13,16 +15,20 @@ pub enum TreePRF<const N: usize> {
     Internal(Arc<TreePRF<N>>, Arc<TreePRF<N>>), // used for punctured children
 }
 
-fn double_prng(key: &[u8; KEY_SIZE]) -> ([u8; KEY_SIZE], [u8; KEY_SIZE]) {
-    let mut k = [0u8; 32];
+// The length-doubling prng used for the PRF tree
+fn doubling_prng(key: &[u8; KEY_SIZE]) -> ([u8; KEY_SIZE], [u8; KEY_SIZE]) {
+    // seed and obtain PRG
+    let mut rng = {
+        let mut k = [0u8; 32];
+        k[..KEY_SIZE].copy_from_slice(&key[..]);
+        Hasher::new_keyed(&k).finalize_xof()
+    };
+
+    // read 2 x 128-bit from the PRG
     let mut left = [0u8; KEY_SIZE];
     let mut right = [0u8; KEY_SIZE];
-    k[..KEY_SIZE].copy_from_slice(&key[..]);
-
-    let hasher = Hasher::new_keyed(&k);
-    let result = hasher.finalize();
-    left[..].copy_from_slice(&result.as_bytes()[..KEY_SIZE]);
-    right[..].copy_from_slice(&result.as_bytes()[KEY_SIZE..]);
+    rng.fill(&mut left);
+    rng.fill(&mut right);
     (left, right)
 }
 
@@ -42,7 +48,7 @@ impl<const N: usize> TreePRF<N> {
                     TreePRF::Punctured
                 } else {
                     // compute left and right trees
-                    let (left, right) = double_prng(key);
+                    let (left, right) = doubling_prng(key);
                     let (left, right) = (Self::new(left), Self::new(right));
 
                     // puncture recursively
@@ -64,19 +70,30 @@ impl<const N: usize> TreePRF<N> {
                 debug_assert!(level > 0);
 
                 // puncture recursively
-                if (idx >> level) & 1 == 0 {
-                    TreePRF::Internal(
+                let res = if (idx >> level) & 1 == 0 {
+                    (
                         Arc::new(left.puncture_internal(idx, level - 1)),
                         Arc::clone(right),
                     )
                 } else {
-                    TreePRF::Internal(
+                    (
                         Arc::clone(left),
                         Arc::new(right.puncture_internal(idx, level - 1)),
                     )
+                };
+
+                // check if both children are punctured (in which case we can remove the level)
+                let punctured_left =
+                    std::mem::discriminant(&*res.0) == std::mem::discriminant(&TreePRF::Punctured);
+                let punctured_right =
+                    std::mem::discriminant(&*res.1) == std::mem::discriminant(&TreePRF::Punctured);
+                if punctured_left && punctured_right {
+                    TreePRF::Punctured
+                } else {
+                    TreePRF::Internal(res.0, res.1)
                 }
             }
-            TreePRF::Punctured => TreePRF::Punctured,
+            TreePRF::Punctured => TreePRF::Punctured, // place already punctured
         }
     }
 
@@ -86,42 +103,51 @@ impl<const N: usize> TreePRF<N> {
         self.puncture_internal(idx << 1, log2(N))
     }
 
-    fn expand_internal<const L: usize>(
+    fn expand_internal<'a>(
         &self,
-        result: &mut [Option<[u8; KEY_SIZE]>; L],
-        found: usize,
+        result: &'a mut [Option<[u8; KEY_SIZE]>],
         level: usize,
-    ) -> usize {
+    ) -> &'a mut [Option<[u8; KEY_SIZE]>] {
         // check if we have extracted the required number of leafs
         debug_assert!(level <= log2(N));
-        if found >= L {
-            return found;
+        if result.len() == 0 {
+            return result;
         }
 
         // otherwise descend
         match self {
             TreePRF::Punctured => {
-                result[found] = None;
-                found + 1
+                // all the 2^level children of a punctured node are also punctured
+                let length = std::cmp::min(1 << level, result.len());
+                for i in 0..length {
+                    result[i] = None;
+                }
+                &mut result[length..]
             }
             TreePRF::Internal(left, right) => {
-                let found = left.expand_internal(result, found, level - 1);
-                let found = right.expand_internal(result, found, level - 1);
-                found
+                debug_assert!(level > 0);
+
+                // expand the left child
+                let result = left.expand_internal(result, level - 1);
+
+                // fill the remainder from the right child
+                right.expand_internal(result, level - 1)
             }
             TreePRF::Leaf(key) => {
                 if level == 0 {
                     // we are in a leaf
-                    result[found] = Some(*key);
-                    found + 1
+                    result[0] = Some(*key);
+                    &mut result[1..]
                 } else {
                     // compute left and right trees
-                    let (left, right) = double_prng(key);
+                    let (left, right) = doubling_prng(key);
                     let (left, right) = (Self::new(left), Self::new(right));
 
-                    let found = left.expand_internal(result, found, level - 1);
-                    let found = right.expand_internal(result, found, level - 1);
-                    found
+                    // expand the left child
+                    let result = left.expand_internal(result, level - 1);
+
+                    // fill the remainder from the right child
+                    right.expand_internal(result, level - 1)
                 }
             }
         }
@@ -132,7 +158,7 @@ impl<const N: usize> TreePRF<N> {
     pub fn expand<const L: usize>(&self) -> Array<Option<[u8; KEY_SIZE]>, L> {
         assert!(L <= N); // should be optimized out
         let mut result: Array<Option<[u8; KEY_SIZE]>, L> = Array::new(None);
-        self.expand_internal(&mut result, 0, log2(N));
+        self.expand_internal(&mut result[..], log2(N));
         result
     }
 }
