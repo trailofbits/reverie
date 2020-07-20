@@ -17,12 +17,6 @@ use serde::{Deserialize, Serialize, Serializer};
 
 use rayon::prelude::*;
 
-pub(crate) trait Preprocessing<D: Domain> {
-    fn mask(&self, idx: usize) -> D::Sharing;
-
-    fn next_ab_gamma(&mut self) -> D::Sharing;
-}
-
 /// Represents repeated execution of the preprocessing phase.
 /// The preprocessing phase is executed R times, then fed to a random oracle,
 /// which dictates the subset of executions to open.

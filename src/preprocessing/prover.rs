@@ -5,6 +5,16 @@ use crate::Instruction;
 
 use rand_core::RngCore;
 
+macro_rules! new_sharings {
+    ( $dst:expr, $rngs:expr ) => {{
+        let mut batches: [D::Batch; N] = [D::Batch::ZERO; N];
+        for j in 0..N {
+            batches[j] = D::Batch::gen(&mut $rngs[j]);
+        }
+        D::convert($dst, &batches[..]);
+    }};
+}
+
 /// Implementation of pre-processing phase used by the prover during online execution
 pub struct PreprocessingExecution<
     'a,
@@ -26,12 +36,11 @@ pub struct PreprocessingExecution<
 
     // Beaver multiplication state
     corrections: &'b mut CW,
-    share_ab_gamma: Vec<D::Sharing>, // alpha * beta + gamma sharings
-    share_a: Vec<D::Sharing>,        // beta sharings (from input)
-    share_b: Vec<D::Sharing>,        // alpha sharings (from input)
-    share_g: Vec<D::Sharing>,        // gamma sharings (output)
-    batch_g: [D::Batch; N],          // gamma batch
-    rngs: &'a mut [R; N],            // rngs
+    share_a: Vec<D::Sharing>, // beta sharings (from input)
+    share_b: Vec<D::Sharing>, // alpha sharings (from input)
+    share_g: Vec<D::Sharing>, // gamma sharings (output)
+    batch_g: [D::Batch; N],   // gamma batch
+    rngs: &'a mut [R; N],     // rngs
 }
 
 impl<
@@ -48,28 +57,32 @@ impl<
     pub fn new(rngs: &'a mut [R; N], corrections: &'b mut CW, program: PI) -> Self {
         PreprocessingExecution {
             program,
-            next_input: 0,
+            next_input: D::Batch::DIMENSION,
+            share_input: vec![D::Sharing::ZERO; D::Batch::DIMENSION],
             corrections,
             rngs,
             batch_g: [D::Batch::ZERO; N],
-            share_input: vec![D::Sharing::ZERO; D::Batch::DIMENSION],
-            share_ab_gamma: vec![D::Sharing::ZERO; D::Batch::DIMENSION],
             share_g: vec![D::Sharing::ZERO; D::Batch::DIMENSION],
-            share_a: vec![D::Sharing::ZERO; D::Batch::DIMENSION],
-            share_b: vec![D::Sharing::ZERO; D::Batch::DIMENSION],
+            share_a: Vec::with_capacity(D::Batch::DIMENSION),
+            share_b: Vec::with_capacity(D::Batch::DIMENSION),
             masks: VecMap::new(),
         }
     }
 
     #[inline(always)]
-    fn generate(&mut self) {
+    fn generate(&mut self, ab_gamma: &mut [D::Sharing]) {
         let mut batches_a: [D::Batch; N] = [D::Batch::ZERO; N];
         let mut batches_b: [D::Batch; N] = [D::Batch::ZERO; N];
         let mut batches_c: [D::Batch; N] = [D::Batch::ZERO; N];
 
+        debug_assert_eq!(self.share_a.len(), D::Batch::DIMENSION);
+        debug_assert_eq!(self.share_b.len(), D::Batch::DIMENSION);
+
         // transpose sharings into per player batches
         D::convert_inv(&mut batches_a[..], &self.share_a[..]);
         D::convert_inv(&mut batches_b[..], &self.share_b[..]);
+        self.share_a.clear();
+        self.share_b.clear();
 
         // generate 3 batches of shares for every player
         let mut a = D::Batch::ZERO;
@@ -87,58 +100,47 @@ impl<
 
         // correct shares for player 0 (correction bits)
         let delta = a * b - c;
-        batches_c[0] = batches_c[0] + delta;
 
         // write correction batch (player 0 correction bits)
         // for the pre-processing phase, the writer will simply be a hash function.
         self.corrections.write(&delta);
 
-        // sanity check in tests
-        #[cfg(test)]
-        {
-            let mut share_c = vec![D::Sharing::ZERO; D::Batch::DIMENSION];
-            D::convert(&mut share_c[..], &batches_c);
-            for i in 0..D::Batch::DIMENSION {
-                debug_assert_eq!(
-                    share_c[i].reconstruct(),
-                    self.share_a[i].reconstruct() * self.share_b[i].reconstruct()
-                )
-            }
-        }
-
         // compute ab_gamma shares if online execution
         if O {
+            batches_c[0] = batches_c[0] + delta;
             let mut batches_gab: [D::Batch; N] = [D::Batch::ZERO; N];
             for i in 0..N {
                 batches_gab[i] = batches_c[i] + self.batch_g[i];
             }
-            D::convert(&mut self.share_ab_gamma[..], &batches_gab);
+            D::convert(ab_gamma, &batches_gab);
+
+            // sanity check in tests
+            #[cfg(test)]
+            {
+                let mut share_c = vec![D::Sharing::ZERO; D::Batch::DIMENSION];
+                D::convert(&mut share_c[..], &batches_c);
+                for i in 0..D::Batch::DIMENSION {
+                    debug_assert_eq!(
+                        share_c[i].reconstruct(),
+                        self.share_a[i].reconstruct() * self.share_b[i].reconstruct()
+                    )
+                }
+            }
         }
     }
 
     #[inline(always)]
-    fn pack_batch(
-        &mut self,
-        sharings: &mut Vec<D::Sharing>, // resulting sharings consumed by online phase
-    ) -> bool {
+    fn pack_batch(&mut self, masks: &mut Vec<D::Sharing>, ab_gamma: &mut [D::Sharing]) -> bool {
         // generate sharings for the output of the next batch of multiplications
-        for i in 0..N {
-            self.batch_g[i] = D::Batch::gen(&mut self.rngs[i]);
-        }
-        D::convert(&mut self.share_g[..], &self.batch_g[..]);
+        new_sharings!(&mut self.share_g[..], &mut self.rngs);
 
-        // look forward in program until executed enough multiplications
-        let mut mults = 0;
+        // look forward in program until executed enough multiplications for next batch
         loop {
             match self.program.next() {
                 Some(Instruction::Input(dst)) => {
                     // check if need for new batch of input masks
                     if self.next_input == D::Batch::DIMENSION {
-                        let mut batches: [D::Batch; N] = [D::Batch::ZERO; N];
-                        for j in 0..N {
-                            batches[j] = D::Batch::gen(&mut self.rngs[j]);
-                        }
-                        D::convert(&mut self.share_input[..], &batches[..]);
+                        new_sharings!(&mut self.share_input[..], &mut self.rngs);
                         self.next_input = 0;
                     }
 
@@ -149,7 +151,7 @@ impl<
 
                     // return the mask to the online phase (for hiding the witness)
                     if O {
-                        sharings.push(mask);
+                        masks.push(mask);
                     }
                 }
                 Some(Instruction::AddConst(dst, src, _c)) => {
@@ -168,42 +170,37 @@ impl<
                         .set(dst, self.masks.get(src1) + self.masks.get(src2));
                 }
                 Some(Instruction::Mul(dst, src1, src2)) => {
+                    let next_idx = self.share_a.len();
+
                     // push the masks to the Beaver stack
                     let mask_a = self.masks.get(src1);
                     let mask_b = self.masks.get(src2);
-                    let mask_g = self.share_g[mults];
-                    self.share_a[mults] = mask_a;
-                    self.share_b[mults] = mask_b;
+                    self.share_a.push(mask_a);
+                    self.share_b.push(mask_b);
 
                     // return the mask to online phase for Beaver multiplication
                     if O {
-                        sharings.push(mask_a);
-                        sharings.push(mask_b);
-                        sharings.push(mask_g);
+                        masks.push(mask_a);
+                        masks.push(mask_b);
                     }
 
                     // assign mask to output
-                    self.masks.set(dst, mask_g);
-                    mults += 1;
+                    self.masks.set(dst, self.share_g[next_idx]);
 
                     // if the batch is full, stop.
-                    if mults == D::Batch::DIMENSION {
-                        self.generate();
+                    if self.share_a.len() == D::Batch::DIMENSION {
+                        self.generate(ab_gamma);
                         return true;
                     }
-                    debug_assert!(mults < D::Batch::DIMENSION);
                 }
                 Some(Instruction::Output(src)) => {
-                    if O {
-                        // output the reconstruction messages to the online phase
-                        sharings.push(self.masks.get(src));
-                    }
+                    masks.push(self.masks.get(src));
                 }
                 None => {
-                    if mults > 0 {
+                    if self.share_a.len() > 0 {
                         self.share_a.resize(D::Batch::DIMENSION, D::Sharing::ZERO);
                         self.share_b.resize(D::Batch::DIMENSION, D::Sharing::ZERO);
-                        self.generate();
+                        self.generate(ab_gamma);
                         return true;
                     } else {
                         return false;
@@ -214,12 +211,15 @@ impl<
     }
 
     pub fn finish(&mut self) {
-        let mut batches = vec![];
-        while self.pack_batch(&mut batches) {}
-        debug_assert_eq!(batches.len(), 0);
+        assert!(!O, "method only valid in pre-processing proof");
+        let mut ab_gamma = [];
+        let mut masks = vec![];
+        while self.pack_batch(&mut masks, &mut ab_gamma) {}
+        debug_assert_eq!(masks.len(), 0);
     }
 
-    pub fn next_sharings(&mut self, sharings: &mut Vec<D::Sharing>) {
-        self.pack_batch(sharings);
+    pub fn next_sharings(&mut self, masks: &mut Vec<D::Sharing>, ab_gamma: &mut [D::Sharing]) {
+        debug_assert_eq!(ab_gamma.len(), D::Batch::DIMENSION);
+        self.pack_batch(masks, ab_gamma);
     }
 }
