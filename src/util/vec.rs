@@ -7,6 +7,10 @@ impl<T: Copy> From<Vec<T>> for VecMap<T> {
 }
 
 impl<T: Copy> VecMap<T> {
+    pub fn new() -> Self {
+        VecMap(Vec::new())
+    }
+
     #[inline(always)]
     pub fn set(&mut self, idx: usize, val: T) {
         if idx >= self.0.len() {

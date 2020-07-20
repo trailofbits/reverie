@@ -91,7 +91,6 @@ impl<D: Domain, const H: usize, const N: usize> PreprocessingOutput<D, H, N> {
 fn preprocess<D: Domain, const N: usize, const NT: usize>(
     seed: &[u8; KEY_SIZE], // random tape used for phase
     program: &[Instruction<<D::Sharing as RingModule>::Scalar>],
-    inputs: usize,
 ) -> Hash {
     // the root PRF from which each players random tape is derived using a PRF tree
     let root: TreePRF<NT> = TreePRF::new(*seed);
@@ -104,8 +103,8 @@ fn preprocess<D: Domain, const N: usize, const NT: usize>(
     {
         let mut rngs = views.map(|view: &View| view.rng(LABEL_RNG_PREPROCESSING));
         let mut corr: Scope = views[0].scope(LABEL_SCOPE_CORRECTION);
-        let mut exec: prover::PreprocessingExecution<D, _, _, N, false> =
-            prover::PreprocessingExecution::new(&mut rngs, &mut corr, inputs, program);
+        let mut exec: prover::PreprocessingExecution<D, _, _, _, N, false> =
+            prover::PreprocessingExecution::new(&mut rngs, &mut corr, program.iter().map(|v| *v));
 
         // process entire program
         exec.finish();
@@ -133,7 +132,6 @@ impl<
     pub fn verify(
         &self,
         program: &[Instruction<<D::Sharing as RingModule>::Scalar>],
-        inputs: usize,
     ) -> Option<&[Hash; H]> {
         // derive keys and hidden execution indexes
         let keys: Array<_, R> = self.random.expand();
@@ -157,7 +155,7 @@ impl<
 
         let mut hashes: Vec<Option<Hash>> = Vec::with_capacity(keys.len());
         keys.par_iter()
-            .map(|seed| seed.map(|seed| preprocess::<D, N, NT>(&seed, program, inputs)))
+            .map(|seed| seed.map(|seed| preprocess::<D, N, NT>(&seed, program)))
             .collect_into_vec(&mut hashes);
 
         // copy over the provided hashes from the hidden views
@@ -191,7 +189,6 @@ impl<
     pub fn new(
         seed: [u8; KEY_SIZE],
         program: &[Instruction<<D::Sharing as RingModule>::Scalar>],
-        inputs: usize,
     ) -> (Self, PreprocessingOutput<D, H, N>) {
         // define PRF tree and obtain key material for every pre-processing execution
         let root: TreePRF<RT> = TreePRF::new(seed);
@@ -200,7 +197,7 @@ impl<
         // generate transcript hashes of every pre-processing execution
         let mut hashes: Vec<Hash> = Vec::with_capacity(keys.len());
         keys.par_iter()
-            .map(|seed| preprocess::<D, N, NT>(seed.as_ref().unwrap(), program, inputs))
+            .map(|seed| preprocess::<D, N, NT>(seed.as_ref().unwrap(), program))
             .collect_into_vec(&mut hashes);
 
         // send the pre-processing commitments to the random oracle, receive challenges
@@ -260,11 +257,15 @@ mod tests {
 
     #[test]
     fn test_preprocessing_n8() {
-        let program = vec![Instruction::Mul(0, 1, 2); 1024]; // maybe generate random program?
+        let program = vec![
+            Instruction::Input(1),
+            Instruction::Input(2),
+            Instruction::Mul(0, 1, 2),
+        ]; // maybe generate random program?
         let mut rng = rand::thread_rng();
         let seed: [u8; KEY_SIZE] = rng.gen();
-        let proof = Proof::<GF2P8, 8, 8, 252, 256, 44>::new(seed, &program, 1024);
-        assert!(proof.0.verify(&program, 1024).is_some());
+        let proof = Proof::<GF2P8, 8, 8, 252, 256, 44>::new(seed, &program);
+        assert!(proof.0.verify(&program).is_some());
     }
 }
 
@@ -299,10 +300,9 @@ mod benchmark {
     /// t =  44 (online phase executions (hidden pre-processing executions))
     #[bench]
     fn bench_preprocessing_proof_gen_n8(b: &mut Bencher) {
-        let program = vec![Instruction::Mul(0, 1, 2); MULT];
-        b.iter(|| {
-            PreprocessedProof::<GF2P8, 8, 8, 252, 256, 44>::new([0u8; KEY_SIZE], &program, 64)
-        });
+        let mut program = vec![Instruction::Input(1), Instruction::Input(2)];
+        program.resize(MULT + 2, Instruction::Mul(0, 1, 2));
+        b.iter(|| Proof::<GF2P8, 8, 8, 252, 256, 44>::new([0u8; KEY_SIZE], &program[..]));
     }
 
     /*
@@ -328,9 +328,9 @@ mod benchmark {
     /// t =  44 (online phase executions (hidden pre-processing executions))
     #[bench]
     fn bench_preprocessing_proof_verify_n8(b: &mut Bencher) {
-        let program = vec![Instruction::Mul(0, 1, 2); MULT];
-        let proof =
-            PreprocessedProof::<GF2P8, 8, 8, 252, 256, 44>::new([0u8; KEY_SIZE], &program, 64);
-        b.iter(|| proof.verify(&program, 64));
+        let mut program = vec![Instruction::Input(1), Instruction::Input(2)];
+        program.resize(MULT + 2, Instruction::Mul(0, 1, 2));
+        let (proof, _) = Proof::<GF2P8, 8, 8, 252, 256, 44>::new([0u8; KEY_SIZE], &program[..]);
+        b.iter(|| proof.verify(&program));
     }
 }

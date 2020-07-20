@@ -200,6 +200,7 @@ impl<'a, 'b, 'c, 'd, D: Domain, R: RngCore, const N: usize>
                         return;
                     }
                 }
+                Instruction::Input(_dst) => (),
                 Instruction::Output(_src) => (),
             }
         }

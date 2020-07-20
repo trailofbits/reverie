@@ -3,6 +3,7 @@ extern crate reverie;
 use reverie::algebra::gf2::{GF2P64, GF2P8};
 use reverie::algebra::*;
 
+/*
 use reverie::online;
 use reverie::preprocessing;
 use reverie::Instruction;
@@ -26,8 +27,10 @@ enum Operation {
     Multiplication,
     Addition,
 }
+*/
 
 fn main() {
+    /*
     let mut args = env::args();
 
     // skip path
@@ -115,4 +118,5 @@ fn main() {
     // stop profiler
     #[cfg(feature = "profiler")]
     PROFILER.lock().unwrap().stop().unwrap();
+    */
 }

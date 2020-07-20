@@ -15,14 +15,16 @@ extern crate test;
 #[macro_use]
 mod util;
 
+/*
 #[cfg(test)]
 mod tests;
+*/
 
 // pre-processing
 pub mod preprocessing;
 
 // online phase
-pub mod online;
+// pub mod online;
 
 // traits and implementations of the underlying ring
 // exposed to enable uses to define programs for the supported rings.
@@ -45,9 +47,11 @@ pub enum Instruction<E: RingElement> {
     MulConst(usize, usize, E), // multiplication by constant
     Mul(usize, usize, usize),  // multiplication of two wires
     Add(usize, usize, usize),  // addition of two wires
+    Input(usize),              // read next field element from input tape
     Output(usize),             // output wire (write wire-value to output)
 }
 
+/*
 #[cfg(test)]
 mod testing {
     use crate::algebra::gf2::*;
@@ -93,3 +97,4 @@ mod testing {
         assert_eq!(output.check(&pp_hashes), Some(&correct_output[..]));
     }
 }
+*/

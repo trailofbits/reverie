@@ -1,9 +1,11 @@
 mod array;
+mod reader;
 mod subset;
 mod vec;
 mod writer;
 
 pub use array::*;
+pub use reader::*;
 pub use subset::*;
 pub use vec::VecMap;
 pub use writer::*;

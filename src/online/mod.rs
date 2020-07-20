@@ -32,14 +32,21 @@ fn shares_to_batches<D: Domain, const N: usize>(
     batches
 }
 
+/// Represents a chunked portion of a streaming proof
+///
+/// These are serialized and send over the wire.
+pub struct Chunk<D: Domain, const N: usize> {
+    multiplication_corrections: Vec<D::Batch>,
+    multiplication_recons: Vec<D::Batch>,
+    output_recons: Vec<D::Batch>,
+    inputs_wire: Vec<D::Batch>,
+}
+
 /// Represents the state required to partially re-execute a single repetition of the online phase.
 pub struct Run<D: Domain, const N: usize, const NT: usize> {
-    corrections: Vec<D::Batch>,     // correction shares for player0
-    multiplications: Vec<D::Batch>, // messages broadcast by hidden player
-    reconstructions: Vec<D::Batch>, //
-    inputs: Vec<<D::Sharing as RingModule>::Scalar>, // initial wire values (masked witness)
-    open: TreePRF<NT>,              // PRF to derive random tapes for the opened players
-    commitment: Hash,               // pre-processing phase commitment
+    open: TreePRF<NT>, // PRF to derive random tapes for the opened players
+    commitment: Hash,  // pre-processing phase commitment
+    chunk: Chunk<D, N>,
 }
 
 /// A proof of the online phase consists of a collection of runs to amplify soundness.
