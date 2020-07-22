@@ -59,11 +59,10 @@ impl RingElement for BitBatch {
     const ZERO: BitBatch = BitBatch([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
 }
 
-impl RingModule for BitBatch {
-    type Scalar = BitScalar;
-
+impl RingModule<BitScalar> for BitBatch {
     const DIMENSION: usize = BATCH_SIZE_BITS;
 
+    /*
     #[inline(always)]
     fn get(&self, n: usize) -> Self::Scalar {
         debug_assert!(n < Self::DIMENSION, "get out of range");
@@ -85,9 +84,10 @@ impl RingModule for BitBatch {
         r[div] |= s.0 << rem; // set nth bit
         Self(r)
     }
+    */
 
     #[inline(always)]
-    fn action(&self, s: Self::Scalar) -> Self {
+    fn action(&self, s: BitScalar) -> Self {
         let mut res: [u8; BATCH_SIZE_BYTES] = [0; BATCH_SIZE_BYTES];
         for i in 0..BATCH_SIZE_BYTES {
             res[i] = s.0 * self.0[i];

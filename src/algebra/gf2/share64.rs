@@ -33,17 +33,16 @@ impl RingElement for BitSharing64 {
     const ZERO: Self = Self(0x0);
 }
 
-impl RingModule for BitSharing64 {
-    type Scalar = BitScalar;
-
+impl RingModule<BitScalar> for BitSharing64 {
     const DIMENSION: usize = 64;
 
     #[inline(always)]
-    fn action(&self, s: Self::Scalar) -> Self {
+    fn action(&self, s: BitScalar) -> Self {
         debug_assert!(s.0 < 2, "scalar is not bit");
         BitSharing64(if s.0 == 0 { 0 } else { self.0 })
     }
 
+    /*
     #[inline(always)]
     fn get(&self, n: usize) -> Self::Scalar {
         debug_assert!(n < Self::DIMENSION, "get out of range");
@@ -62,6 +61,7 @@ impl RingModule for BitSharing64 {
         r |= (s.0 as u64) << n; // set nth bit
         BitSharing64(r)
     }
+    */
 }
 
 impl Serializable for BitSharing64 {
@@ -70,7 +70,7 @@ impl Serializable for BitSharing64 {
     }
 }
 
-impl Sharing for BitSharing64 {
+impl Sharing<BitScalar> for BitSharing64 {
     // Reconstruction for the share module is the sum of the ring elements
     // This can be implemented by xoring all the bits together,
     // but calculating the parity via count_ones is faster on x86.

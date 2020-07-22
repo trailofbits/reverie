@@ -34,17 +34,19 @@ where
 ///
 /// For additive sharings (used here) this corresponds to the sum of the coordinates.
 /// The dimension of the sharing is equal to the number of players in the MPC protocol.
-pub trait Sharing: RingModule + Serializable {
-    fn reconstruct(&self) -> <Self as RingModule>::Scalar;
+pub trait Sharing<R: RingElement>: RingModule<R> + Serializable {
+    fn reconstruct(&self) -> R;
 }
 
 /// Represents a ring and player count instance of the protocol
 pub trait Domain {
+    type Scalar: RingElement;
+
     /// a batch of ring elements belonging to a single player
-    type Batch: RingModule + Samplable + Serializable + Debug;
+    type Batch: RingModule<Self::Scalar> + Samplable + Serializable + Debug;
 
     /// a sharing of a value across all players
-    type Sharing: Sharing + Debug;
+    type Sharing: Sharing<Self::Scalar> + Debug;
 
     /// Map from:
     ///
@@ -107,10 +109,8 @@ fn test_domain<D: Domain>() {
         let sharings_2 = rnd_sharings::<D, _>(&mut rng);
 
         for i in 0..sharings_1.len() {
-            let a: <D::Sharing as RingModule>::Scalar =
-                (sharings_1[i] + sharings_2[i]).reconstruct();
-            let b: <D::Sharing as RingModule>::Scalar =
-                sharings_1[i].reconstruct() + sharings_2[i].reconstruct();
+            let a: D::Scalar = (sharings_1[i] + sharings_2[i]).reconstruct();
+            let b: D::Scalar = sharings_1[i].reconstruct() + sharings_2[i].reconstruct();
             assert_eq!(a, b);
         }
     }

@@ -1,5 +1,5 @@
 use super::*;
-use super::{Instruction, Proof, RingHasher, Run, View, ViewRNG, KEY_SIZE};
+use super::{Instruction, RingHasher, Run, View, ViewRNG, KEY_SIZE};
 
 use crate::algebra::{Domain, RingModule, Serializable, Sharing};
 use crate::consts::{
@@ -11,8 +11,9 @@ use crate::preprocessing::prover::PreprocessingExecution;
 use crate::preprocessing::{Preprocessing, PreprocessingOutput};
 use crate::util::*;
 
-use blake3::Hash;
+use std::marker::PhantomData;
 
+use blake3::Hash;
 use rayon::prelude::*;
 
 impl<T: Serializable + Copy> Writer<T> for Vec<T> {
@@ -21,341 +22,237 @@ impl<T: Serializable + Copy> Writer<T> for Vec<T> {
     }
 }
 
-struct Prover<
+struct StreamingProver<
     D: Domain,
-    WI: Iterator<Item = <D::Sharing as RingModule>::Scalar>,
-    PI: Iterator<Item = Instruction<<D::Sharing as RingModule>::Scalar>>,
+    PI: Iterator<Item = Instruction<D::Scalar>> + Clone,
+    WI: Iterator<Item = D::Scalar> + Clone,
+    const R: usize,
+    const N: usize,
+    const NT: usize,
+> {
+    preprocessing: PreprocessingOutput<D, R, N>,
+    omitted: [usize; R],
+    program: PI,
+    inputs: WI,
+}
+
+struct SwitchWriter<T, W: Writer<T>> {
+    writer: W,
+    enabled: bool,
+    _ph: PhantomData<T>,
+}
+
+impl<T, W: Writer<T>> SwitchWriter<T, W> {
+    fn new(writer: W, enabled: bool) -> Self {
+        Self {
+            writer,
+            enabled,
+            _ph: PhantomData,
+        }
+    }
+}
+
+impl<T, W: Writer<T>> Writer<T> for SwitchWriter<T, W> {
+    fn write(&mut self, elem: &T) {
+        if self.enabled {
+            self.writer.write(elem)
+        }
+    }
+}
+
+struct BatchExtractor<D: Domain, W: Writer<D::Batch>, const N: usize> {
+    idx: usize,
+    shares: Vec<D::Sharing>,
+    writer: W,
+}
+
+impl<D: Domain, W: Writer<D::Batch>, const N: usize> BatchExtractor<D, W, N> {
+    fn new(idx: usize, writer: W) -> Self {
+        debug_assert!(idx < N);
+        BatchExtractor {
+            idx,
+            shares: Vec::with_capacity(D::Batch::DIMENSION),
+            writer,
+        }
+    }
+}
+
+impl<D: Domain, W: Writer<D::Batch>, const N: usize> Writer<D::Sharing>
+    for BatchExtractor<D, W, N>
+{
+    fn write(&mut self, elem: &D::Sharing) {
+        self.shares.push(*elem);
+        if self.shares.len() == D::Batch::DIMENSION {
+            let mut batches = [D::Batch::ZERO; N];
+            D::convert_inv(&mut batches[..], &self.shares[..]);
+            self.writer.write(&batches[self.idx]);
+            self.shares.clear();
+        }
+    }
+}
+
+impl<D: Domain, W: Writer<D::Batch>, const N: usize> Drop for BatchExtractor<D, W, N> {
+    fn drop(&mut self) {
+        if self.shares.len() > 0 {
+            let mut batches = [D::Batch::ZERO; N];
+            D::convert_inv(&mut batches[..], &self.shares[..]);
+            self.writer.write(&batches[self.idx]);
+            self.shares.clear();
+        }
+    }
+}
+
+struct Prover<
+    'a,
+    D: Domain,
+    WI: Iterator<Item = D::Scalar>,
+    PI: Iterator<Item = Instruction<D::Scalar>>,
+    BW: Writer<D::Sharing>, // broadcast writer
+    WW: Writer<D::Scalar>,  // witness wire assignment
     P: Preprocessing<D>,
     const N: usize,
 > {
-    omit: usize,
-    wires: VecMap<<D::Sharing as RingModule>::Scalar>,
+    wires: VecMap<D::Scalar>,
+    broadcast: &'a mut BW,
+    masked: &'a mut WW,
     witness: WI,
     program: PI,
     preprocessing: P,
 }
 
 impl<
+        'a,
         D: Domain,
-        WI: Iterator<Item = <D::Sharing as RingModule>::Scalar>,
-        PI: Iterator<Item = Instruction<<D::Sharing as RingModule>::Scalar>>,
+        WI: Iterator<Item = D::Scalar>, // witness iterator
+        PI: Iterator<Item = Instruction<D::Scalar>>, // program iterator
+        BW: Writer<D::Sharing>,         // broadcast writer
+        WW: Writer<D::Scalar>,          // masked witness wire
         P: Preprocessing<D>,
         const N: usize,
-    > Prover<D, WI, PI, P, N>
+    > Prover<'a, D, WI, PI, BW, WW, P, N>
 {
-    fn new(omit: usize, witness: WI, program: PI, preprocessing: P) -> Self {
+    fn new(
+        broadcast: &'a mut BW,
+        masked: &'a mut WW,
+        witness: WI,
+        program: PI,
+        preprocessing: P,
+    ) -> Self {
         Prover {
-            omit,
             witness,
+            masked,
+            broadcast,
             wires: VecMap::new(),
             program,
             preprocessing,
         }
     }
 
-    fn fill(&mut self, chunk: &mut Chunk<D, N>, limit: usize) {
-        // empty the chunk for reuse
-        let mut total = 0;
-        chunk.inputs_wire.clear();
-        chunk.multiplication_corrections.clear();
-        chunk.multiplication_recons.clear();
-        chunk.output_recons.clear();
-
+    fn run(&mut self) {
         //
-        let mut sharing_multiplications: Vec<D::Sharing> = Vec::new();
-        let mut sharing_output: Vec<D::Sharing> = Vec::new();
+        let mut masks: Vec<D::Sharing> = Vec::with_capacity(1024);
+        let mut ab_gamma: Vec<D::Sharing> = vec![D::Sharing::ZERO; D::Batch::DIMENSION];
 
-        // execute instructions from the program until the chunk size limit
-        for step in self.program {
-            match step {
-                Instruction::AddConst(dst, src, c) => {
-                    let a_w = self.wires.get(src);
-                    self.wires.set(dst, a_w + c);
-                    #[cfg(test)]
-                    #[cfg(debug_assertions)]
-                    {
-                        println!("prover:add-const");
-                        println!("  src  = {}", src);
-                        println!("  dst  = {}", dst);
-                        println!("  c    = {:?}", c);
-                        let r_w = self.wires.get(dst);
-                        let r_m = self.preprocessing.mask(dst).reconstruct();
-                        let a_m = self.preprocessing.mask(src).reconstruct();
-                        let r = r_w + r_m;
-                        let a = a_w + a_m;
-                        debug_assert_eq!(
-                            self.preprocessing.mask(src),
-                            self.preprocessing.mask(dst)
-                        );
-                        debug_assert_eq!(a + c, r);
-                    }
-                }
-                Instruction::MulConst(dst, src, c) => {
-                    let sw = self.wires.get(src);
-                    #[cfg(test)]
-                    #[cfg(debug_assertions)]
-                    {
-                        println!("prover:mul-const");
-                        println!("  src  = {}", src);
-                        println!("  dst  = {}", dst);
-                        println!("  c    = {:?}", c);
-                    }
-                    self.wires.set(dst, sw * c);
-                }
-                Instruction::Add(dst, src1, src2) => {
-                    let a_w = self.wires.get(src1);
-                    let b_w = self.wires.get(src2);
-                    self.wires.set(dst, a_w + b_w);
-                    #[cfg(test)]
-                    #[cfg(debug_assertions)]
-                    {
-                        println!("prover:add");
-                        println!("  src1 = {}", src1);
-                        println!("  src2 = {}", src2);
-                        println!("  dst  = {}", dst);
-                        println!("  a_w  = {:?}", a_w);
-                        println!("  b_w  = {:?}", b_w);
-                        let c_w = self.wires.get(dst);
-                        let c_m = self.preprocessing.mask(dst).reconstruct();
-                        let a_m = self.preprocessing.mask(src1).reconstruct();
-                        let b_m = self.preprocessing.mask(src2).reconstruct();
-                        let c = c_w + c_m;
-                        let a = a_w + a_m;
-                        let b = b_w + b_m;
-                        debug_assert_eq!(c, a + b);
-                    }
-                }
-                Instruction::Mul(dst, src1, src2) => {
-                    // calculate reconstruction shares for every player
-                    let a_w = self.wires.get(src1);
-                    let b_w = self.wires.get(src2);
-                    let a_m: D::Sharing = self.preprocessing.mask(src1);
-                    let b_m: D::Sharing = self.preprocessing.mask(src2);
-                    let ab_gamma: D::Sharing = self.preprocessing.next_ab_gamma();
-                    let recon = a_m.action(b_w) + b_m.action(a_w) + ab_gamma;
+        loop {
+            // pre-process the next batch
+            masks.clear();
+            self.preprocessing
+                .next_sharings(&mut masks, &mut ab_gamma[..]);
 
-                    // reconstruct
-                    multiplications.push(recon);
+            // consume the preprocessing batch
+            {
+                let mut masks = masks.iter().cloned();
+                let mut ab_gamma = ab_gamma.iter().cloned();
 
-                    // corrected wire
-                    let c_w = recon.reconstruct() + a_w * b_w;
-                    #[cfg(test)]
-                    #[cfg(debug_assertions)]
-                    {
-                        let c_m = self.preprocessing.mask(dst);
-                        println!("prover:mult");
-                        println!("  src1 = {}", src1);
-                        println!("  src2 = {}", src2);
-                        println!("  dst  = {}", dst);
-                        println!("  a_w  = {:?}", a_w);
-                        println!("  b_w  = {:?}", b_w);
-                        println!("  a_m  = {:?}", a_m);
-                        println!("  b_m  = {:?}", b_m);
-                        println!("  c_m  = {:?}", c_m);
-                        println!("  ab + \\gamma = {:?}", ab_gamma);
-                        println!("  recon = {:?}", recon);
-                        // assert that pre-processing is generating valid Beaver triples
-                        let a = a_m.reconstruct();
-                        let b = b_m.reconstruct();
-                        let ab = (ab_gamma - c_m).reconstruct();
-                        assert_eq!(a * b, ab);
-                        // assert operation computed correctly
-                        let i1 = a_w + a_m.reconstruct();
-                        let i2 = b_w + b_m.reconstruct();
-                        let o = c_w + self.preprocessing.mask(dst).reconstruct();
-                        assert_eq!(i1 * i2, o, "i1 = {:?}, i2 = {:?}, o = {:?}", i1, i2, o);
-                    }
+                // execute instructions from the program until the chunk size limit
+                loop {
+                    match self.program.next() {
+                        Some(Instruction::Input(dst)) => {
+                            let mask: D::Sharing = masks.next().unwrap();
+                            let wire =
+                                self.witness.next().unwrap() + D::Sharing::reconstruct(&mask);
+                            self.wires.set(dst, wire);
+                        }
+                        Some(Instruction::AddConst(dst, src, c)) => {
+                            let a_w = self.wires.get(src);
+                            self.wires.set(dst, a_w + c);
+                        }
+                        Some(Instruction::MulConst(dst, src, c)) => {
+                            let sw = self.wires.get(src);
+                            self.wires.set(dst, sw * c);
+                        }
+                        Some(Instruction::Add(dst, src1, src2)) => {
+                            let a_w = self.wires.get(src1);
+                            let b_w = self.wires.get(src2);
+                            self.wires.set(dst, a_w + b_w);
+                        }
+                        Some(Instruction::Mul(dst, src1, src2)) => {
+                            // calculate reconstruction shares for every player
+                            let a_w = self.wires.get(src1);
+                            let b_w = self.wires.get(src2);
+                            let a_m: D::Sharing = masks.next().unwrap();
+                            let b_m: D::Sharing = masks.next().unwrap();
+                            let ab_gamma: D::Sharing = ab_gamma.next().unwrap();
+                            let recon = a_m.action(b_w) + b_m.action(a_w) + ab_gamma;
 
-                    // reconstruct and correct share
-                    self.wires.set(dst, c_w);
-                }
-                Instruction::Output(src) => {
-                    let m: D::Sharing = self.preprocessing.mask(src);
-                    #[cfg(test)]
-                    #[cfg(debug_assertions)]
-                    {
-                        println!("prover:output");
-                        println!("  val[{}] = {:?}", src, m.reconstruct() + wires.get(src));
+                            // reconstruct
+                            self.broadcast.write(&recon);
+
+                            // corrected wire
+                            let c_w = recon.reconstruct() + a_w * b_w;
+
+                            // reconstruct and correct share
+                            self.wires.set(dst, c_w);
+
+                            // check if call into pre-processing needed
+                            if masks.len() == 0 {
+                                break;
+                            }
+                        }
+                        Some(Instruction::Output(src)) => {
+                            let mask: D::Sharing = masks.next().unwrap();
+
+                            // reconstruct
+                            self.broadcast.write(&mask);
+
+                            // output (TODO: save)
+                            let output = self.wires.get(src) + mask.reconstruct();
+
+                            // check if call into pre-processing needed
+                            if masks.len() == 0 {
+                                break;
+                            }
+                        }
+                        None => {
+                            // done
+                            return;
+                        }
                     }
-                    reconstructions.push(m);
                 }
             }
         }
     }
 }
 
-fn execute_prover<
-    D: Domain,
-    RW: Reader<<D::Sharing as RingModule>::Scalar>,
-    RP: Reader<Instruction<<D::Sharing as RingModule>::Scalar>>,
-    P: Preprocessing<D>,
-    const N: usize,
->(
-    wires: Vec<<D::Sharing as RingModule>::Scalar>,
-    witness: &mut RW,
-    program: &mut RP,
-    preprocessing: &mut P,
-) -> (Vec<D::Sharing>, Vec<D::Sharing>, Hash) {
-    let mut wires: VecMap<<D::Sharing as RingModule>::Scalar> = wires.into();
-    let mut multiplications: Vec<D::Sharing> = Vec::new();
-    let mut reconstructions: Vec<D::Sharing> = Vec::new();
-    let mut hasher: RingHasher<D::Sharing> = RingHasher::new();
-    for step in program {
-        match *step {
-            Instruction::AddConst(dst, src, c) => {
-                let a_w = wires.get(src);
-                wires.set(dst, a_w + c);
-
-                #[cfg(test)]
-                #[cfg(debug_assertions)]
-                {
-                    println!("prover:add-const");
-                    println!("  src  = {}", src);
-                    println!("  dst  = {}", dst);
-                    println!("  c    = {:?}", c);
-
-                    let r_w = wires.get(dst);
-                    let r_m = preprocessing.mask(dst).reconstruct();
-                    let a_m = preprocessing.mask(src).reconstruct();
-
-                    let r = r_w + r_m;
-                    let a = a_w + a_m;
-
-                    debug_assert_eq!(preprocessing.mask(src), preprocessing.mask(dst));
-                    debug_assert_eq!(a + c, r);
-                }
-            }
-            Instruction::MulConst(dst, src, c) => {
-                let sw = wires.get(src);
-                #[cfg(test)]
-                #[cfg(debug_assertions)]
-                {
-                    println!("prover:mul-const");
-                    println!("  src  = {}", src);
-                    println!("  dst  = {}", dst);
-                    println!("  c    = {:?}", c);
-                }
-                wires.set(dst, sw * c);
-            }
-            Instruction::Add(dst, src1, src2) => {
-                let a_w = wires.get(src1);
-                let b_w = wires.get(src2);
-
-                wires.set(dst, a_w + b_w);
-
-                #[cfg(test)]
-                #[cfg(debug_assertions)]
-                {
-                    println!("prover:add");
-                    println!("  src1 = {}", src1);
-                    println!("  src2 = {}", src2);
-                    println!("  dst  = {}", dst);
-                    println!("  a_w  = {:?}", a_w);
-                    println!("  b_w  = {:?}", b_w);
-
-                    let c_w = wires.get(dst);
-                    let c_m = preprocessing.mask(dst).reconstruct();
-                    let a_m = preprocessing.mask(src1).reconstruct();
-                    let b_m = preprocessing.mask(src2).reconstruct();
-
-                    let c = c_w + c_m;
-                    let a = a_w + a_m;
-                    let b = b_w + b_m;
-
-                    debug_assert_eq!(c, a + b);
-                }
-            }
-            Instruction::Mul(dst, src1, src2) => {
-                // calculate reconstruction shares for every player
-                let a_w = wires.get(src1);
-                let b_w = wires.get(src2);
-                let a_m: D::Sharing = preprocessing.mask(src1);
-                let b_m: D::Sharing = preprocessing.mask(src2);
-                let ab_gamma: D::Sharing = preprocessing.next_ab_gamma();
-                let recon = a_m.action(b_w) + b_m.action(a_w) + ab_gamma;
-
-                // reconstruct
-                hasher.write(&recon);
-                multiplications.push(recon);
-
-                // corrected wire
-                let c_w = recon.reconstruct() + a_w * b_w;
-
-                #[cfg(test)]
-                #[cfg(debug_assertions)]
-                {
-                    let c_m = preprocessing.mask(dst);
-
-                    println!("prover:mult");
-                    println!("  src1 = {}", src1);
-                    println!("  src2 = {}", src2);
-                    println!("  dst  = {}", dst);
-                    println!("  a_w  = {:?}", a_w);
-                    println!("  b_w  = {:?}", b_w);
-                    println!("  a_m  = {:?}", a_m);
-                    println!("  b_m  = {:?}", b_m);
-                    println!("  c_m  = {:?}", c_m);
-                    println!("  ab + \\gamma = {:?}", ab_gamma);
-                    println!("  recon = {:?}", recon);
-
-                    // assert that pre-processing is generating valid Beaver triples
-                    let a = a_m.reconstruct();
-                    let b = b_m.reconstruct();
-                    let ab = (ab_gamma - c_m).reconstruct();
-                    assert_eq!(a * b, ab);
-
-                    // assert operation computed correctly
-                    let i1 = a_w + a_m.reconstruct();
-                    let i2 = b_w + b_m.reconstruct();
-                    let o = c_w + preprocessing.mask(dst).reconstruct();
-                    assert_eq!(i1 * i2, o, "i1 = {:?}, i2 = {:?}, o = {:?}", i1, i2, o);
-                }
-
-                // reconstruct and correct share
-                wires.set(dst, c_w);
-            }
-            Instruction::Output(src) => {
-                let m: D::Sharing = preprocessing.mask(src);
-                #[cfg(test)]
-                #[cfg(debug_assertions)]
-                {
-                    println!("prover:output");
-                    println!("  val[{}] = {:?}", src, m.reconstruct() + wires.get(src));
-                }
-                hasher.write(&m);
-                reconstructions.push(m);
-            }
-        }
-    }
-    (multiplications, reconstructions, hasher.finalize())
-}
-
-impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT, R> {
+impl<
+        D: Domain,
+        PI: Iterator<Item = Instruction<D::Scalar>> + Clone,
+        WI: Iterator<Item = D::Scalar> + Clone,
+        const R: usize,
+        const N: usize,
+        const NT: usize,
+    > StreamingProver<D, PI, WI, R, N, NT>
+{
     /// Creates a new proof of program execution on the input provided.
     ///
     /// It is crucial for zero-knowledge that the pre-processing output is not reused!
     /// To help ensure this Proof::new takes ownership of PreprocessedProverOutput,
     /// which prevents the programmer from accidentally re-using the output
-    pub fn new(
-        preprocessing: PreprocessingOutput<D, R, N>,
-        program: &[Instruction<<D::Sharing as RingModule>::Scalar>],
-        inputs: &[<D::Sharing as RingModule>::Scalar],
-    ) -> Proof<D, N, NT, R> {
+    pub fn new(preprocessing: PreprocessingOutput<D, R, N>, program: PI, inputs: WI) -> Self {
         let seeds: &[[u8; KEY_SIZE]; R] = &preprocessing.seeds;
 
-        struct Exec<D: Domain, const N: usize, const NT: usize, const R: usize> {
-            reconstructions: Option<Vec<D::Sharing>>,
-            multiplications: Option<Vec<D::Sharing>>,
-            hash: Hash,
-            prf: TreePRF<NT>,
-            corrections: Option<Vec<D::Batch>>,
-            commitments: Array<Hash, N>, // commitment to pre-processing views
-            wires: Option<Vec<<D::Sharing as RingModule>::Scalar>>,
-            omitted: usize,
-        }
-
         // execute the online phase R times
-        let mut execs: Vec<Exec<D, N, NT, R>> = Vec::with_capacity(R);
+        let mut execs: Vec<_> = Vec::with_capacity(R);
 
         // do sequential execution in test builds (to ease debugging)
         #[cfg(debug_assertions)]
@@ -374,40 +271,23 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
             let mut rngs = views.map(|view| view.rng(LABEL_RNG_PREPROCESSING));
 
             // prepare pre-processing execution (online mode), save the corrections.
-            let mut corrections = Vec::<D::Batch>::new();
-            let preprocessing: PreprocessingExecution<D, ViewRNG, _, N, true> =
-                PreprocessingExecution::new(&mut *rngs, &mut corrections, inputs.len(), program);
+            let mut corrections = views[0].scope(LABEL_SCOPE_CORRECTION);
+            let preprocessing: PreprocessingExecution<D, _, _, ViewRNG, N, true> =
+                PreprocessingExecution::new(&mut *rngs, &mut corrections, program.clone());
 
-            // mask the inputs
-            let mut wires: Vec<<D::Sharing as RingModule>::Scalar> =
-                Vec::with_capacity(inputs.len());
-            for (i, input) in inputs.iter().enumerate() {
-                let mask: D::Sharing = preprocessing.mask(i);
-                wires.push(*input - mask.reconstruct());
-            }
+            // compute public transcript
+            let mut transcript: RingHasher<D::Sharing> = RingHasher::new();
+            Prover::<_, _, _, _, _, _, N>::new(
+                &mut transcript,        // feed the broadcast channel to CRH
+                &mut VoidWriter::new(), // discard the masked witness
+                inputs.clone(),
+                program.clone(),
+                preprocessing,
+            )
+            .run();
 
-            // execute the online phase (interspersed with pre-processing)
-            let (multiplications, reconstructions, hash) =
-                execute_prover::<D, _, N>(wires.clone(), preprocessing, program);
-
-            // add corrections to player0 view
-            {
-                let mut scope = views[0].scope(LABEL_SCOPE_CORRECTION);
-                for delta in corrections.iter() {
-                    scope.write(delta)
-                }
-            }
-
-            Exec {
-                multiplications: Some(multiplications),
-                reconstructions: Some(reconstructions),
-                hash,
-                commitments: views.map(|view| view.hash()),
-                prf: tree,
-                corrections: Some(corrections),
-                wires: Some(wires),
-                omitted: 0,
-            }
+            // return the transcript hash
+            transcript.finalize()
         });
 
         #[cfg(debug_assertions)]
@@ -420,48 +300,70 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
         let mut view: View = View::new();
         {
             let mut scope = view.scope(LABEL_SCOPE_ONLINE_TRANSCRIPT);
-            for run in execs.iter() {
-                scope.join(&run.hash);
+            for hash in execs.iter() {
+                scope.join(&hash);
             }
         }
         let mut rng = view.rng(LABEL_RNG_OPEN_ONLINE);
+        let mut omitted: [usize; R] = [0; R];
         for i in 0..R {
-            execs[i].omitted = random_usize::<_, N>(&mut rng);
-
-            #[cfg(test)]
-            #[cfg(debug_assertions)]
-            println!("omitted: {}", execs[i].omitted);
+            omitted[i] = random_usize::<_, N>(&mut rng);
         }
 
-        // compile views of opened players
-        let mut runs: Vec<Run<D, N, NT>> = Vec::with_capacity(R);
-        execs
-            .par_iter_mut()
-            .map(|run: &mut _| {
-                let mut corrections = run.corrections.take().unwrap();
-                if run.omitted == 0 {
-                    corrections.clear();
-                }
+        // return prover ready to stream out the proof
+        StreamingProver {
+            omitted,
+            preprocessing,
+            inputs,
+            program,
+        }
+    }
 
-                // extract messages broadcast by omitted player and
-                // puncture the PRF to hide the random tape of the hidden player
-                Run {
-                    corrections,
-                    multiplications: shares_to_batches::<D, N>(
-                        run.multiplications.take().unwrap(),
-                        run.omitted,
-                    ),
-                    reconstructions: shares_to_batches::<D, N>(
-                        run.reconstructions.take().unwrap(),
-                        run.omitted,
-                    ),
-                    commitment: run.commitments[run.omitted],
-                    inputs: run.wires.take().unwrap(),
-                    open: run.prf.puncture(run.omitted),
-                }
-            })
-            .collect_into_vec(&mut runs);
+    fn stream<
+        WC: Writer<D::Batch>,  // corrections writer
+        WB: Writer<D::Batch>,  // broadcast message writer
+        WW: Writer<D::Scalar>, // masked witness writer
+    >(
+        mut self,
+        writers: Vec<(WC, WB, WW)>,
+    ) {
+        // do sequential execution in test builds (to ease debugging)
+        let runs: Vec<((_, [u8; KEY_SIZE]), usize)> = writers
+            .into_iter()
+            .zip(self.preprocessing.seeds.iter().cloned())
+            .zip(self.omitted.iter().cloned())
+            .collect();
 
-        Proof { runs }
+        #[cfg(debug_assertions)]
+        let runs = runs.into_iter();
+
+        #[cfg(not(debug_assertions))]
+        let runs = runs.into_par_iter();
+
+        let runs = runs.map(|(((corrections, broadcast, mut masked), seed), omit)| {
+            // expand seed into RNG keys for players
+            let tree: TreePRF<NT> = TreePRF::new(seed);
+            let keys: Array<_, N> = tree.expand().map(|x: &Option<[u8; KEY_SIZE]>| x.unwrap());
+
+            // create fresh view for every player
+            let mut views = keys.map(|key| View::new_keyed(key));
+            let mut rngs = views.map(|view| view.rng(LABEL_RNG_PREPROCESSING));
+
+            // prepare pre-processing execution (online mode), save the corrections.
+            let mut corrections = SwitchWriter::new(corrections, omit != 0);
+            let preprocessing: PreprocessingExecution<D, _, _, ViewRNG, N, true> =
+                PreprocessingExecution::new(&mut *rngs, &mut corrections, self.program.clone());
+
+            // compute public transcript
+            let mut transcript: BatchExtractor<D, _, N> = BatchExtractor::new(omit, broadcast);
+            Prover::<_, _, _, _, _, _, N>::new(
+                &mut transcript,
+                &mut masked,
+                &mut self.inputs.clone(),
+                self.program.clone(),
+                preprocessing,
+            )
+            .run();
+        });
     }
 }

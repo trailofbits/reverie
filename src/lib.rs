@@ -24,7 +24,7 @@ mod tests;
 pub mod preprocessing;
 
 // online phase
-// pub mod online;
+pub mod online;
 
 // traits and implementations of the underlying ring
 // exposed to enable uses to define programs for the supported rings.

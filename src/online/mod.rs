@@ -1,8 +1,10 @@
 pub mod prover;
 pub mod verifier;
 
+/*
 #[cfg(test)]
 mod tests;
+*/
 
 use crate::algebra::{Domain, RingElement, RingModule};
 use crate::crypto::{RingHasher, TreePRF, KEY_SIZE};
@@ -42,14 +44,7 @@ pub struct Chunk<D: Domain, const N: usize> {
     inputs_wire: Vec<D::Batch>,
 }
 
-/// Represents the state required to partially re-execute a single repetition of the online phase.
-pub struct Run<D: Domain, const N: usize, const NT: usize> {
-    open: TreePRF<NT>, // PRF to derive random tapes for the opened players
-    commitment: Hash,  // pre-processing phase commitment
-    chunk: Chunk<D, N>,
-}
-
-/// A proof of the online phase consists of a collection of runs to amplify soundness.
-pub struct Proof<D: Domain, const N: usize, const NT: usize, const R: usize> {
-    runs: Vec<Run<D, N, NT>>,
+pub struct Run<const R: usize, const N: usize, const NT: usize> {
+    commitment: Hash,
+    open: TreePRF<NT>,
 }

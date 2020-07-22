@@ -5,6 +5,7 @@ use std::mem::MaybeUninit;
 pub struct GF2P64 {}
 
 impl Domain for GF2P64 {
+    type Scalar = BitScalar;
     type Batch = BitBatch;
     type Sharing = BitSharing64;
 

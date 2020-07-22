@@ -17,6 +17,10 @@ use serde::{Deserialize, Serialize, Serializer};
 
 use rayon::prelude::*;
 
+pub trait Preprocessing<D: Domain> {
+    fn next_sharings(&mut self, masks: &mut Vec<D::Sharing>, ab_gamma: &mut [D::Sharing]);
+}
+
 /// Represents repeated execution of the preprocessing phase.
 /// The preprocessing phase is executed R times, then fed to a random oracle,
 /// which dictates the subset of executions to open.
@@ -84,7 +88,7 @@ impl<D: Domain, const H: usize, const N: usize> PreprocessingOutput<D, H, N> {
 // Returns a commitment to the view of all players.
 fn preprocess<D: Domain, const N: usize, const NT: usize>(
     seed: &[u8; KEY_SIZE], // random tape used for phase
-    program: &[Instruction<<D::Sharing as RingModule>::Scalar>],
+    program: &[Instruction<D::Scalar>],
 ) -> Hash {
     // the root PRF from which each players random tape is derived using a PRF tree
     let root: TreePRF<NT> = TreePRF::new(*seed);
@@ -123,10 +127,7 @@ impl<
         const H: usize,
     > Proof<D, N, NT, R, RT, H>
 {
-    pub fn verify(
-        &self,
-        program: &[Instruction<<D::Sharing as RingModule>::Scalar>],
-    ) -> Option<&[Hash; H]> {
+    pub fn verify(&self, program: &[Instruction<D::Scalar>]) -> Option<&[Hash; H]> {
         // derive keys and hidden execution indexes
         let keys: Array<_, R> = self.random.expand();
         let mut hidden: Vec<usize> = Vec::with_capacity(R);
@@ -182,7 +183,7 @@ impl<
     ///
     pub fn new(
         seed: [u8; KEY_SIZE],
-        program: &[Instruction<<D::Sharing as RingModule>::Scalar>],
+        program: &[Instruction<D::Scalar>],
     ) -> (Self, PreprocessingOutput<D, H, N>) {
         // define PRF tree and obtain key material for every pre-processing execution
         let root: TreePRF<RT> = TreePRF::new(seed);

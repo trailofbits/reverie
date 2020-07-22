@@ -20,8 +20,8 @@ pub struct PreprocessingExecution<
     'a,
     'b,
     D: Domain,
-    CW: Writer<D::Batch>, // corrections writer
-    PI: Iterator<Item = Instruction<<D::Sharing as RingModule>::Scalar>>, // program iterator
+    CW: Writer<D::Batch>,                        // corrections writer
+    PI: Iterator<Item = Instruction<D::Scalar>>, // program iterator
     R: RngCore,
     const N: usize,
     const O: bool,
@@ -48,7 +48,7 @@ impl<
         'b,
         D: Domain,
         CW: Writer<D::Batch>,
-        PI: Iterator<Item = Instruction<<D::Sharing as RingModule>::Scalar>>,
+        PI: Iterator<Item = Instruction<D::Scalar>>,
         R: RngCore,
         const N: usize,
         const O: bool,
@@ -194,6 +194,7 @@ impl<
                     }
                 }
                 Some(Instruction::Output(src)) => {
+                    // return to online phase for reconstruction
                     masks.push(self.masks.get(src));
                 }
                 None => {
@@ -217,8 +218,20 @@ impl<
         while self.pack_batch(&mut masks, &mut ab_gamma) {}
         debug_assert_eq!(masks.len(), 0);
     }
+}
 
-    pub fn next_sharings(&mut self, masks: &mut Vec<D::Sharing>, ab_gamma: &mut [D::Sharing]) {
+impl<
+        'a,
+        'b,
+        D: Domain,
+        CW: Writer<D::Batch>,                        // corrections writer
+        PI: Iterator<Item = Instruction<D::Scalar>>, // program iterator
+        R: RngCore,
+        const N: usize,
+        const O: bool,
+    > Preprocessing<D> for PreprocessingExecution<'a, 'b, D, CW, PI, R, N, O>
+{
+    fn next_sharings(&mut self, masks: &mut Vec<D::Sharing>, ab_gamma: &mut [D::Sharing]) {
         debug_assert_eq!(ab_gamma.len(), D::Batch::DIMENSION);
         self.pack_batch(masks, ab_gamma);
     }

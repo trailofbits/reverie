@@ -73,6 +73,7 @@ impl GF2P8 {
 }
 
 impl Domain for GF2P8 {
+    type Scalar = BitScalar;
     type Batch = BitBatch;
     type Sharing = BitSharing8;
 

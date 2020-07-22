@@ -11,15 +11,65 @@ use crate::preprocessing::verifier::PreprocessingExecution;
 use crate::preprocessing::Preprocessing;
 use crate::util::*;
 
+use std::marker::PhantomData;
+
 use blake3::Hash;
 use rayon::prelude::*;
 
-struct OutputShares<'a, D: Domain, const N: usize> {
+struct StreamingVerifier<
+    D: Domain,
+    PI: Iterator<Item = Instruction<D::Scalar>> + Clone,
+    const R: usize,
+    const N: usize,
+    const NT: usize,
+> {
+    runs: [Run<R, N, NT>; R],
+    program: PI,
+    _ph: PhantomData<D>,
+}
+
+struct ShareIterator<D: Domain, I: Iterator<Item = D::Batch>, const N: usize> {
+    idx: usize,
+    src: I,
     next: usize,
-    used: usize,
-    omitted: usize,
-    batches: &'a [D::Batch],
-    sharings: Vec<D::Sharing>,
+    shares: Vec<D::Sharing>,
+}
+
+struct ScalarIterator<D: Domain, I: Iterator<Item = D::Batch>, const N: usize> {
+    src: I,
+    next: usize,
+    scalars: Vec<D::Scalar>,
+}
+
+impl<D: Domain, I: Iterator<Item = D::Batch>, const N: usize> ShareIterator<D, I, N> {
+    fn new(idx: usize, src: I) -> Self {
+        debug_assert!(idx < N);
+        ShareIterator {
+            idx,
+            src,
+            next: D::Batch::DIMENSION,
+            shares: vec![D::Sharing::ZERO; D::Batch::DIMENSION],
+        }
+    }
+}
+
+impl<D: Domain, I: Iterator<Item = D::Batch>, const N: usize> Iterator for ShareIterator<D, I, N> {
+    type Item = D::Sharing;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // convert the next batch
+        if self.next == D::Batch::DIMENSION {
+            self.next = 0;
+            let mut batches: [D::Batch; N] = [D::Batch::ZERO; N];
+            batches[self.idx] = self.src.next()?;
+            D::convert(&mut self.shares[..], &batches[..]);
+        }
+
+        // return the next partial share
+        let share = self.shares[self.next];
+        self.next += 1;
+        Some(share)
+    }
 }
 
 /// This ensures that the user can only get access to the output
@@ -27,12 +77,12 @@ struct OutputShares<'a, D: Domain, const N: usize> {
 ///
 /// Avoiding potential misuse where the user fails to check the pre-processing.
 pub struct Output<D: Domain, const R: usize> {
-    output: Vec<<D::Sharing as RingModule>::Scalar>,
+    output: Vec<D::Scalar>,
     pp_hashes: Array<Hash, R>,
 }
 
 impl<D: Domain, const R: usize> Output<D, R> {
-    pub fn check(&self, pp_hashes: &[Hash; R]) -> Option<&[<D::Sharing as RingModule>::Scalar]> {
+    pub fn check(&self, pp_hashes: &[Hash; R]) -> Option<&[D::Scalar]> {
         for i in 0..R {
             if pp_hashes[i] != self.pp_hashes[i] {
                 return None;
@@ -44,134 +94,176 @@ impl<D: Domain, const R: usize> Output<D, R> {
     // provides access to the output without checking the pre-processing
     // ONLY USED IN TESTS
     #[cfg(test)]
-    pub(super) fn unsafe_output(&self) -> &[<D::Sharing as RingModule>::Scalar] {
+    pub(super) fn unsafe_output(&self) -> &[D::Scalar] {
         &self.output[..]
     }
 }
 
-impl<'a, D: Domain, const N: usize> OutputShares<'a, D, N> {
-    fn new(batches: &'a [D::Batch], omitted: usize) -> Self {
-        OutputShares {
-            next: 0,
-            used: D::Batch::DIMENSION,
-            omitted,
-            batches,
-            sharings: vec![D::Sharing::ZERO; D::Batch::DIMENSION],
+struct Verifier<
+    D: Domain,
+    PI: Iterator<Item = Instruction<D::Scalar>>,
+    BI: Iterator<Item = D::Sharing>,
+    WI: Iterator<Item = D::Scalar>,
+    P: Preprocessing<D>,
+    const R: usize,
+    const N: usize,
+    const NT: usize,
+> {
+    wires: VecMap<D::Scalar>,
+    masked: WI,
+    program: PI,
+    broadcast: BI,
+    preprocessing: P,
+}
+
+impl<
+        D: Domain,
+        PI: Iterator<Item = Instruction<D::Scalar>>,
+        BI: Iterator<Item = D::Sharing>,
+        WI: Iterator<Item = D::Scalar>,
+        P: Preprocessing<D>,
+        const R: usize,
+        const N: usize,
+        const NT: usize,
+    > Verifier<D, PI, BI, WI, P, R, N, NT>
+{
+    fn new(masked: WI, program: PI, broadcast: BI, preprocessing: P) -> Self {
+        Verifier {
+            masked,
+            program,
+            broadcast,
+            preprocessing,
+            wires: VecMap::new(),
         }
     }
 
-    fn next_output_share(&mut self) -> D::Sharing {
-        match self.sharings.get(self.used) {
-            Some(share) => {
-                self.used += 1;
-                *share
-            }
-            None => {
-                let mut batches: [D::Batch; N] = [D::Batch::ZERO; N];
+    fn run<TW: Writer<D::Sharing>>(&mut self, transcript: &mut TW) -> Option<()> {
+        //
+        let mut masks: Vec<D::Sharing> = Vec::with_capacity(1024);
+        let mut ab_gamma: Vec<D::Sharing> = vec![D::Sharing::ZERO; D::Batch::DIMENSION];
 
-                // copy batch from omitted player
-                if self.next < self.batches.len() {
-                    batches[self.omitted] = self.batches[self.next];
+        loop {
+            // pre-process the next batch
+            masks.clear();
+            self.preprocessing
+                .next_sharings(&mut masks, &mut ab_gamma[..]);
+
+            // consume the preprocessing batch
+            {
+                let mut masks = masks.iter().cloned();
+                let mut ab_gamma = ab_gamma.iter().cloned();
+
+                // execute instructions from the program until the chunk size limit
+                loop {
+                    match self.program.next() {
+                        Some(Instruction::Input(dst)) => {
+                            self.wires.set(dst, self.masked.next()?);
+                        }
+                        Some(Instruction::AddConst(dst, src, c)) => {
+                            let a_w = self.wires.get(src);
+                            self.wires.set(dst, a_w + c);
+                        }
+                        Some(Instruction::MulConst(dst, src, c)) => {
+                            let sw = self.wires.get(src);
+                            self.wires.set(dst, sw * c);
+                        }
+                        Some(Instruction::Add(dst, src1, src2)) => {
+                            let a_w = self.wires.get(src1);
+                            let b_w = self.wires.get(src2);
+                            self.wires.set(dst, a_w + b_w);
+                        }
+                        Some(Instruction::Mul(dst, src1, src2)) => {
+                            // calculate reconstruction shares for every player
+                            let a_w = self.wires.get(src1);
+                            let b_w = self.wires.get(src2);
+                            let a_m: D::Sharing = masks.next().unwrap();
+                            let b_m: D::Sharing = masks.next().unwrap();
+                            let ab_gamma: D::Sharing = ab_gamma.next().unwrap();
+
+                            let recon = a_m.action(b_w)
+                                + b_m.action(a_w)
+                                + ab_gamma // partial a * b + \gamma
+                                + self.broadcast.next()?; // share of omitted player
+
+                            // reconstruct
+                            transcript.write(&recon);
+
+                            // corrected wire
+                            let c_w = recon.reconstruct() + a_w * b_w;
+
+                            // reconstruct and correct share
+                            self.wires.set(dst, c_w);
+
+                            // check if call into pre-processing needed
+                            if masks.len() == 0 {
+                                break;
+                            }
+                        }
+                        Some(Instruction::Output(src)) => {
+                            let recon: D::Sharing =
+                                masks.next().unwrap() + self.broadcast.next()?;
+
+                            // reconstruct
+                            transcript.write(&recon);
+
+                            // TODO: write the output to
+                            let output = self.wires.get(src) + recon.reconstruct();
+
+                            // check if call into pre-processing needed
+                            if masks.len() == 0 {
+                                break;
+                            }
+                        }
+                        None => {
+                            // end of program
+                            return Some(());
+                        }
+                    }
                 }
-
-                // transpose into new batch of sharings
-                D::convert(&mut self.sharings[..], &mut batches[..]);
-                self.used = 1;
-                self.next = self.next + 1;
-                self.sharings[0]
             }
         }
     }
 }
 
-fn execute_verify<D: Domain, P: Preprocessing<D>, const N: usize>(
-    wires: Vec<<D::Sharing as RingModule>::Scalar>,
-    mut output_shares: OutputShares<D, N>,
-    mut preprocessing: P,
-    program: &[Instruction<<D::Sharing as RingModule>::Scalar>],
-) -> (Vec<<D::Sharing as RingModule>::Scalar>, Hash) {
-    let mut hasher: RingHasher<D::Sharing> = RingHasher::new();
-    let mut output: Vec<<D::Sharing as RingModule>::Scalar> = Vec::new();
-    let mut wires: VecMap<<D::Sharing as RingModule>::Scalar> = wires.into();
-    for step in program {
-        match *step {
-            Instruction::AddConst(dst, src, c) => {
-                wires.set(dst, wires.get(src) + c);
-            }
-            Instruction::MulConst(dst, src, c) => {
-                wires.set(dst, wires.get(src) * c);
-            }
-            Instruction::Add(dst, src1, src2) => {
-                let sw1 = wires.get(src1);
-                let sw2 = wires.get(src2);
-                wires.set(dst, sw1 + sw2);
-            }
-            Instruction::Mul(dst, src1, src2) => {
-                // calculate reconstruction shares for every player
-                let a_w = wires.get(src1);
-                let b_w = wires.get(src2);
-                let a_m: D::Sharing = preprocessing.mask(src1);
-                let b_m: D::Sharing = preprocessing.mask(src2);
-                let ab_gamma: D::Sharing = preprocessing.next_ab_gamma();
-                let recon = a_m.action(b_w) + b_m.action(a_w) + ab_gamma;
-
-                // reconstruct
-                hasher.write(&recon);
-
-                // corrected wire
-                let c_w = recon.reconstruct() + a_w * b_w;
-
-                // append messages from all players to transcript
-                #[cfg(test)]
-                #[cfg(debug_assertions)]
-                {
-                    let c_m = preprocessing.mask(dst);
-
-                    println!("mult");
-                    println!("  a_w = {:?}", a_w);
-                    println!("  b_w = {:?}", b_w);
-                    println!("  a_m = {:?} (partial)", a_m);
-                    println!("  b_m = {:?} (partial)", b_m);
-                    println!("  c_m = {:?} (partial)", c_m);
-                    println!("  ab + \\gamma = {:?} (corrected)", ab_gamma);
-                    println!("  recon = {:?}", recon);
-                }
-
-                // reconstruct and correct share
-                wires.set(dst, c_w);
-            }
-            Instruction::Output(src) => {
-                let hidden_share = output_shares.next_output_share();
-                let mask = preprocessing.mask(src) + hidden_share;
-                output.push(mask.reconstruct() + wires.get(src));
-                hasher.write(&mask);
-            }
+impl<
+        D: Domain,
+        PI: Iterator<Item = Instruction<D::Scalar>> + Clone,
+        const R: usize,
+        const N: usize,
+        const NT: usize,
+    > StreamingVerifier<D, PI, R, N, NT>
+{
+    fn new(program: PI, runs: [Run<R, N, NT>; R]) -> Self {
+        StreamingVerifier {
+            program,
+            runs,
+            _ph: PhantomData,
         }
     }
-    (output, hasher.finalize())
-}
 
-impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT, R> {
-    pub fn verify(
-        &self,
-        program: &[Instruction<<D::Sharing as RingModule>::Scalar>],
+    fn verify<
+        CI: Iterator<Item = D::Batch>,
+        BI: Iterator<Item = D::Batch>,
+        WI: Iterator<Item = D::Scalar>,
+    >(
+        self,
+        readers: Vec<(CI, BI, WI)>,
     ) -> Option<Output<D, R>> {
-        if self.runs.len() != R {
+        if readers.len() != R {
             return None;
         }
 
-        // re-execute the online phase R times
-        let mut execs: Vec<(Vec<<D::Sharing as RingModule>::Scalar>, Hash, Hash, usize)> =
-            Vec::with_capacity(R);
+        let runs: Vec<(_, _)> = readers.into_iter().zip(self.runs.into_iter()).collect();
 
         // do sequential execution in test builds (to ease debugging)
         #[cfg(debug_assertions)]
-        let runs = self.runs.iter();
+        let runs = runs.into_iter();
 
+        // otherwise parallel iteration
         #[cfg(not(debug_assertions))]
-        let runs = self.runs.par_iter();
+        let runs = runs.into_par_iter();
 
-        let runs = runs.map(|run| {
+        let runs = runs.map(|((corrections, broadcast, masked), run)| {
             // expand keys
             let keys: Array<_, N> = run.open.expand();
 
@@ -181,51 +273,25 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
             // replace omitted key(s) with dummy
             let keys = keys.map(|v| v.unwrap_or([0u8; KEY_SIZE]));
 
-            // create preprocessing instance (partial re-execution)
+            // create pre-processing instance
             let mut views = keys.map(|key| View::new_keyed(key));
             let mut rngs = views.map(|view| view.rng(LABEL_RNG_PREPROCESSING));
-            let preprocessing: PreprocessingExecution<D, _, N> = PreprocessingExecution::new(
-                &mut rngs,
-                run.inputs.len(),
-                omitted,
-                &run.multiplications[..],
-                &run.corrections[..],
-                program,
-            );
+            let preprocessing: PreprocessingExecution<D, _, _, _, N> =
+                PreprocessingExecution::new(&mut rngs, omitted, corrections, self.program.clone());
 
-            // execute program one instruction at a time
-            let (output, broadcast_transcript) = execute_verify::<D, _, N>(
-                run.inputs.clone(),
-                OutputShares::new(&run.reconstructions, omitted),
-                preprocessing,
-                program,
-            );
+            //
+            let broadcast: ShareIterator<D, _, N> = ShareIterator::new(omitted, broadcast);
+            let mut verifier: Verifier<_, _, _, _, _, R, N, NT> =
+                Verifier::new(masked, self.program.clone(), broadcast, preprocessing);
 
-            // add corrections to player0 view
-            {
-                let mut scope = views[0].scope(LABEL_SCOPE_CORRECTION);
-                for delta in run.corrections.iter() {
-                    scope.write(delta)
-                }
-            }
+            let mut transcript: RingHasher<D::Sharing> = RingHasher::new();
+            verifier.run(&mut transcript);
 
-            // compute hash of pre-processing view commitments (TODO append the commitment included in the run)
-            let mut pp_hash = blake3::Hasher::new();
-            for i in 0..N {
-                if i == omitted {
-                    #[cfg(test)]
-                    println!("{:?}", run.commitment);
-                    pp_hash.update(run.commitment.as_bytes());
-                } else {
-                    #[cfg(test)]
-                    println!("{:?}", views[i].hash());
-                    pp_hash.update(views[i].hash().as_bytes());
-                }
-            }
-
-            // return hash of broadcast messages
-            (output, broadcast_transcript, pp_hash.finalize(), omitted)
+            (omitted, transcript.finalize())
         });
+
+        // execute the online phase R times
+        let mut execs: Vec<_> = Vec::with_capacity(R);
 
         #[cfg(debug_assertions)]
         execs.extend(runs);
@@ -233,36 +299,21 @@ impl<D: Domain, const N: usize, const NT: usize, const R: usize> Proof<D, N, NT,
         #[cfg(not(debug_assertions))]
         runs.collect_into_vec(&mut execs);
 
-        // output produced by first repetitions (should be the same across all executions)
-        let output = &(execs[0].0)[..];
-
         // extract which players to omit in every run (Fiat-Shamir)
         let mut view: View = View::new();
         {
             let mut scope = view.scope(LABEL_SCOPE_ONLINE_TRANSCRIPT);
-            for exec in execs.iter() {
-                scope.join(&exec.1);
+            for (_, hash) in execs.iter() {
+                scope.join(&hash);
             }
         }
         let mut rng = view.rng(LABEL_RNG_OPEN_ONLINE);
-
-        for exec in execs.iter() {
-            // check that correct index was opened
-            if exec.3 != random_usize::<_, N>(&mut rng) {
-                return None;
-            }
-
-            // check output (usually a single bit)
-            if &exec.0[..] != output {
+        for (omit, _) in execs.iter() {
+            if *omit != random_usize::<_, N>(&mut rng) {
                 return None;
             }
         }
 
-        // otherwise return the output
-        // (usually a field element, indicating whether the witness satisfies the relation computed)
-        Some(Output {
-            pp_hashes: Array::from_iter(execs.iter().map(|exec| exec.2)),
-            output: execs.pop().unwrap().0,
-        })
+        None
     }
 }

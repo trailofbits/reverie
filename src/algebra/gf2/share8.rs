@@ -41,34 +41,13 @@ impl RingElement for BitSharing8 {
     const ZERO: Self = Self(0x00);
 }
 
-impl RingModule for BitSharing8 {
-    type Scalar = BitScalar;
-
+impl RingModule<BitScalar> for BitSharing8 {
     const DIMENSION: usize = 8;
 
     #[inline(always)]
-    fn action(&self, s: Self::Scalar) -> Self {
+    fn action(&self, s: BitScalar) -> Self {
         debug_assert!(s.0 < 2, "scalar is not bit");
         BitSharing8(s.0 * self.0)
-    }
-
-    #[inline(always)]
-    fn get(&self, n: usize) -> Self::Scalar {
-        debug_assert!(n < 8, "get out of range");
-        let n = 7 - n;
-        BitScalar((self.0 >> n) & 1)
-    }
-
-    #[inline(always)]
-    fn set(&self, s: Self::Scalar, n: usize) -> Self {
-        debug_assert!(s.0 < 2, "scalar is not bit");
-        debug_assert!(n < 8, "set out of range");
-        let n = 7 - n;
-
-        let mut r: u8 = self.0;
-        r &= !(1 << n); // clear nth bit
-        r |= s.0 << n; // set nth bit
-        BitSharing8(r)
     }
 }
 
@@ -78,7 +57,7 @@ impl Serializable for BitSharing8 {
     }
 }
 
-impl Sharing for BitSharing8 {
+impl Sharing<BitScalar> for BitSharing8 {
     // Reconstruction for the share module is the sum of the ring elements
     // This can be implemented by xoring all the bits together,
     // but calculating the parity via count_ones is faster on x86.
