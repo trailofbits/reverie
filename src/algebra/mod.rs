@@ -39,7 +39,7 @@ pub trait Sharing<R: RingElement>: RingModule<R> + Serializable {
 }
 
 /// Represents a ring and player count instance of the protocol
-pub trait Domain {
+pub trait Domain: Debug + 'static {
     type Scalar: RingElement;
 
     /// a batch of ring elements belonging to a single player

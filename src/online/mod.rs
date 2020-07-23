@@ -1,5 +1,5 @@
 pub mod prover;
-pub mod verifier;
+// pub mod verifier;
 
 /*
 #[cfg(test)]
@@ -11,40 +11,66 @@ use crate::crypto::{RingHasher, TreePRF, KEY_SIZE};
 use crate::fs::{View, ViewRNG};
 use crate::Instruction;
 
+use crossbeam::channel::bounded;
+
+use async_std::{fs::File, io, prelude::*, task};
 use blake3::Hash;
-
-fn shares_to_batches<D: Domain, const N: usize>(
-    mut shares: Vec<D::Sharing>,
-    idx: usize,
-) -> Vec<D::Batch> {
-    // pad to multiple of batch dimension
-    let num_batches = (shares.len() + D::Batch::DIMENSION - 1) / D::Batch::DIMENSION;
-    shares.resize(num_batches * D::Batch::DIMENSION, D::Sharing::ZERO);
-
-    // extract the player batches from D::Batch::DIMENSION player sharings
-    let mut batches = Vec::with_capacity(num_batches);
-    for i in 0..num_batches {
-        let mut batch = [D::Batch::ZERO; N];
-        D::convert_inv(
-            &mut batch,
-            &shares[i * D::Batch::DIMENSION..(i + 1) * D::Batch::DIMENSION],
-        );
-        batches.push(batch[idx]);
-    }
-    batches
-}
-
-/// Represents a chunked portion of a streaming proof
-///
-/// These are serialized and send over the wire.
-pub struct Chunk<D: Domain, const N: usize> {
-    multiplication_corrections: Vec<D::Batch>,
-    multiplication_recons: Vec<D::Batch>,
-    output_recons: Vec<D::Batch>,
-    inputs_wire: Vec<D::Batch>,
-}
 
 pub struct Run<const R: usize, const N: usize, const NT: usize> {
     commitment: Hash,
     open: TreePRF<NT>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use rand::thread_rng;
+    use rand::Rng;
+    use rand_core::RngCore;
+
+    use crate::algebra::gf2::*;
+    use crate::preprocessing::PreprocessingOutput;
+
+    fn test_proof<D: Domain, const N: usize, const NT: usize, const R: usize>(
+        program: &[Instruction<D::Scalar>],
+        inputs: &[D::Scalar],
+    ) {
+        let mut rng = thread_rng();
+        let mut seeds: [[u8; KEY_SIZE]; R] = [[0; KEY_SIZE]; R];
+        for i in 0..R {
+            rng.fill_bytes(&mut seeds[i]);
+        }
+
+        // create a proof of the program execution
+        let p: prover::StreamingProver<D, _, _, R, N, NT> =
+            task::block_on(prover::StreamingProver::new(
+                PreprocessingOutput::dummy(),
+                program.iter().cloned(),
+                inputs.iter().cloned(),
+            ));
+    }
+
+    #[test]
+    fn test_streaming() {
+        let program: Vec<Instruction<BitScalar>> = vec![
+            Instruction::Input(0),
+            Instruction::Input(1),
+            Instruction::Input(2),
+            Instruction::Input(3),
+            Instruction::Output(0),
+            Instruction::Output(1),
+            Instruction::Output(2),
+            Instruction::Output(3),
+        ];
+
+        let inputs: Vec<BitScalar> = vec![
+            BitScalar::ONE,
+            BitScalar::ZERO,
+            BitScalar::ONE,
+            BitScalar::ZERO,
+        ];
+
+        test_proof::<GF2P8, 8, 8, 1>(&program[..], &inputs[..]);
+    }
 }

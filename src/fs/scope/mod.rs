@@ -34,7 +34,7 @@ impl<'a> Drop for Scope<'a> {
 }
 
 impl<'a, R: Serializable> Writer<R> for Scope<'a> {
-    fn write(&mut self, elem: &R) {
+    fn write(&mut self, elem: R) {
         let _ = elem.serialize(&mut self.view.hasher);
     }
 }

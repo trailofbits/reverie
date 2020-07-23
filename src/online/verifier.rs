@@ -16,7 +16,7 @@ use std::marker::PhantomData;
 use blake3::Hash;
 use rayon::prelude::*;
 
-struct StreamingVerifier<
+pub struct StreamingVerifier<
     D: Domain,
     PI: Iterator<Item = Instruction<D::Scalar>> + Clone,
     const R: usize,
@@ -186,7 +186,7 @@ impl<
                                 + self.broadcast.next()?; // share of omitted player
 
                             // reconstruct
-                            transcript.write(&recon);
+                            transcript.write(recon);
 
                             // corrected wire
                             let c_w = recon.reconstruct() + a_w * b_w;
@@ -204,7 +204,7 @@ impl<
                                 masks.next().unwrap() + self.broadcast.next()?;
 
                             // reconstruct
-                            transcript.write(&recon);
+                            transcript.write(recon);
 
                             // TODO: write the output to
                             let output = self.wires.get(src) + recon.reconstruct();
@@ -233,7 +233,7 @@ impl<
         const NT: usize,
     > StreamingVerifier<D, PI, R, N, NT>
 {
-    fn new(program: PI, runs: [Run<R, N, NT>; R]) -> Self {
+    pub fn new(program: PI, runs: [Run<R, N, NT>; R]) -> Self {
         StreamingVerifier {
             program,
             runs,
@@ -241,7 +241,7 @@ impl<
         }
     }
 
-    fn verify<
+    pub fn verify<
         CI: Iterator<Item = D::Batch>,
         BI: Iterator<Item = D::Batch>,
         WI: Iterator<Item = D::Scalar>,
@@ -253,7 +253,7 @@ impl<
             return None;
         }
 
-        let runs: Vec<(_, _)> = readers.into_iter().zip(self.runs.into_iter()).collect();
+        let runs: Vec<(_, _)> = readers.into_iter().zip(self.runs.iter()).collect();
 
         // do sequential execution in test builds (to ease debugging)
         #[cfg(debug_assertions)]

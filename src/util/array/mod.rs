@@ -75,6 +75,10 @@ impl<T: Sized + Copy, const L: usize> Array<T, L> {
 }
 
 impl<T: Sized, const L: usize> Array<T, L> {
+    pub fn unbox(self) -> [T; L] {
+        *self.0
+    }
+
     pub fn map<O, F: Fn(&T) -> O>(&self, f: F) -> Array<O, L> {
         let mut res: Box<[mem::MaybeUninit<O>; L]> = unsafe { Box::new_uninit().assume_init() };
         for i in 0..L {
