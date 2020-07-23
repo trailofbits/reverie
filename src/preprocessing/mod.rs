@@ -93,7 +93,7 @@ impl<
 /// and the online phase takes ownership of the struct, nor does it expose any fields.
 pub struct PreprocessingOutput<D: Domain, const H: usize, const N: usize> {
     pub(crate) seeds: [[u8; KEY_SIZE]; H],
-    chunk_size: usize,
+    pub(crate) chunk_size: usize,
     ph: PhantomData<D>,
 }
 

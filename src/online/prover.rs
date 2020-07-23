@@ -79,6 +79,7 @@ pub struct StreamingProver<
     const NT: usize,
 > {
     preprocessing: PreprocessingOutput<D, R, N>,
+    chunk_size: usize,
     omitted: [usize; R],
     program: PI,
     inputs: WI,
@@ -253,8 +254,6 @@ impl<
         mut program: PI,
         mut witness: WI,
     ) -> Self {
-        let chunk_size = 1024;
-
         let initial_witness = witness.clone();
         let initial_program = program.clone();
 
@@ -334,21 +333,38 @@ impl<
 
         // schedule up to 2 tasks immediately (for better performance)
         let mut scheduled = 0;
-        scheduled +=
-            feed::<D, _, _>(chunk_size, &mut inputs[..], &mut program, &mut witness).await as usize;
-        scheduled +=
-            feed::<D, _, _>(chunk_size, &mut inputs[..], &mut program, &mut witness).await as usize;
+        scheduled += feed::<D, _, _>(
+            preprocessing.chunk_size,
+            &mut inputs[..],
+            &mut program,
+            &mut witness,
+        )
+        .await as usize;
+        scheduled += feed::<D, _, _>(
+            preprocessing.chunk_size,
+            &mut inputs[..],
+            &mut program,
+            &mut witness,
+        )
+        .await as usize;
 
         // wait for all scheduled tasks to complete
         while scheduled > 0 {
+            scheduled -= 1;
+
             // wait for output from every task to avoid one task racing a head
             for rx in outputs.iter_mut() {
                 let _ = rx.recv().await;
             }
 
             // schedule a new task
-            scheduled += feed::<D, _, _>(chunk_size, &mut inputs[..], &mut program, &mut witness)
-                .await as usize;
+            scheduled += feed::<D, _, _>(
+                preprocessing.chunk_size,
+                &mut inputs[..],
+                &mut program,
+                &mut witness,
+            )
+            .await as usize;
         }
 
         // close input writers
@@ -371,6 +387,7 @@ impl<
         // rewind the program and input iterators and
         // return prover ready to stream out the proof
         StreamingProver {
+            chunk_size: preprocessing.chunk_size,
             omitted,
             preprocessing,
             inputs: initial_witness,
@@ -378,9 +395,7 @@ impl<
         }
     }
 
-    pub async fn stream(mut self, proof: Sender<Vec<u8>>) {
-        let chunk_size = 1024;
-
+    pub async fn stream(mut self, proof: Sender<Vec<u8>>) -> Result<(), SendError<Vec<u8>>> {
         struct State<D: Domain, R: RngCore, const N: usize> {
             omitted: usize,
             preprocessing: PreprocessingExecution<D, R, N, true>,
@@ -476,7 +491,7 @@ impl<
         let mut scheduled = 0;
         for _ in 0..2 {
             scheduled += feed::<D, _, _>(
-                chunk_size,
+                self.chunk_size,
                 &mut inputs[..],
                 &mut self.program,
                 &mut self.inputs,
@@ -486,15 +501,17 @@ impl<
 
         // wait for all scheduled tasks to complete
         while scheduled > 0 {
+            scheduled -= 1;
+
             // wait for output from every task in order (to avoid one task racing a head)
             for rx in outputs.iter_mut() {
                 let output = rx.recv().await;
-                proof.send(output.unwrap()).await;
+                proof.send(output.unwrap()).await?; // can fail
             }
 
             // schedule a new task and wait for all works to complete one
             scheduled += feed::<D, _, _>(
-                chunk_size,
+                self.chunk_size,
                 &mut inputs[..],
                 &mut self.program,
                 &mut self.inputs,
@@ -505,7 +522,8 @@ impl<
         // wait for tasks to finish
         inputs.clear();
         for t in tasks {
-            t.await;
+            t.await.unwrap();
         }
+        Ok(())
     }
 }
