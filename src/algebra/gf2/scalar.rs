@@ -11,6 +11,8 @@ use serde::{Deserialize, Deserializer};
 pub struct BitScalar(pub(super) u8);
 
 impl Packable for BitScalar {
+    type Error = ();
+
     fn pack<W: Write>(mut dst: W, bits: &[BitScalar]) -> io::Result<()> {
         let mut pac = 0u8;
         for (i, bit) in bits.iter().cloned().enumerate() {
@@ -26,34 +28,31 @@ impl Packable for BitScalar {
         dst.write_all(&[(pac << 1) | 1])
     }
 
-    fn unpack(bytes: &[u8]) -> Option<Vec<BitScalar>> {
+    fn unpack<W: Writer<BitScalar>>(mut dst: W, bytes: &[u8]) -> Result<(), ()> {
         // read into vector
-        let mut res: Vec<BitScalar> = Vec::with_capacity(bytes.len() * 8);
+        let mut bits: [u8; 8] = [0; 8];
         for v0 in bytes.iter().cloned() {
             let v0: u8 = v0;
-            let v1: u8 = v0 & 1;
-            let v2: u8 = (v1 >> 1) & 1;
-            let v3: u8 = (v2 >> 1) & 1;
-            let v4: u8 = (v3 >> 1) & 1;
-            let v5: u8 = (v4 >> 1) & 1;
-            let v6: u8 = (v5 >> 1) & 1;
-            let v7: u8 = (v6 >> 1) & 1;
-            let v8: u8 = (v7 >> 1) & 1;
-            res.push(BitScalar(v8));
-            res.push(BitScalar(v7));
-            res.push(BitScalar(v6));
-            res.push(BitScalar(v5));
-            res.push(BitScalar(v4));
-            res.push(BitScalar(v3));
-            res.push(BitScalar(v2));
-            res.push(BitScalar(v1));
+            bits[7] = v0 & 1;
+            bits[6] = (bits[7] >> 1) & 1;
+            bits[5] = (bits[6] >> 1) & 1;
+            bits[4] = (bits[5] >> 1) & 1;
+            bits[3] = (bits[4] >> 1) & 1;
+            bits[2] = (bits[3] >> 1) & 1;
+            bits[1] = (bits[2] >> 1) & 1;
+            bits[0] = (bits[1] >> 1) & 1;
+            dst.write(BitScalar(bits[0]));
+            dst.write(BitScalar(bits[1]));
+            dst.write(BitScalar(bits[2]));
+            dst.write(BitScalar(bits[3]));
+            dst.write(BitScalar(bits[4]));
+            dst.write(BitScalar(bits[5]));
+            dst.write(BitScalar(bits[6]));
+            dst.write(BitScalar(bits[7]));
         }
 
-        // unpad (remove until first 1 bit)
-        while res.pop() == Some(BitScalar::ZERO) {}
-
         // return resulting vector
-        Some(res)
+        Ok(())
     }
 }
 

@@ -11,6 +11,8 @@ pub(super) const BATCH_SIZE_BITS: usize = BATCH_SIZE_BYTES * 8;
 pub struct BitBatch(pub(super) [u8; BATCH_SIZE_BYTES]);
 
 impl Packable for BitBatch {
+    type Error = ();
+
     fn pack<W: Write>(mut dst: W, elems: &[Self]) -> io::Result<()> {
         for elem in elems {
             dst.write_all(&elem.0[..]);
@@ -18,18 +20,16 @@ impl Packable for BitBatch {
         Ok(())
     }
 
-    fn unpack(bytes: &[u8]) -> Option<Vec<Self>> {
+    fn unpack<W: Writer<BitBatch>>(mut dst: W, bytes: &[u8]) -> Result<(), ()> {
         if bytes.len() % BATCH_SIZE_BYTES != 0 {
-            return None;
+            return Err(());
         }
-
-        let mut res = Vec::with_capacity(bytes.len() / BATCH_SIZE_BYTES);
         for chunk in bytes.chunks(BATCH_SIZE_BYTES) {
-            res.push(BitBatch([
+            dst.write(BitBatch([
                 chunk[0], chunk[1], chunk[2], chunk[3], chunk[4], chunk[5], chunk[6], chunk[7],
             ]));
         }
-        Some(res)
+        Ok(())
     }
 }
 

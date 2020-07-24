@@ -3,10 +3,12 @@ use std::io;
 use std::io::Write;
 use std::ops::{Add, Mul, Sub};
 
-use bincode;
-
 use rand::distributions::{Distribution, Standard};
 use rand::{Rng, RngCore};
+
+use crate::util::Writer;
+
+use bincode;
 
 use serde::{Deserialize, Serialize};
 
@@ -15,7 +17,6 @@ mod ring;
 pub mod gf2;
 
 pub use ring::{RingElement, RingModule};
-use std::rc::Rc;
 
 pub trait Serializable {
     fn serialize<W: io::Write>(&self, w: &mut W) -> io::Result<()>;
@@ -26,9 +27,11 @@ pub trait Samplable {
 }
 
 pub trait Packable: Sized {
+    type Error;
+
     fn pack<W: Write>(dst: W, elems: &[Self]) -> io::Result<()>;
 
-    fn unpack(bytes: &[u8]) -> Option<Vec<Self>>;
+    fn unpack<W: Writer<Self>>(dst: W, bytes: &[u8]) -> Result<(), Self::Error>;
 }
 
 impl<T> Samplable for T

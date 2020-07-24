@@ -16,10 +16,10 @@ macro_rules! new_sharings {
 }
 
 /// Implementation of pre-processing phase used by the prover during online execution
-pub struct PreprocessingExecution<'a, D: Domain, R: RngCore, const N: usize> {
+pub struct PreprocessingExecution<D: Domain, R: RngCore, const N: usize> {
     // interpreter state
     masks: VecMap<D::Sharing>, //
-    rngs: &'a mut [R; N],      // rngs
+    rngs: [R; N],              // rngs
     omitted: usize,            // omitted player
 
     // input mask state
@@ -32,8 +32,8 @@ pub struct PreprocessingExecution<'a, D: Domain, R: RngCore, const N: usize> {
     share_b: Vec<D::Sharing>, // alpha sharings (from input)
 }
 
-impl<'a, D: Domain, R: RngCore, const N: usize> PreprocessingExecution<'a, D, R, N> {
-    pub fn new(rngs: &'a mut [R; N], omitted: usize) -> Self {
+impl<'a, D: Domain, R: RngCore, const N: usize> PreprocessingExecution<D, R, N> {
+    pub fn new(rngs: [R; N], omitted: usize) -> Self {
         debug_assert!(omitted < N);
         PreprocessingExecution {
             next_input: D::Batch::DIMENSION,
