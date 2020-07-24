@@ -127,12 +127,8 @@ impl<
         const NT: usize,
     > Verifier<D, PI, BI, WI, P, R, N, NT>
 {
-    fn new(masked: WI, program: PI, broadcast: BI, preprocessing: P) -> Self {
+    fn new() -> Self {
         Verifier {
-            masked,
-            program,
-            broadcast,
-            preprocessing,
             wires: VecMap::new(),
         }
     }

@@ -6,15 +6,20 @@ pub mod prover;
 mod tests;
 */
 
-use crate::algebra::{Domain, RingElement, RingModule};
+use crate::algebra::RingElement;
 use crate::crypto::{RingHasher, TreePRF, KEY_SIZE};
-use crate::fs::{View, ViewRNG};
+use crate::fs::View;
 use crate::Instruction;
 
-use crossbeam::channel::bounded;
-
-use async_std::{fs::File, io, prelude::*, task};
 use blake3::Hash;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Chunk {
+    corrections: Vec<u8>,
+    broadcast: Vec<u8>,
+    witness: Vec<u8>,
+}
 
 pub struct Run<const R: usize, const N: usize, const NT: usize> {
     commitment: Hash,
@@ -25,11 +30,14 @@ pub struct Run<const R: usize, const N: usize, const NT: usize> {
 mod tests {
     use super::*;
 
+    use async_channel::bounded;
+    use async_std::task;
+
     use rand::thread_rng;
-    use rand::Rng;
     use rand_core::RngCore;
 
     use crate::algebra::gf2::*;
+    use crate::algebra::Domain;
     use crate::preprocessing::PreprocessingOutput;
 
     fn test_proof<D: Domain, const N: usize, const NT: usize, const R: usize>(
@@ -49,6 +57,17 @@ mod tests {
                 program.iter().cloned(),
                 inputs.iter().cloned(),
             ));
+
+        let (send, recv) = bounded(5);
+
+        task::block_on(p.stream(send));
+
+        loop {
+            match recv.try_recv() {
+                Ok(v) => println!("{:?}", v),
+                Err(_) => break,
+            }
+        }
     }
 
     #[test]
@@ -58,6 +77,18 @@ mod tests {
             Instruction::Input(1),
             Instruction::Input(2),
             Instruction::Input(3),
+            Instruction::Output(0),
+            Instruction::Output(1),
+            Instruction::Output(2),
+            Instruction::Output(3),
+            Instruction::Output(0),
+            Instruction::Output(1),
+            Instruction::Output(2),
+            Instruction::Output(3),
+            Instruction::Output(0),
+            Instruction::Output(1),
+            Instruction::Output(2),
+            Instruction::Output(3),
             Instruction::Output(0),
             Instruction::Output(1),
             Instruction::Output(2),

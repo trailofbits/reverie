@@ -96,7 +96,7 @@ impl<D: Domain, R: RngCore, const N: usize, const O: bool> PreprocessingExecutio
             }
 
             // transpose into shares
-            let mut start = ab_gamma.len();
+            let start = ab_gamma.len();
             ab_gamma.resize(start + D::Batch::DIMENSION, D::Sharing::ZERO);
             D::convert(&mut ab_gamma[start..], &batches_gab);
 

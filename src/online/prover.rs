@@ -1,27 +1,24 @@
 use super::*;
-use super::{Instruction, RingHasher, Run, View, ViewRNG, KEY_SIZE};
 
-use crate::algebra::{Domain, RingModule, Serializable, Sharing};
+use crate::algebra::Packable;
+use crate::algebra::{Domain, RingModule, Sharing};
 use crate::consts::{
-    LABEL_RNG_OPEN_ONLINE, LABEL_RNG_PREPROCESSING, LABEL_SCOPE_CORRECTION,
-    LABEL_SCOPE_ONLINE_TRANSCRIPT,
+    LABEL_RNG_OPEN_ONLINE, LABEL_RNG_PREPROCESSING, LABEL_SCOPE_ONLINE_TRANSCRIPT,
 };
 use crate::crypto::TreePRF;
 use crate::preprocessing::prover::PreprocessingExecution;
-use crate::preprocessing::{Preprocessing, PreprocessingOutput};
+use crate::preprocessing::PreprocessingOutput;
 use crate::util::*;
-
-use rand::RngCore;
-
-use async_channel::{Receiver, SendError, Sender};
-use async_std;
-use async_std::{fs::File, io, prelude::*, task};
 
 use std::sync::Arc;
 
-use std::marker::PhantomData;
+use async_channel::{Receiver, SendError, Sender};
+use async_std::task;
 
 use blake3::Hash;
+use rand::RngCore;
+
+use bincode;
 
 async fn feed<
     D: Domain,
@@ -63,13 +60,6 @@ fn count_inputs<D: Domain>(program: &[Instruction<D::Scalar>]) -> usize {
     inputs
 }
 
-#[derive(Debug)]
-pub struct Chunk<D: Domain, const N: usize> {
-    corrections: Vec<D::Batch>,
-    broadcast: Vec<D::Batch>,
-    witness: Vec<D::Scalar>,
-}
-
 pub struct StreamingProver<
     D: Domain,
     PI: Iterator<Item = Instruction<D::Scalar>> + Clone,
@@ -83,29 +73,6 @@ pub struct StreamingProver<
     omitted: [usize; R],
     program: PI,
     inputs: WI,
-}
-
-struct SwitchWriter<T, W: Writer<T>> {
-    writer: Option<W>,
-    _ph: PhantomData<T>,
-}
-
-impl<T, W: Writer<T>> SwitchWriter<T, W> {
-    fn new(writer: W, enabled: bool) -> Self {
-        // immediately drop the inner writer if not enabled
-        Self {
-            writer: if enabled { Some(writer) } else { None },
-            _ph: PhantomData,
-        }
-    }
-}
-
-impl<T, W: Writer<T>> Writer<T> for SwitchWriter<T, W> {
-    fn write(&mut self, elem: T) {
-        if let Some(writer) = self.writer.as_mut() {
-            writer.write(elem);
-        }
-    }
 }
 
 struct BatchExtractor<D: Domain, W: Writer<D::Batch>, const N: usize> {
@@ -299,7 +266,7 @@ impl<
                             }
 
                             // needed for syncronization
-                            outputs.send(()).await;
+                            outputs.send(()).await.unwrap();
                         }
                         Err(_) => return Ok(self.transcript.finalize()),
                     }
@@ -411,22 +378,36 @@ impl<
                     Arc<Vec<D::Scalar>>,              // next slice of witness
                 )>,
             ) -> Result<(), SendError<Vec<u8>>> {
+                let chunk_capacity: usize = 100_000;
+
+                // output buffers used during execution
+                let mut masks = Vec::with_capacity(chunk_capacity);
+                let mut ab_gamma = Vec::with_capacity(chunk_capacity);
+                let mut corrections = Vec::with_capacity(chunk_capacity);
+                let mut broadcast = Vec::with_capacity(chunk_capacity);
+                let mut masked = Vec::with_capacity(chunk_capacity);
+
+                // packed elements to be serialized
+                let mut chunk = Chunk {
+                    witness: Vec::with_capacity(chunk_capacity),
+                    broadcast: Vec::with_capacity(chunk_capacity),
+                    corrections: Vec::with_capacity(chunk_capacity),
+                };
+
                 loop {
                     match inputs.recv().await {
                         Ok((program, witness)) => {
-                            let mut chunk = Chunk::<D, N> {
-                                corrections: Vec::with_capacity(1024),
-                                broadcast: Vec::with_capacity(1024),
-                                witness: Vec::with_capacity(1024),
-                            };
+                            broadcast.clear();
+                            corrections.clear();
+                            masked.clear();
+                            masks.clear();
+                            ab_gamma.clear();
 
                             // execute the next slice of program
                             {
                                 // prepare pre-processing execution (online mode), save the corrections.
-                                let mut masks = Vec::with_capacity(1024);
-                                let mut ab_gamma = Vec::with_capacity(1024);
                                 let mut corrections =
-                                    SwitchWriter::new(&mut chunk.corrections, self.omitted != 0);
+                                    SwitchWriter::new(&mut corrections, self.omitted != 0);
                                 self.preprocessing.process(
                                     &program[..],
                                     &mut corrections,
@@ -440,16 +421,22 @@ impl<
                                     &witness[..],
                                     &masks[..],
                                     &ab_gamma[..],
-                                    &mut chunk.witness,
+                                    &mut masked,
                                     &mut BatchExtractor::<D, _, N>::new(
                                         self.omitted,
-                                        &mut chunk.broadcast,
+                                        &mut broadcast,
                                     ),
                                 );
                             }
 
                             // serialize the chunk
-                            outputs.send(vec![]).await;
+                            Packable::pack(&mut chunk.witness, &masked[..]).unwrap();
+                            Packable::pack(&mut chunk.broadcast, &broadcast[..]).unwrap();
+                            Packable::pack(&mut chunk.corrections, &corrections[..]).unwrap();
+                            outputs
+                                .send(bincode::serialize(&chunk).unwrap())
+                                .await
+                                .unwrap();
                         }
                         Err(_) => return Ok(()),
                     }

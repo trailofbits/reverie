@@ -1,15 +1,21 @@
 use std::fmt::Debug;
 use std::io;
+use std::io::Write;
 use std::ops::{Add, Mul, Sub};
+
+use bincode;
 
 use rand::distributions::{Distribution, Standard};
 use rand::{Rng, RngCore};
+
+use serde::{Deserialize, Serialize};
 
 mod ring;
 
 pub mod gf2;
 
 pub use ring::{RingElement, RingModule};
+use std::rc::Rc;
 
 pub trait Serializable {
     fn serialize<W: io::Write>(&self, w: &mut W) -> io::Result<()>;
@@ -17,6 +23,12 @@ pub trait Serializable {
 
 pub trait Samplable {
     fn gen<R: RngCore>(rng: &mut R) -> Self;
+}
+
+pub trait Packable: Sized {
+    fn pack<W: Write>(dst: W, elems: &[Self]) -> io::Result<()>;
+
+    fn unpack(bytes: &[u8]) -> Option<Vec<Self>>;
 }
 
 impl<T> Samplable for T
@@ -40,10 +52,10 @@ pub trait Sharing<R: RingElement>: RingModule<R> + Serializable {
 
 /// Represents a ring and player count instance of the protocol
 pub trait Domain: Debug + 'static {
-    type Scalar: RingElement;
+    type Scalar: RingElement + Packable;
 
     /// a batch of ring elements belonging to a single player
-    type Batch: RingModule<Self::Scalar> + Samplable + Serializable + Debug;
+    type Batch: RingModule<Self::Scalar> + Samplable + Serializable + Debug + Serialize + Packable;
 
     /// a sharing of a value across all players
     type Sharing: Sharing<Self::Scalar> + Debug;
