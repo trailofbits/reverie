@@ -6,12 +6,11 @@ use crate::Instruction;
 use rand_core::RngCore;
 
 macro_rules! new_sharings {
-    ( $dst:expr, $rngs:expr ) => {{
-        let mut batches: [D::Batch; N] = [D::Batch::ZERO; N];
+    ( $shares:expr, $batches:expr, $rngs:expr ) => {{
         for j in 0..N {
-            batches[j] = D::Batch::gen(&mut $rngs[j]);
+            $batches[j] = D::Batch::gen(&mut $rngs[j]);
         }
-        D::convert($dst, &batches[..]);
+        D::convert($shares, &$batches[..]);
     }};
 }
 
@@ -28,7 +27,6 @@ pub struct PreprocessingExecution<D: Domain, R: RngCore, const N: usize, const O
     share_a: Vec<D::Sharing>, // beta sharings (from input)
     share_b: Vec<D::Sharing>, // alpha sharings (from input)
     share_g: Vec<D::Sharing>, // gamma sharings (output)
-    batch_g: [D::Batch; N],   // gamma batch
     rngs: [R; N],             // rngs
 }
 
@@ -38,7 +36,6 @@ impl<D: Domain, R: RngCore, const N: usize, const O: bool> PreprocessingExecutio
             next_input: D::Batch::DIMENSION,
             share_input: vec![D::Sharing::ZERO; D::Batch::DIMENSION],
             rngs,
-            batch_g: [D::Batch::ZERO; N],
             share_g: vec![D::Sharing::ZERO; D::Batch::DIMENSION],
             share_a: Vec::with_capacity(D::Batch::DIMENSION),
             share_b: Vec::with_capacity(D::Batch::DIMENSION),
@@ -51,6 +48,7 @@ impl<D: Domain, R: RngCore, const N: usize, const O: bool> PreprocessingExecutio
         &mut self,
         ab_gamma: &mut Vec<D::Sharing>,
         corrections: &mut CW, // player 0 corrections
+        batch_g: &[D::Batch; N],
     ) {
         let mut batches_a: [D::Batch; N] = [D::Batch::ZERO; N];
         let mut batches_b: [D::Batch; N] = [D::Batch::ZERO; N];
@@ -92,7 +90,7 @@ impl<D: Domain, R: RngCore, const N: usize, const O: bool> PreprocessingExecutio
             batches_c[0] = batches_c[0] + delta;
             let mut batches_gab: [D::Batch; N] = [D::Batch::ZERO; N];
             for i in 0..N {
-                batches_gab[i] = batches_c[i] + self.batch_g[i];
+                batches_gab[i] = batches_c[i] + batch_g[i];
             }
 
             // transpose into shares
@@ -113,6 +111,9 @@ impl<D: Domain, R: RngCore, const N: usize, const O: bool> PreprocessingExecutio
                 }
             }
         }
+
+        debug_assert_eq!(self.share_a.len(), 0);
+        debug_assert_eq!(self.share_b.len(), 0);
     }
 
     #[inline(always)]
@@ -122,21 +123,25 @@ impl<D: Domain, R: RngCore, const N: usize, const O: bool> PreprocessingExecutio
         corrections: &mut CW,               // player 0 corrections
         masks: &mut MW,                     // masks for online phase
         ab_gamma: &mut Vec<D::Sharing>,     // a * b + \gamma sharings for online phase
-    ) -> usize {
-        let mut inputs = 0;
-
-        // generate sharings for the output of the next batch of multiplications
-        new_sharings!(&mut self.share_g[..], &mut self.rngs);
+    ) {
+        // invariant: multiplication batch empty at the start
+        debug_assert_eq!(self.share_a.len(), 0);
+        debug_assert_eq!(self.share_b.len(), 0);
 
         // look forward in program until executed enough multiplications for next batch
+        let mut batch_g = [D::Batch::ZERO; N];
         for step in program {
+            debug_assert_eq!(self.share_a.len(), self.share_b.len());
+            debug_assert_eq!(self.share_g.len(), D::Batch::DIMENSION);
+            debug_assert_eq!(self.share_input.len(), D::Batch::DIMENSION);
+            debug_assert!(self.share_a.len() < D::Batch::DIMENSION);
+            debug_assert!(self.share_a.len() < D::Batch::DIMENSION);
             match *step {
                 Instruction::Input(dst) => {
-                    inputs += 1;
-
                     // check if need for new batch of input masks
                     if self.next_input == D::Batch::DIMENSION {
-                        new_sharings!(&mut self.share_input[..], &mut self.rngs);
+                        let mut batch_m = [D::Batch::ZERO; N];
+                        new_sharings!(&mut self.share_input[..], batch_m, &mut self.rngs);
                         self.next_input = 0;
                     }
 
@@ -164,9 +169,13 @@ impl<D: Domain, R: RngCore, const N: usize, const O: bool> PreprocessingExecutio
                         .set(dst, self.masks.get(src1) + self.masks.get(src2));
                 }
                 Instruction::Mul(dst, src1, src2) => {
-                    let next_idx = self.share_a.len();
+                    // generate sharings for the output of the next batch of multiplications
+                    if self.share_a.len() == 0 {
+                        new_sharings!(&mut self.share_g[..], batch_g, &mut self.rngs);
+                    }
 
-                    // push the masks to the Beaver stack
+                    // push the input masks to the stack
+                    let next_idx = self.share_a.len();
                     let mask_a = self.masks.get(src1);
                     let mask_b = self.masks.get(src2);
                     self.share_a.push(mask_a);
@@ -181,7 +190,7 @@ impl<D: Domain, R: RngCore, const N: usize, const O: bool> PreprocessingExecutio
 
                     // if the batch is full, generate next batch of ab_gamma shares
                     if self.share_a.len() == D::Batch::DIMENSION {
-                        self.generate(ab_gamma, corrections);
+                        self.generate(ab_gamma, corrections, &batch_g);
                     }
                 }
                 Instruction::Output(src) => {
@@ -195,11 +204,8 @@ impl<D: Domain, R: RngCore, const N: usize, const O: bool> PreprocessingExecutio
         if self.share_a.len() > 0 {
             self.share_a.resize(D::Batch::DIMENSION, D::Sharing::ZERO);
             self.share_b.resize(D::Batch::DIMENSION, D::Sharing::ZERO);
-            self.generate(ab_gamma, corrections);
+            self.generate(ab_gamma, corrections, &batch_g);
         }
-
-        // return the number of witness elements needed
-        inputs
     }
 
     pub fn prove<CW: Writer<D::Batch>>(

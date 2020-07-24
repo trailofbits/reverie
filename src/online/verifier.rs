@@ -16,6 +16,14 @@ use std::marker::PhantomData;
 use blake3::Hash;
 use rayon::prelude::*;
 
+macro_rules! batch_to_sharing {
+    ($dst:expr, $src:expr, $omit:expr ) => {
+        let mut batches: [D::Batch; N] = [D::Batch::ZERO; N];
+        batches[$omit] = $src;
+        D::convert($dst, &batches[..]);
+    };
+}
+
 pub struct StreamingVerifier<
     D: Domain,
     PI: Iterator<Item = Instruction<D::Scalar>> + Clone,
