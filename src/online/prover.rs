@@ -2,10 +2,9 @@ use super::*;
 
 use crate::algebra::Packable;
 use crate::algebra::{Domain, RingModule, Sharing};
-use crate::consts::{
-    LABEL_RNG_OPEN_ONLINE, LABEL_RNG_PREPROCESSING, LABEL_SCOPE_ONLINE_TRANSCRIPT,
-};
+use crate::consts::*;
 use crate::crypto::TreePRF;
+use crate::fs::Scope;
 use crate::preprocessing::prover::PreprocessingExecution;
 use crate::preprocessing::PreprocessingOutput;
 use crate::util::*;
@@ -184,16 +183,16 @@ impl<D: Domain, const N: usize> Prover<D, N> {
                     // reconstruct and correct share
                     self.wires.set(dst, c_w);
                 }
-                Instruction::Output(src) => {
+                Instruction::Output(_src) => {
                     let mask: D::Sharing = masks.next().unwrap();
 
                     // reconstruct
                     broadcast.write(mask);
 
-                    // output (TODO: save)
+                    // output for debugging
                     #[cfg(test)]
                     {
-                        let output = self.wires.get(src) + mask.reconstruct();
+                        let output = self.wires.get(_src) + mask.reconstruct();
                         println!("output {:?}", output);
                     }
                 }
@@ -216,15 +215,24 @@ impl<
     /// It is crucial for zero-knowledge that the pre-processing output is not reused!
     /// To help ensure this Proof::new takes ownership of PreprocessedProverOutput,
     /// which prevents the programmer from accidentally re-using the output
-    pub async fn new(
+    pub fn new(
+        preprocessing: PreprocessingOutput<D, R, N>,
+        program: PI,
+        witness: WI,
+    ) -> (Self, Proof<D, R, N, NT>) {
+        task::block_on(Self::new_internal(preprocessing, program, witness))
+    }
+
+    async fn new_internal(
         preprocessing: PreprocessingOutput<D, R, N>,
         mut program: PI,
         mut witness: WI,
-    ) -> Self {
+    ) -> (Self, Proof<D, R, N, NT>) {
         let initial_witness = witness.clone();
         let initial_program = program.clone();
 
         struct State<D: Domain, R: RngCore, const N: usize> {
+            views: [View; N], // view transcripts for players
             transcript: RingHasher<D::Sharing>,
             preprocessing: PreprocessingExecution<D, R, N, true>,
             online: Prover<D, N>,
@@ -238,18 +246,20 @@ impl<
                     Arc<Vec<Instruction<D::Scalar>>>, // next slice of program
                     Arc<Vec<D::Scalar>>,              // next slice of witness
                 )>,
-            ) -> Result<Hash, SendError<Vec<u8>>> {
+            ) -> Result<(Hash, Vec<Hash>), SendError<Vec<u8>>> {
                 loop {
                     match inputs.recv().await {
                         Ok((program, witness)) => {
                             // execute the next slice of program
                             {
+                                // add corrections to player 0 view
+                                let mut corr: Scope = self.views[0].scope(LABEL_SCOPE_CORRECTION);
                                 // prepare pre-processing execution (online mode)
                                 let mut masks = Vec::with_capacity(1024);
                                 let mut ab_gamma = Vec::with_capacity(1024);
                                 self.preprocessing.process(
                                     &program[..],
-                                    &mut VoidWriter::new(),
+                                    &mut corr,
                                     &mut masks,
                                     &mut ab_gamma,
                                 );
@@ -268,7 +278,12 @@ impl<
                             // needed for syncronization
                             outputs.send(()).await.unwrap();
                         }
-                        Err(_) => return Ok(self.transcript.finalize()),
+                        Err(_) => {
+                            return Ok((
+                                self.transcript.finalize(),
+                                self.views.iter().map(|view| view.hash()).collect(),
+                            ))
+                        }
                     }
                 }
             }
@@ -280,6 +295,7 @@ impl<
             let views = keys.map(|key| View::new_keyed(key));
             let rngs = views.map(|view| view.rng(LABEL_RNG_PREPROCESSING));
             State {
+                views: views.unbox(),
                 transcript: RingHasher::new(),
                 preprocessing: PreprocessingExecution::new(rngs.unbox()),
                 online: Prover::<D, N>::new(),
@@ -339,10 +355,13 @@ impl<
 
         // extract which players to omit in every run (Fiat-Shamir)
         let mut view: View = View::new();
+        let mut commitments = Vec::new();
         {
             let mut scope = view.scope(LABEL_SCOPE_ONLINE_TRANSCRIPT);
             for t in tasks.into_iter() {
-                scope.join(&t.await.unwrap());
+                let (public, comm) = t.await.unwrap();
+                commitments.push(comm);
+                scope.join(&public);
             }
         }
         let mut rng = view.rng(LABEL_RNG_OPEN_ONLINE);
@@ -351,15 +370,39 @@ impl<
             omitted[i] = random_usize::<_, N>(&mut rng);
         }
 
+        // puncture prfs at omitted players
+        let runs = Array::from_iter(
+            omitted
+                .iter()
+                .cloned()
+                .zip(commitments.iter())
+                .zip(preprocessing.seeds.iter())
+                .map(|((omit, comm), seed)| {
+                    let tree = TreePRF::new(*seed);
+                    Run {
+                        commitment: comm[omit],
+                        open: tree.puncture(omit),
+                    }
+                }),
+        );
+
         // rewind the program and input iterators and
         // return prover ready to stream out the proof
-        StreamingProver {
-            chunk_size: preprocessing.chunk_size,
-            omitted,
-            preprocessing,
-            inputs: initial_witness,
-            program: initial_program,
-        }
+        let chunk_size = preprocessing.chunk_size;
+        (
+            StreamingProver {
+                chunk_size,
+                omitted,
+                preprocessing,
+                inputs: initial_witness,
+                program: initial_program,
+            },
+            Proof {
+                runs: runs.unbox(),
+                chunk_size,
+                _ph: PhantomData,
+            },
+        )
     }
 
     pub async fn stream(mut self, proof: Sender<Vec<u8>>) -> Result<(), SendError<Vec<u8>>> {
@@ -430,6 +473,16 @@ impl<
                             }
 
                             // serialize the chunk
+                            #[cfg(test)]
+                            #[cfg(debug_assertions)]
+                            {
+                                println!("send:masked_witness = {:?}", &masked[..]);
+                                println!("send:corrections = {:?}", &corrections[..]);
+                                println!("send:broadcast = {:?}", &broadcast[..]);
+                            }
+                            chunk.witness.clear();
+                            chunk.broadcast.clear();
+                            chunk.corrections.clear();
                             Packable::pack(&mut chunk.witness, &masked[..]).unwrap();
                             Packable::pack(&mut chunk.broadcast, &broadcast[..]).unwrap();
                             Packable::pack(&mut chunk.corrections, &corrections[..]).unwrap();

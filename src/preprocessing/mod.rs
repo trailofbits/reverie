@@ -9,22 +9,13 @@ use crate::fs::*;
 use crate::util::*;
 use crate::Instruction;
 
-use std::iter::Peekable;
 use std::marker::PhantomData;
 use std::mem;
 
-use serde::ser::SerializeTuple;
-use serde::{Deserialize, Serialize, Serializer};
-
 use async_channel::{Receiver, SendError, Sender};
-use async_std;
-use async_std::{fs::File, io, prelude::*, task};
+use async_std::task;
 
 use std::sync::Arc;
-
-pub trait Preprocessing<D: Domain> {
-    fn next_sharings(&mut self, masks: &mut Vec<D::Sharing>, ab_gamma: &mut [D::Sharing]);
-}
 
 async fn feed<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>>(
     chunk: usize,
@@ -67,23 +58,6 @@ pub struct Proof<
     ph: PhantomData<D>,
 }
 
-impl<
-        D: Domain,
-        const P: usize,
-        const PT: usize,
-        const R: usize,
-        const RT: usize,
-        const H: usize,
-    > Serialize for Proof<D, P, PT, R, RT, H>
-{
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        unreachable!()
-    }
-}
-
 /// Represents the randomness for the preprocessing executions used during the online execution.
 ///
 /// Reusing a PreprocessingOutput for multiple proofs violates zero-knowledge:
@@ -108,10 +82,6 @@ impl<D: Domain, const H: usize, const N: usize> PreprocessingOutput<D, H, N> {
         }
     }
 }
-
-// Executes the preprocessing (in-the-head) phase once.
-//
-// Returns a commitment to the view of all players.
 
 impl<
         D: Domain,

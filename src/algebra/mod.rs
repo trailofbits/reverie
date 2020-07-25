@@ -8,10 +8,6 @@ use rand::{Rng, RngCore};
 
 use crate::util::Writer;
 
-use bincode;
-
-use serde::{Deserialize, Serialize};
-
 mod ring;
 
 pub mod gf2;
@@ -58,7 +54,7 @@ pub trait Domain: Debug + 'static {
     type Scalar: RingElement + Packable;
 
     /// a batch of ring elements belonging to a single player
-    type Batch: RingModule<Self::Scalar> + Samplable + Serializable + Debug + Serialize + Packable;
+    type Batch: RingModule<Self::Scalar> + Samplable + Serializable + Debug + Packable;
 
     /// a sharing of a value across all players
     type Sharing: Sharing<Self::Scalar> + Debug;

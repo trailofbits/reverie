@@ -97,19 +97,6 @@ impl<D: Domain, R: RngCore, const N: usize, const O: bool> PreprocessingExecutio
             let start = ab_gamma.len();
             ab_gamma.resize(start + D::Batch::DIMENSION, D::Sharing::ZERO);
             D::convert(&mut ab_gamma[start..], &batches_gab);
-
-            // sanity check in tests
-            #[cfg(test)]
-            {
-                let mut share_c = vec![D::Sharing::ZERO; D::Batch::DIMENSION];
-                D::convert(&mut share_c[..], &batches_c);
-                for i in 0..D::Batch::DIMENSION {
-                    debug_assert_eq!(
-                        share_c[i].reconstruct(),
-                        self.share_a[i].reconstruct() * self.share_b[i].reconstruct()
-                    )
-                }
-            }
         }
 
         debug_assert_eq!(self.share_a.len(), 0);

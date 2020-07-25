@@ -6,13 +6,18 @@ pub mod verifier;
 mod tests;
 */
 
-use crate::algebra::RingElement;
+use crate::algebra::{Domain, RingElement};
 use crate::crypto::{RingHasher, TreePRF, KEY_SIZE};
 use crate::fs::View;
 use crate::Instruction;
 
+use std::marker::PhantomData;
+
 use blake3::Hash;
 use serde::{Deserialize, Serialize};
+
+pub use prover::StreamingProver;
+pub use verifier::StreamingVerifier;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Chunk {
@@ -24,6 +29,12 @@ pub struct Chunk {
 pub struct Run<const R: usize, const N: usize, const NT: usize> {
     commitment: Hash,
     open: TreePRF<NT>,
+}
+
+pub struct Proof<D: Domain, const R: usize, const N: usize, const NT: usize> {
+    runs: [Run<R, N, NT>; R],
+    chunk_size: usize,
+    _ph: PhantomData<D>,
 }
 
 #[cfg(test)]
@@ -51,23 +62,20 @@ mod tests {
         }
 
         // create a proof of the program execution
-        let p: prover::StreamingProver<D, _, _, R, N, NT> =
-            task::block_on(prover::StreamingProver::new(
+        let (p, proof): (prover::StreamingProver<D, _, _, R, N, NT>, _) =
+            prover::StreamingProver::new(
                 PreprocessingOutput::dummy(),
                 program.iter().cloned(),
                 inputs.iter().cloned(),
-            ));
+            );
 
         let (send, recv) = bounded(5);
 
-        task::block_on(p.stream(send));
+        task::block_on(p.stream(send)).unwrap();
 
-        loop {
-            match recv.try_recv() {
-                Ok(v) => println!("{:?}", v),
-                Err(_) => break,
-            }
-        }
+        let v = verifier::StreamingVerifier::new(program.iter().cloned(), proof);
+
+        task::block_on(v.verify(recv)).unwrap();
     }
 
     #[test]
@@ -77,22 +85,10 @@ mod tests {
             Instruction::Input(1),
             Instruction::Input(2),
             Instruction::Input(3),
-            Instruction::Output(0),
-            Instruction::Output(1),
-            Instruction::Output(2),
-            Instruction::Output(3),
-            Instruction::Output(0),
-            Instruction::Output(1),
-            Instruction::Output(2),
-            Instruction::Output(3),
-            Instruction::Output(0),
-            Instruction::Output(1),
-            Instruction::Output(2),
-            Instruction::Output(3),
-            Instruction::Output(0),
-            Instruction::Output(1),
-            Instruction::Output(2),
-            Instruction::Output(3),
+            Instruction::Add(5, 0, 1), // 1
+            Instruction::Mul(4, 5, 2), // 1
+            Instruction::Output(4),
+            Instruction::Output(5),
         ];
 
         let inputs: Vec<BitScalar> = vec![

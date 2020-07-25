@@ -15,7 +15,7 @@ impl Packable for BitBatch {
 
     fn pack<W: Write>(mut dst: W, elems: &[Self]) -> io::Result<()> {
         for elem in elems {
-            dst.write_all(&elem.0[..]);
+            dst.write_all(&elem.0[..])?;
         }
         Ok(())
     }

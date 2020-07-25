@@ -3,37 +3,38 @@ use crate::util::Writer;
 use super::*;
 
 use crate::algebra::{Domain, Packable, RingElement, RingModule, Sharing};
-use crate::consts::{
-    LABEL_RNG_OPEN_ONLINE, LABEL_RNG_PREPROCESSING, LABEL_SCOPE_CORRECTION,
-    LABEL_SCOPE_ONLINE_TRANSCRIPT,
-};
-use crate::fs::{Scope, View};
+use crate::consts::*;
+use crate::fs::{Scope, View, ViewRNG};
 use crate::preprocessing::verifier::PreprocessingExecution;
 use crate::util::*;
 
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use async_channel::{Receiver, RecvError, Sender};
+use async_channel::{Receiver, Sender};
 use blake3::{Hash, Hasher};
 use rand::RngCore;
 
+use async_std::task;
+
 async fn feed<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>>(
     chunk: usize,
-    senders: &mut [Sender<Arc<Vec<Instruction<D::Scalar>>>>],
+    senders: &mut [Sender<(Arc<Vec<Instruction<D::Scalar>>>, Vec<u8>)>],
     program: &mut PI,
-) -> bool {
+    chunks: &mut Receiver<Vec<u8>>,
+) -> Option<bool> {
     // next slice of program
     let ps = Arc::new(read_n(program, chunk));
     if ps.len() == 0 {
-        return false;
+        return Some(false);
     }
 
     // feed to workers
     for sender in senders {
-        sender.send(ps.clone()).await.unwrap();
+        let chunk = chunks.recv().await.ok()?;
+        sender.send((ps.clone(), chunk)).await.unwrap();
     }
-    true
+    Some(true)
 }
 
 pub struct StreamingVerifier<
@@ -43,8 +44,8 @@ pub struct StreamingVerifier<
     const N: usize,
     const NT: usize,
 > {
-    runs: [Run<R, N, NT>; R],
     program: PI,
+    proof: Proof<D, R, N, NT>,
     _ph: PhantomData<D>,
 }
 
@@ -219,20 +220,19 @@ impl<
         const NT: usize,
     > StreamingVerifier<D, PI, R, N, NT>
 {
-    pub fn new(program: PI, runs: [Run<R, N, NT>; R]) -> Self {
+    pub fn new(program: PI, proof: Proof<D, R, N, NT>) -> Self {
         StreamingVerifier {
             program,
-            runs,
+            proof,
             _ph: PhantomData,
         }
     }
 
-    pub async fn verify(self, reader: Receiver<Vec<u8>>) -> Option<Output<D, R>> {
+    pub async fn verify(mut self, mut proof: Receiver<Vec<u8>>) -> Option<Output<D, R>> {
         struct State<D: Domain, RNG: RngCore, const N: usize> {
-            views: [View; N],                   // view transcripts for players
-            omitted: usize,                     // index of omitted player
-            commitment: Hash,                   // commitment to the view of the unopened player
-            transcript: RingHasher<D::Sharing>, // broadcast transcript
+            views: [View; N], // view transcripts for players
+            omitted: usize,   // index of omitted player
+            commitment: Hash, // commitment to the view of the unopened player
             preprocessing: PreprocessingExecution<D, RNG, N>,
             online: Verifier<D, N>,
         }
@@ -261,6 +261,7 @@ impl<
                 loop {
                     match inputs.recv().await {
                         Err(_) => {
+                            println!("output: {:?}", &output[..]);
                             let mut hasher: Hasher = Hasher::new();
                             for (i, view) in self.views.iter().enumerate() {
                                 if i == self.omitted {
@@ -280,6 +281,13 @@ impl<
                             Packable::unpack(&mut masked_witness, &chunk.witness[..]).ok()?;
                             Packable::unpack(&mut corrections, &chunk.corrections[..]).ok()?;
                             Packable::unpack(&mut broadcast, &chunk.broadcast[..]).ok()?;
+                            #[cfg(test)]
+                            #[cfg(debug_assertions)]
+                            {
+                                println!("recv:masked_witness = {:?}", &masked_witness[..]);
+                                println!("recv:corrections = {:?}", &corrections[..]);
+                                println!("recv:broadcast = {:?}", &broadcast[..]);
+                            }
 
                             // add corrections to player 0 view
                             if self.omitted != 0 {
@@ -315,69 +323,7 @@ impl<
             }
         }
 
-        /*
-        let states = preprocessing.seeds.iter().map(|seed| {
-            let tree: TreePRF<NT> = TreePRF::new(*seed);
-            let keys: Array<_, N> = tree.expand().map(|x: &Option<[u8; KEY_SIZE]>| x.unwrap());
-            let views = keys.map(|key| View::new_keyed(key));
-            let rngs = views.map(|view| view.rng(LABEL_RNG_PREPROCESSING));
-            State {
-                transcript: RingHasher::new(),
-                preprocessing: PreprocessingExecution::new(rngs.unbox()),
-                online: Prover::<D, N>::new(),
-            }
-        });
-
-         // create async parallel task for every repetition
-         let mut tasks = Vec::with_capacity(R);
-         let mut inputs = Vec::with_capacity(R);
-         let mut outputs = Vec::with_capacity(R);
-         for state in states {
-             let (sender_inputs, reader_inputs) = async_channel::bounded(5);
-             let (sender_outputs, reader_outputs) = async_channel::bounded(5);
-             tasks.push(task::spawn(state.consume(sender_outputs, reader_inputs)));
-             inputs.push(sender_inputs);
-             outputs.push(reader_outputs);
-         }
-         // schedule up to 2 tasks immediately (for better performance)
-         let mut scheduled = 0;
-         for _ in 0..2 {
-             scheduled += feed::<D, _, _>(
-                 self.chunk_size,
-                 &mut inputs[..],
-                 &mut self.program,
-                 &mut self.inputs,
-             )
-             .await as usize;
-         }
-         // wait for all scheduled tasks to complete
-         while scheduled > 0 {
-             scheduled -= 1;
-             // wait for output from every task in order (to avoid one task racing a head)
-             for rx in outputs.iter_mut() {
-                 let output = rx.recv().await;
-                 proof.send(output.unwrap()).await?; // can fail
-             }
-             // schedule a new task and wait for all works to complete one
-             scheduled += feed::<D, _, _>(
-                 self.chunk_size,
-                 &mut inputs[..],
-                 &mut self.program,
-                 &mut self.inputs,
-             )
-             .await as usize;
-         }
-         // wait for tasks to finish
-         inputs.clear();
-         for t in tasks {
-             t.await.unwrap();
-         }
-         Ok(())
-         */
-
-        /*
-
-        let runs = runs.map(|((corrections, broadcast, masked), run)| {
+        let states = self.proof.runs.iter().map(|run| {
             // expand keys
             let keys: Array<_, N> = run.open.expand();
 
@@ -387,48 +333,79 @@ impl<
             // replace omitted key(s) with dummy
             let keys = keys.map(|v| v.unwrap_or([0u8; KEY_SIZE]));
 
-            // create pre-processing instance
-            let mut views = keys.map(|key| View::new_keyed(key));
-            let mut rngs = views.map(|view| view.rng(LABEL_RNG_PREPROCESSING));
-            let preprocessing: PreprocessingExecution<D, _, _, _, N> =
-                PreprocessingExecution::new(&mut rngs, omitted, corrections, self.program.clone());
-
             //
-            let broadcast: ShareIterator<D, _, N> = ShareIterator::new(omitted, broadcast);
-            let mut verifier: Verifier<_, _, _, _, _, R, N, NT> =
-                Verifier::new(masked, self.program.clone(), broadcast, preprocessing);
-
-            let mut transcript: RingHasher<D::Sharing> = RingHasher::new();
-            verifier.run(&mut transcript);
-
-            (omitted, transcript.finalize())
+            let views = keys.map(|key| View::new_keyed(key));
+            let rngs = views.map(|view| view.rng(LABEL_RNG_PREPROCESSING));
+            State::<D, ViewRNG, N> {
+                omitted,
+                views: views.unbox(),
+                online: Verifier::new(omitted),
+                commitment: run.commitment,
+                preprocessing: PreprocessingExecution::new(rngs.unbox(), omitted),
+            }
         });
 
-        // execute the online phase R times
-        let mut execs: Vec<_> = Vec::with_capacity(R);
+        // create async parallel task for every repetition
+        let mut tasks = Vec::with_capacity(R);
+        let mut inputs = Vec::with_capacity(R);
+        let mut outputs = Vec::with_capacity(R);
+        for state in states {
+            let (sender_inputs, reader_inputs) = async_channel::bounded(5);
+            let (sender_outputs, reader_outputs) = async_channel::bounded(5);
+            tasks.push(task::spawn(state.consume(sender_outputs, reader_inputs)));
+            inputs.push(sender_inputs);
+            outputs.push(reader_outputs);
+        }
 
-        #[cfg(debug_assertions)]
-        execs.extend(runs);
+        // schedule up to 2 tasks immediately (for better performance)
+        let mut scheduled = 0;
+        for _ in 0..2 {
+            scheduled += feed::<D, _>(
+                self.proof.chunk_size,
+                &mut inputs[..],
+                &mut self.program,
+                &mut proof,
+            )
+            .await? as usize;
+        }
 
-        #[cfg(not(debug_assertions))]
-        runs.collect_into_vec(&mut execs);
+        // wait for all scheduled tasks to complete
+        while scheduled > 0 {
+            scheduled -= 1;
+            // wait for output from every task in order (to avoid one task racing a head)
+            for rx in outputs.iter_mut() {
+                let _ = rx.recv().await;
+            }
 
-        // extract which players to omit in every run (Fiat-Shamir)
-        let mut view: View = View::new();
+            // schedule a new task and wait for all works to complete one
+            scheduled += feed::<D, _>(
+                self.proof.chunk_size,
+                &mut inputs[..],
+                &mut self.program,
+                &mut proof,
+            )
+            .await? as usize;
+        }
+
+        // wait for tasks to finish
+        inputs.clear();
+
+        // verify opening
+        let mut pp_hashes: Vec<Hash> = Vec::with_capacity(R);
+        let mut global: View = View::new();
         {
-            let mut scope = view.scope(LABEL_SCOPE_ONLINE_TRANSCRIPT);
-            for (_, hash) in execs.iter() {
-                scope.join(&hash);
+            let mut scope: Scope = global.scope(LABEL_SCOPE_AGGREGATE_COMMIT);
+            for t in tasks {
+                let (preprocessing, online) = t.await?;
+                scope.join(&online);
+                pp_hashes.push(preprocessing);
             }
         }
-        let mut rng = view.rng(LABEL_RNG_OPEN_ONLINE);
-        for (omit, _) in execs.iter() {
-            if *omit != random_usize::<_, N>(&mut rng) {
-                return None;
-            }
-        }
-        */
 
-        None
+        // return output to verify against pre-processing
+        Some(Output {
+            pp_hashes: Array::from_iter(pp_hashes.iter().cloned()),
+            output: vec![],
+        })
     }
 }
