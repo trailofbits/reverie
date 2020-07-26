@@ -92,7 +92,7 @@ impl<D: Domain, I: Iterator<Item = D::Batch>, const N: usize> Iterator for Share
 ///
 /// Avoiding potential misuse where the user fails to check the pre-processing.
 pub struct Output<D: Domain, const R: usize> {
-    output: Vec<D::Scalar>,
+    result: Vec<D::Scalar>,
     pp_hashes: Array<Hash, R>,
 }
 
@@ -103,112 +103,14 @@ impl<D: Domain, const R: usize> Output<D, R> {
                 return None;
             }
         }
-        Some(&self.output[..])
+        Some(&self.result[..])
     }
 
     // provides access to the output without checking the pre-processing
     // ONLY USED IN TESTS
     #[cfg(test)]
     pub(super) fn unsafe_output(&self) -> &[D::Scalar] {
-        &self.output[..]
-    }
-}
-
-struct Verifier<D: Domain, const N: usize> {
-    omitted: usize,
-    wires: VecMap<D::Scalar>,
-}
-
-impl<D: Domain, const N: usize> Verifier<D, N> {
-    fn new(omitted: usize) -> Self {
-        Verifier {
-            omitted,
-            wires: VecMap::new(),
-        }
-    }
-
-    fn run<TW: Writer<D::Sharing>, OW: Writer<D::Scalar>>(
-        &mut self,
-        output: &mut OW,
-        transcript: &mut TW,
-        program: &[Instruction<D::Scalar>],
-        masked_witness: &[D::Scalar],
-        broadcast: &[D::Batch], // broadcast messages from omitted player
-        preprocessing_masks: &[D::Sharing], //
-        preprocessing_ab_gamma: &[D::Sharing],
-    ) -> Option<()> {
-        let mut witness = masked_witness.iter().cloned();
-
-        //
-        let mut masks = preprocessing_masks.iter().cloned();
-        let mut ab_gamma = preprocessing_ab_gamma.iter().cloned();
-
-        //
-        let mut broadcast: ShareIterator<D, _, N> =
-            ShareIterator::new(self.omitted, broadcast.iter().cloned());
-
-        for step in program {
-            match *step {
-                Instruction::Input(dst) => {
-                    self.wires.set(dst, witness.next()?);
-                }
-                Instruction::AddConst(dst, src, c) => {
-                    let a_w = self.wires.get(src);
-                    self.wires.set(dst, a_w + c);
-                }
-                Instruction::MulConst(dst, src, c) => {
-                    let sw = self.wires.get(src);
-                    self.wires.set(dst, sw * c);
-                }
-                Instruction::Add(dst, src1, src2) => {
-                    let a_w = self.wires.get(src1);
-                    let b_w = self.wires.get(src2);
-                    self.wires.set(dst, a_w + b_w);
-                }
-                Instruction::Mul(dst, src1, src2) => {
-                    // calculate reconstruction shares for every player
-                    let a_w = self.wires.get(src1);
-                    let b_w = self.wires.get(src2);
-                    let a_m: D::Sharing = masks.next().unwrap();
-                    let b_m: D::Sharing = masks.next().unwrap();
-                    let ab_gamma: D::Sharing = ab_gamma.next().unwrap();
-
-                    let recon = a_m.action(b_w)
-                                + b_m.action(a_w)
-                                + ab_gamma // partial a * b + \gamma
-                                + broadcast.next()?; // share of omitted player
-
-                    // reconstruct
-                    transcript.write(recon);
-
-                    // corrected wire
-                    let c_w = recon.reconstruct() + a_w * b_w;
-
-                    // reconstruct and correct share
-                    self.wires.set(dst, c_w);
-
-                    // check if call into pre-processing needed
-                    if masks.len() == 0 {
-                        break;
-                    }
-                }
-                Instruction::Output(src) => {
-                    let recon: D::Sharing = masks.next().unwrap() + broadcast.next()?;
-
-                    // reconstruct
-                    transcript.write(recon);
-
-                    // TODO: write the output to
-                    output.write(self.wires.get(src) + recon.reconstruct());
-
-                    // check if call into pre-processing needed
-                    if masks.len() == 0 {
-                        break;
-                    }
-                }
-            }
-        }
-        Some(())
+        &self.result[..]
     }
 }
 
@@ -233,8 +135,8 @@ impl<
             views: [View; N], // view transcripts for players
             omitted: usize,   // index of omitted player
             commitment: Hash, // commitment to the view of the unopened player
+            chunk_size: usize,
             preprocessing: PreprocessingExecution<D, RNG, N>,
-            online: Verifier<D, N>,
         }
 
         impl<D: Domain, RNG: RngCore, const N: usize> State<D, RNG, N> {
@@ -245,19 +147,19 @@ impl<
                     Arc<Vec<Instruction<D::Scalar>>>, // next slice of program
                     Vec<u8>,                          // next chunk
                 )>,
-            ) -> Option<(Hash, Hash)> {
-                let chunk_capacity: usize = 100_000;
+            ) -> Option<(usize, Vec<D::Scalar>, Hash, Hash)> {
+                let mut wires = VecMap::new();
                 let mut transcript: RingHasher<_> = RingHasher::new();
                 let mut output: Vec<D::Scalar> = Vec::with_capacity(5);
 
                 // pre-processing output
-                let mut masks: Vec<D::Sharing> = Vec::with_capacity(chunk_capacity);
-                let mut ab_gamma: Vec<D::Sharing> = Vec::with_capacity(chunk_capacity);
+                let mut masks: Vec<D::Sharing> = Vec::with_capacity(2 * self.chunk_size);
+                let mut ab_gamma: Vec<D::Sharing> = Vec::with_capacity(self.chunk_size);
 
                 // deserialized proof
-                let mut broadcast: Vec<D::Batch> = Vec::with_capacity(chunk_capacity);
-                let mut corrections: Vec<D::Batch> = Vec::with_capacity(chunk_capacity);
-                let mut masked_witness: Vec<D::Scalar> = Vec::with_capacity(chunk_capacity);
+                let mut broadcast: Vec<D::Batch> = Vec::with_capacity(self.chunk_size);
+                let mut corrections: Vec<D::Batch> = Vec::with_capacity(self.chunk_size);
+                let mut masked_witness: Vec<D::Scalar> = Vec::with_capacity(self.chunk_size);
                 loop {
                     match inputs.recv().await {
                         Err(_) => {
@@ -271,6 +173,8 @@ impl<
                                 }
                             }
                             return Some((
+                                self.omitted,
+                                output,
                                 transcript.finalize(), // public transcript
                                 hasher.finalize(),     // player commitments
                             ));
@@ -305,16 +209,75 @@ impl<
                                 &mut ab_gamma,
                             )?;
 
-                            // online
-                            self.online.run(
-                                &mut output,
-                                &mut transcript,
-                                &program[..],
-                                &masked_witness[..],
-                                &broadcast[..],
-                                &masks[..],
-                                &ab_gamma[..],
-                            )?;
+                            //
+                            let mut masks = masks.iter().cloned();
+                            let mut witness = masked_witness.iter().cloned();
+                            let mut ab_gamma = ab_gamma.iter().cloned();
+                            let mut broadcast: ShareIterator<D, _, N> =
+                                ShareIterator::new(self.omitted, broadcast.iter().cloned());
+
+                            for step in program.iter().cloned() {
+                                match step {
+                                    Instruction::Input(dst) => {
+                                        wires.set(dst, witness.next()?);
+                                    }
+                                    Instruction::AddConst(dst, src, c) => {
+                                        let a_w = wires.get(src);
+                                        wires.set(dst, a_w + c);
+                                    }
+                                    Instruction::MulConst(dst, src, c) => {
+                                        let sw = wires.get(src);
+                                        wires.set(dst, sw * c);
+                                    }
+                                    Instruction::Add(dst, src1, src2) => {
+                                        let a_w = wires.get(src1);
+                                        let b_w = wires.get(src2);
+                                        wires.set(dst, a_w + b_w);
+                                    }
+                                    Instruction::Mul(dst, src1, src2) => {
+                                        // calculate reconstruction shares for every player
+                                        let a_w = wires.get(src1);
+                                        let b_w = wires.get(src2);
+                                        let a_m: D::Sharing = masks.next().unwrap();
+                                        let b_m: D::Sharing = masks.next().unwrap();
+                                        let ab_gamma: D::Sharing = ab_gamma.next().unwrap();
+                                        let recon = a_m.action(b_w)
+                                                    + b_m.action(a_w)
+                                                    + ab_gamma // partial a * b + \gamma
+                                                    + broadcast.next()?; // share of omitted player
+                                                                         // reconstruct
+
+                                        #[cfg(test)]
+                                        #[cfg(debug_assertions)]
+                                        {
+                                            println!("verifier-broadcast: {:?}", recon);
+                                        }
+                                        transcript.write(recon);
+                                        // corrected wire
+                                        let c_w = recon.reconstruct() + a_w * b_w;
+                                        // reconstruct and correct share
+                                        wires.set(dst, c_w);
+                                        // check if call into pre-processing needed
+                                        if masks.len() == 0 {
+                                            break;
+                                        }
+                                    }
+                                    Instruction::Output(src) => {
+                                        let recon: D::Sharing =
+                                            masks.next().unwrap() + broadcast.next()?;
+                                        #[cfg(test)]
+                                        #[cfg(debug_assertions)]
+                                        {
+                                            println!("verifier-broadcast: {:?}", recon);
+                                        }
+                                        transcript.write(recon);
+                                        output.write(wires.get(src) + recon.reconstruct());
+                                        if masks.len() == 0 {
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
 
                             outputs.send(()).await.unwrap();
                         }
@@ -337,9 +300,9 @@ impl<
             let views = keys.map(|key| View::new_keyed(key));
             let rngs = views.map(|view| view.rng(LABEL_RNG_PREPROCESSING));
             State::<D, ViewRNG, N> {
+                chunk_size: self.proof.chunk_size,
                 omitted,
                 views: views.unbox(),
-                online: Verifier::new(omitted),
                 commitment: run.commitment,
                 preprocessing: PreprocessingExecution::new(rngs.unbox(), omitted),
             }
@@ -390,22 +353,40 @@ impl<
         // wait for tasks to finish
         inputs.clear();
 
-        // verify opening
-        let mut pp_hashes: Vec<Hash> = Vec::with_capacity(R);
+        // collect transcript hashes from all executions
         let mut global: View = View::new();
+        let mut result: Vec<D::Scalar> = vec![];
+        let mut omitted: [usize; N] = [0; N];
+        let mut pp_hashes: Vec<Hash> = Vec::with_capacity(R);
         {
-            let mut scope: Scope = global.scope(LABEL_SCOPE_AGGREGATE_COMMIT);
-            for t in tasks {
-                let (preprocessing, online) = t.await?;
+            let mut scope: Scope = global.scope(LABEL_SCOPE_ONLINE_TRANSCRIPT);
+            for (i, t) in tasks.into_iter().enumerate() {
+                let (omit, output, online, preprocessing) = t.await?;
+                if i == 0 {
+                    result = output;
+                } else {
+                    if &result[..] != &output[..] {
+                        return None;
+                    }
+                }
+                omitted[i] = omit;
                 scope.join(&online);
                 pp_hashes.push(preprocessing);
+            }
+        }
+
+        // verify opening indexes
+        let mut rng = global.rng(LABEL_RNG_OPEN_ONLINE);
+        for i in 0..R {
+            if omitted[i] != random_usize::<_, N>(&mut rng) {
+                return None;
             }
         }
 
         // return output to verify against pre-processing
         Some(Output {
             pp_hashes: Array::from_iter(pp_hashes.iter().cloned()),
-            output: vec![],
+            result,
         })
     }
 }

@@ -20,6 +20,13 @@ mod util;
 mod tests;
 */
 
+use online::Chunk;
+
+// simplified interface
+pub struct Proof {
+    chunk: Chunk,
+}
+
 // pre-processing
 pub mod preprocessing;
 

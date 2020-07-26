@@ -173,6 +173,11 @@ impl<D: Domain, const N: usize> Prover<D, N> {
                     let b_m: D::Sharing = masks.next().unwrap();
                     let ab_gamma: D::Sharing = ab_gamma.next().unwrap();
                     let recon = a_m.action(b_w) + b_m.action(a_w) + ab_gamma;
+                    #[cfg(test)]
+                    #[cfg(debug_assertions)]
+                    {
+                        println!("prover-broadcast: {:?}", recon);
+                    }
 
                     // reconstruct
                     broadcast.write(recon);
@@ -184,16 +189,22 @@ impl<D: Domain, const N: usize> Prover<D, N> {
                     self.wires.set(dst, c_w);
                 }
                 Instruction::Output(_src) => {
-                    let mask: D::Sharing = masks.next().unwrap();
+                    let recon: D::Sharing = masks.next().unwrap();
 
                     // reconstruct
-                    broadcast.write(mask);
+                    #[cfg(test)]
+                    #[cfg(debug_assertions)]
+                    {
+                        println!("prover-broadcast: {:?}", recon);
+                    }
+                    broadcast.write(recon);
 
                     // output for debugging
                     #[cfg(test)]
+                    #[cfg(debug_assertions)]
                     {
-                        let output = self.wires.get(_src) + mask.reconstruct();
-                        println!("output {:?}", output);
+                        let output = self.wires.get(_src) + recon.reconstruct();
+                        println!("prover-output: {:?}", output);
                     }
                 }
             }
@@ -354,17 +365,17 @@ impl<
         inputs.clear();
 
         // extract which players to omit in every run (Fiat-Shamir)
-        let mut view: View = View::new();
+        let mut global: View = View::new();
         let mut commitments = Vec::new();
         {
-            let mut scope = view.scope(LABEL_SCOPE_ONLINE_TRANSCRIPT);
+            let mut scope: Scope = global.scope(LABEL_SCOPE_ONLINE_TRANSCRIPT);
             for t in tasks.into_iter() {
                 let (public, comm) = t.await.unwrap();
                 commitments.push(comm);
                 scope.join(&public);
             }
         }
-        let mut rng = view.rng(LABEL_RNG_OPEN_ONLINE);
+        let mut rng = global.rng(LABEL_RNG_OPEN_ONLINE);
         let mut omitted: [usize; R] = [0; R];
         for i in 0..R {
             omitted[i] = random_usize::<_, N>(&mut rng);
@@ -408,6 +419,7 @@ impl<
     pub async fn stream(mut self, proof: Sender<Vec<u8>>) -> Result<(), SendError<Vec<u8>>> {
         struct State<D: Domain, R: RngCore, const N: usize> {
             omitted: usize,
+            chunk_size: usize,
             preprocessing: PreprocessingExecution<D, R, N, true>,
             online: Prover<D, N>,
         }
@@ -421,20 +433,18 @@ impl<
                     Arc<Vec<D::Scalar>>,              // next slice of witness
                 )>,
             ) -> Result<(), SendError<Vec<u8>>> {
-                let chunk_capacity: usize = 100_000;
-
                 // output buffers used during execution
-                let mut masks = Vec::with_capacity(chunk_capacity);
-                let mut ab_gamma = Vec::with_capacity(chunk_capacity);
-                let mut corrections = Vec::with_capacity(chunk_capacity);
-                let mut broadcast = Vec::with_capacity(chunk_capacity);
-                let mut masked = Vec::with_capacity(chunk_capacity);
+                let mut masks = Vec::with_capacity(2 * self.chunk_size);
+                let mut ab_gamma = Vec::with_capacity(self.chunk_size);
+                let mut corrections = Vec::with_capacity(self.chunk_size);
+                let mut broadcast = Vec::with_capacity(self.chunk_size);
+                let mut masked = Vec::with_capacity(self.chunk_size);
 
                 // packed elements to be serialized
                 let mut chunk = Chunk {
-                    witness: Vec::with_capacity(chunk_capacity),
-                    broadcast: Vec::with_capacity(chunk_capacity),
-                    corrections: Vec::with_capacity(chunk_capacity),
+                    witness: Vec::with_capacity(self.chunk_size),
+                    broadcast: Vec::with_capacity(self.chunk_size),
+                    corrections: Vec::with_capacity(self.chunk_size),
                 };
 
                 loop {
@@ -510,6 +520,7 @@ impl<
                 let rngs = views.map(|view| view.rng(LABEL_RNG_PREPROCESSING));
                 State {
                     omitted,
+                    chunk_size: self.chunk_size,
                     preprocessing: PreprocessingExecution::new(rngs.unbox()),
                     online: Prover::<D, N>::new(),
                 }

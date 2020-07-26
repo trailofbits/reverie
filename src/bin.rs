@@ -98,7 +98,7 @@ async fn async_main() {
 
         println!("pre-process: {}", ops);
 
-        let chunk_size = 1_000_000;
+        let chunk_size = 10_000_000;
 
         let program: Program<<GF2P8 as Domain>::Scalar> = Program::new(
             match operation {
