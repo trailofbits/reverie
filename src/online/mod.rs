@@ -9,6 +9,7 @@ mod tests;
 use crate::algebra::{Domain, RingElement};
 use crate::crypto::{RingHasher, TreePRF, KEY_SIZE};
 use crate::fs::View;
+use crate::util::Array;
 use crate::Instruction;
 
 use std::marker::PhantomData;
@@ -19,20 +20,22 @@ use serde::{Deserialize, Serialize};
 pub use prover::StreamingProver;
 pub use verifier::StreamingVerifier;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Chunk {
     corrections: Vec<u8>,
     broadcast: Vec<u8>,
     witness: Vec<u8>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Run<const R: usize, const N: usize, const NT: usize> {
-    commitment: Hash,
+    commitment: [u8; 32],
     open: TreePRF<NT>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Proof<D: Domain, const R: usize, const N: usize, const NT: usize> {
-    runs: [Run<R, N, NT>; R],
+    runs: Array<Run<R, N, NT>, R>,
     chunk_size: usize,
     _ph: PhantomData<D>,
 }
@@ -51,6 +54,7 @@ mod tests {
     use crate::algebra::Domain;
     use crate::preprocessing::PreprocessingOutput;
 
+    /*
     fn test_proof<D: Domain, const N: usize, const NT: usize, const R: usize>(
         program: &[Instruction<D::Scalar>],
         inputs: &[D::Scalar],
@@ -62,7 +66,7 @@ mod tests {
         }
 
         // create a proof of the program execution
-        let (p, proof): (prover::StreamingProver<D, _, _, R, N, NT>, _) =
+        let (proof, p): (_, prover::StreamingProver<D, _, _, R, N, NT>) =
             prover::StreamingProver::new(
                 PreprocessingOutput::dummy(),
                 program.iter().cloned(),
@@ -100,4 +104,5 @@ mod tests {
 
         test_proof::<GF2P8, 8, 8, 1>(&program[..], &inputs[..]);
     }
+    */
 }

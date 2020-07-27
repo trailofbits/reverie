@@ -22,20 +22,17 @@ mod tests;
 
 use online::Chunk;
 
-// simplified interface
-pub struct Proof {
-    chunk: Chunk,
-}
+// traits and implementations of the underlying ring
+// exposed to enable uses to define programs for the supported rings.
+pub mod algebra;
+
+pub mod proof;
 
 // pre-processing
 pub mod preprocessing;
 
 // online phase
 pub mod online;
-
-// traits and implementations of the underlying ring
-// exposed to enable uses to define programs for the supported rings.
-pub mod algebra;
 
 // abstraction for Fiat-Shamir
 mod fs;

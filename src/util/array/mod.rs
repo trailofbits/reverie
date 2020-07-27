@@ -8,6 +8,7 @@ use std::mem;
 // relevant serde implementations for serializing / deserializing
 mod serde;
 
+#[derive(Clone)]
 pub struct Array<T: Sized, const L: usize>(Box<[T; L]>);
 
 pub struct ArrayIter<'a, T: Sized, const L: usize> {

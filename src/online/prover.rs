@@ -59,19 +59,10 @@ fn count_inputs<D: Domain>(program: &[Instruction<D::Scalar>]) -> usize {
     inputs
 }
 
-pub struct StreamingProver<
-    D: Domain,
-    PI: Iterator<Item = Instruction<D::Scalar>> + Clone,
-    WI: Iterator<Item = D::Scalar> + Clone,
-    const R: usize,
-    const N: usize,
-    const NT: usize,
-> {
+pub struct StreamingProver<D: Domain, const R: usize, const N: usize, const NT: usize> {
     preprocessing: PreprocessingOutput<D, R, N>,
     chunk_size: usize,
     omitted: [usize; R],
-    program: PI,
-    inputs: WI,
 }
 
 struct BatchExtractor<D: Domain, W: Writer<D::Batch>, const N: usize> {
@@ -212,36 +203,28 @@ impl<D: Domain, const N: usize> Prover<D, N> {
     }
 }
 
-impl<
-        D: Domain,
-        PI: Iterator<Item = Instruction<D::Scalar>> + Clone,
-        WI: Iterator<Item = D::Scalar> + Clone,
-        const R: usize,
-        const N: usize,
-        const NT: usize,
-    > StreamingProver<D, PI, WI, R, N, NT>
-{
+impl<D: Domain, const R: usize, const N: usize, const NT: usize> StreamingProver<D, R, N, NT> {
     /// Creates a new proof of program execution on the input provided.
     ///
     /// It is crucial for zero-knowledge that the pre-processing output is not reused!
     /// To help ensure this Proof::new takes ownership of PreprocessedProverOutput,
     /// which prevents the programmer from accidentally re-using the output
-    pub fn new(
+    pub fn new<PI: Iterator<Item = Instruction<D::Scalar>>, WI: Iterator<Item = D::Scalar>>(
         preprocessing: PreprocessingOutput<D, R, N>,
         program: PI,
         witness: WI,
-    ) -> (Self, Proof<D, R, N, NT>) {
+    ) -> (Proof<D, R, N, NT>, Self) {
         task::block_on(Self::new_internal(preprocessing, program, witness))
     }
 
-    async fn new_internal(
+    async fn new_internal<
+        PI: Iterator<Item = Instruction<D::Scalar>>,
+        WI: Iterator<Item = D::Scalar>,
+    >(
         preprocessing: PreprocessingOutput<D, R, N>,
         mut program: PI,
         mut witness: WI,
-    ) -> (Self, Proof<D, R, N, NT>) {
-        let initial_witness = witness.clone();
-        let initial_program = program.clone();
-
+    ) -> (Proof<D, R, N, NT>, Self) {
         struct State<D: Domain, R: RngCore, const N: usize> {
             views: [View; N], // view transcripts for players
             transcript: RingHasher<D::Sharing>,
@@ -391,7 +374,7 @@ impl<
                 .map(|((omit, comm), seed)| {
                     let tree = TreePRF::new(*seed);
                     Run {
-                        commitment: comm[omit],
+                        commitment: *comm[omit].as_bytes(),
                         open: tree.puncture(omit),
                     }
                 }),
@@ -401,22 +384,28 @@ impl<
         // return prover ready to stream out the proof
         let chunk_size = preprocessing.chunk_size;
         (
+            Proof {
+                runs,
+                chunk_size,
+                _ph: PhantomData,
+            },
             StreamingProver {
                 chunk_size,
                 omitted,
                 preprocessing,
-                inputs: initial_witness,
-                program: initial_program,
-            },
-            Proof {
-                runs: runs.unbox(),
-                chunk_size,
-                _ph: PhantomData,
             },
         )
     }
 
-    pub async fn stream(mut self, proof: Sender<Vec<u8>>) -> Result<(), SendError<Vec<u8>>> {
+    pub async fn stream<
+        PI: Iterator<Item = Instruction<D::Scalar>>,
+        WI: Iterator<Item = D::Scalar>,
+    >(
+        self,
+        dst: Sender<Vec<u8>>,
+        mut program: PI,
+        mut witness: WI,
+    ) -> Result<(), SendError<Vec<u8>>> {
         struct State<D: Domain, R: RngCore, const N: usize> {
             omitted: usize,
             chunk_size: usize,
@@ -541,13 +530,9 @@ impl<
         // schedule up to 2 tasks immediately (for better performance)
         let mut scheduled = 0;
         for _ in 0..2 {
-            scheduled += feed::<D, _, _>(
-                self.chunk_size,
-                &mut inputs[..],
-                &mut self.program,
-                &mut self.inputs,
-            )
-            .await as usize;
+            scheduled +=
+                feed::<D, _, _>(self.chunk_size, &mut inputs[..], &mut program, &mut witness).await
+                    as usize;
         }
 
         // wait for all scheduled tasks to complete
@@ -557,17 +542,13 @@ impl<
             // wait for output from every task in order (to avoid one task racing a head)
             for rx in outputs.iter_mut() {
                 let output = rx.recv().await;
-                proof.send(output.unwrap()).await?; // can fail
+                dst.send(output.unwrap()).await?; // can fail
             }
 
             // schedule a new task and wait for all works to complete one
-            scheduled += feed::<D, _, _>(
-                self.chunk_size,
-                &mut inputs[..],
-                &mut self.program,
-                &mut self.inputs,
-            )
-            .await as usize;
+            scheduled +=
+                feed::<D, _, _>(self.chunk_size, &mut inputs[..], &mut program, &mut witness).await
+                    as usize;
         }
 
         // wait for tasks to finish

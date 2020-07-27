@@ -50,7 +50,7 @@ pub trait Sharing<R: RingElement>: RingModule<R> + Serializable {
 }
 
 /// Represents a ring and player count instance of the protocol
-pub trait Domain: Debug + 'static {
+pub trait Domain: Debug + Copy + Send + Sync + 'static {
     type Scalar: RingElement + Packable;
 
     /// a batch of ring elements belonging to a single player

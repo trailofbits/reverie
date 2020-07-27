@@ -67,6 +67,7 @@ impl<E: RingElement> Iterator for Program<E> {
     }
 }
 
+/*
 async fn async_main() {
     let mut args = env::args();
 
@@ -139,13 +140,14 @@ async fn async_main() {
         unimplemented!()
     }
 }
+*/
 
 fn main() {
     // start profiler
     #[cfg(feature = "profiler")]
     PROFILER.lock().unwrap().start("./reverie.prof").unwrap();
 
-    task::block_on(async_main());
+    //task::block_on(async_main());
 
     // stop profiler
     #[cfg(feature = "profiler")]

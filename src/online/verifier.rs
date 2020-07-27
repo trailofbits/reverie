@@ -39,13 +39,13 @@ async fn feed<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>>(
 
 pub struct StreamingVerifier<
     D: Domain,
-    PI: Iterator<Item = Instruction<D::Scalar>> + Clone,
+    PI: Iterator<Item = Instruction<D::Scalar>>,
     const R: usize,
     const N: usize,
     const NT: usize,
 > {
-    program: PI,
     proof: Proof<D, R, N, NT>,
+    program: PI,
     _ph: PhantomData<D>,
 }
 
@@ -97,17 +97,17 @@ pub struct Output<D: Domain, const R: usize> {
 }
 
 impl<D: Domain, const R: usize> Output<D, R> {
-    pub fn check(&self, pp_hashes: &[Hash; R]) -> Option<&[D::Scalar]> {
+    pub fn check(self, pp_hashes: &[Hash; R]) -> Option<Vec<D::Scalar>> {
         for i in 0..R {
             if pp_hashes[i] != self.pp_hashes[i] {
                 return None;
             }
         }
-        Some(&self.result[..])
+        Some(self.result)
     }
 
     // provides access to the output without checking the pre-processing
-    // ONLY USED IN TESTS
+    // ONLY USED IN TESTS: enables testing of the online phase separately from pre-processing
     #[cfg(test)]
     pub(super) fn unsafe_output(&self) -> &[D::Scalar] {
         &self.result[..]
@@ -163,7 +163,6 @@ impl<
                 loop {
                     match inputs.recv().await {
                         Err(_) => {
-                            println!("output: {:?}", &output[..]);
                             let mut hasher: Hasher = Hasher::new();
                             for (i, view) in self.views.iter().enumerate() {
                                 if i == self.omitted {
@@ -303,7 +302,7 @@ impl<
                 chunk_size: self.proof.chunk_size,
                 omitted,
                 views: views.unbox(),
-                commitment: run.commitment,
+                commitment: Hash::from(run.commitment),
                 preprocessing: PreprocessingExecution::new(rngs.unbox(), omitted),
             }
         });

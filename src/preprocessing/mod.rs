@@ -17,6 +17,8 @@ use async_std::task;
 
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
+
 async fn feed<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>>(
     chunk: usize,
     senders: &mut [Sender<Arc<Vec<Instruction<D::Scalar>>>>],
@@ -44,6 +46,7 @@ async fn feed<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>>(
 /// - R  : number of repetitions
 /// - RT : size of PRF tree for repetitions
 /// - H  : hidden views (repetitions of online phase)
+#[derive(Deserialize, Serialize)]
 pub struct Proof<
     D: Domain,
     const P: usize,
@@ -52,7 +55,7 @@ pub struct Proof<
     const RT: usize,
     const H: usize,
 > {
-    hidden: Array<Hash, H>,  // commitments to the hidden pre-processing executions
+    hidden: Array<[u8; 32], H>, // commitments to the hidden pre-processing executions
     random: TreePRF<{ RT }>, // punctured PRF used to derive the randomness for the opened pre-processing executions
     chunk_size: usize,
     ph: PhantomData<D>,
@@ -186,7 +189,7 @@ impl<
     pub fn verify<PI: Iterator<Item = Instruction<D::Scalar>>>(
         &self,
         program: PI,
-    ) -> Option<&[Hash; H]> {
+    ) -> Option<[Hash; H]> {
         // derive keys and hidden execution indexes
         let keys: Array<_, R> = self.random.expand();
         let mut opened: Vec<bool> = Vec::with_capacity(R);
@@ -221,7 +224,7 @@ impl<
                 if open {
                     hashes.push(*open_hsh.next().unwrap())
                 } else {
-                    hashes.push(*hide_hsh.next().unwrap())
+                    hashes.push(Hash::from(*hide_hsh.next().unwrap()))
                 }
             }
         }
@@ -239,7 +242,7 @@ impl<
         if &hidden[..]
             == &random_subset::<_, R, H>(&mut global.rng(LABEL_RNG_OPEN_PREPROCESSING))[..]
         {
-            Some(&self.hidden)
+            Some(self.hidden.map(|h| Hash::from(*h)).unbox())
         } else {
             None
         }
@@ -282,8 +285,8 @@ impl<
         }
 
         // extract hashes for the hidden evaluations
-        let hidden_hashes: Array<Hash, H> =
-            Array::from_iter(hide.iter().map(|i| hashes[*i].clone()));
+        let hidden_hashes: Array<[u8; 32], H> =
+            Array::from_iter(hide.iter().map(|i| *hashes[*i].as_bytes()));
 
         // extract pre-processing key material for the hidden views
         // (returned to the prover for use in the online phase)
