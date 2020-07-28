@@ -20,13 +20,13 @@ mod util;
 mod tests;
 */
 
-use online::Chunk;
-
 // traits and implementations of the underlying ring
 // exposed to enable uses to define programs for the supported rings.
 pub mod algebra;
 
-pub mod proof;
+// simplified API for basic usage
+mod proof;
+pub use proof::{ProofGF2P8, ProofGF2P64};
 
 // pre-processing
 pub mod preprocessing;

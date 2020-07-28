@@ -27,11 +27,11 @@ pub struct PreprocessingExecution<D: Domain, R: RngCore, const N: usize, const O
     share_a: Vec<D::Sharing>, // beta sharings (from input)
     share_b: Vec<D::Sharing>, // alpha sharings (from input)
     share_g: Vec<D::Sharing>, // gamma sharings (output)
-    rngs: [R; N],             // rngs
+    rngs: Array<R, N>,        // rngs
 }
 
 impl<D: Domain, R: RngCore, const N: usize, const O: bool> PreprocessingExecution<D, R, N, O> {
-    pub fn new(rngs: [R; N]) -> Self {
+    pub fn new(rngs: Array<R, N>) -> Self {
         PreprocessingExecution {
             next_input: D::Batch::DIMENSION,
             share_input: vec![D::Sharing::ZERO; D::Batch::DIMENSION],

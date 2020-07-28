@@ -69,9 +69,13 @@ pub struct Proof<
 /// For this reason PreprocessingOutput does not implement Copy/Clone
 /// and the online phase takes ownership of the struct, nor does it expose any fields.
 pub struct PreprocessingOutput<D: Domain, const H: usize, const N: usize> {
-    pub(crate) seeds: [[u8; KEY_SIZE]; H],
+    pub(crate) seeds: Array<[u8; KEY_SIZE], H>,
     pub(crate) chunk_size: usize,
     ph: PhantomData<D>,
+}
+
+pub struct Output<const H: usize> {
+    pub(crate) hidden: [Hash; H],
 }
 
 impl<D: Domain, const H: usize, const N: usize> PreprocessingOutput<D, H, N> {
@@ -80,7 +84,7 @@ impl<D: Domain, const H: usize, const N: usize> PreprocessingOutput<D, H, N> {
     pub(crate) fn dummy() -> Self {
         PreprocessingOutput {
             chunk_size: 1024,
-            seeds: [[0u8; KEY_SIZE]; H],
+            seeds: Array::new([0u8; KEY_SIZE]),
             ph: PhantomData,
         }
     }
@@ -101,8 +105,8 @@ impl<
         mut program: PI,
     ) -> Vec<Hash> {
         struct State<D: Domain, const N: usize> {
-            views: [View; N],
-            preprocessing: prover::PreprocessingExecution<D, ViewRNG, N, false>,
+            views: Array<View, N>,
+            preprocessing: Box<prover::PreprocessingExecution<D, ViewRNG, N, false>>,
         }
 
         impl<D: Domain, const N: usize> State<D, N> {
@@ -144,19 +148,25 @@ impl<
                 keys.map(|key: &Option<[u8; KEY_SIZE]>| View::new_keyed(key.as_ref().unwrap()));
             let rngs = views.map(|view: &View| view.rng(LABEL_RNG_PREPROCESSING));
 
-            State::<D, N> {
-                views: views.unbox(),
-                preprocessing: prover::PreprocessingExecution::new(rngs.unbox()),
-            }
+            Box::new(State::<D, N> {
+                views,
+                preprocessing: Box::new(prover::PreprocessingExecution::new(rngs)),
+            })
         });
+
         // create async parallel task for every repetition
         let mut tasks = Vec::with_capacity(R);
         let mut inputs: Vec<Sender<Arc<Vec<Instruction<D::Scalar>>>>> = Vec::with_capacity(R);
         let mut outputs = Vec::with_capacity(R);
+
         for state in states {
             let (send_inputs, recv_inputs) = async_channel::bounded(5);
             let (send_outputs, recv_outputs) = async_channel::bounded(5);
-            tasks.push(task::spawn(state.consume(send_outputs, recv_inputs)));
+
+            let a = state.consume(send_outputs, recv_inputs);
+            let t = task::spawn(a);
+
+            tasks.push(t);
             inputs.push(send_inputs);
             outputs.push(recv_outputs);
         }
@@ -179,7 +189,7 @@ impl<
         inputs.clear();
 
         // collect final commitments
-        let mut hashes = Vec::with_capacity(R);
+        let mut hashes: Vec<Hash> = Vec::with_capacity(R);
         for t in tasks.into_iter() {
             hashes.push(t.await.unwrap());
         }
@@ -189,9 +199,9 @@ impl<
     pub fn verify<PI: Iterator<Item = Instruction<D::Scalar>>>(
         &self,
         program: PI,
-    ) -> Option<[Hash; H]> {
+    ) -> Option<Output<H>> {
         // derive keys and hidden execution indexes
-        let keys: Array<_, R> = self.random.expand();
+        let keys = self.random.expand_vec(R);
         let mut opened: Vec<bool> = Vec::with_capacity(R);
         let mut hidden: Vec<usize> = Vec::with_capacity(H);
         for (i, key) in keys.iter().enumerate() {
@@ -242,7 +252,9 @@ impl<
         if &hidden[..]
             == &random_subset::<_, R, H>(&mut global.rng(LABEL_RNG_OPEN_PREPROCESSING))[..]
         {
-            Some(self.hidden.map(|h| Hash::from(*h)).unbox())
+            Some(Output {
+                hidden: self.hidden.map(|h| Hash::from(*h)).unbox(),
+            })
         } else {
             None
         }
@@ -273,6 +285,7 @@ impl<
             oracle.rng(LABEL_RNG_OPEN_PREPROCESSING)
         };
 
+
         // interpret the oracle response as a subset of indexes to hide
         // (implicitly: which executions to open)
         let hide: [usize; H] = random_subset::<_, R, H>(&mut challenge_rng);
@@ -290,7 +303,7 @@ impl<
 
         // extract pre-processing key material for the hidden views
         // (returned to the prover for use in the online phase)
-        let mut hidden_seeds: [[u8; KEY_SIZE]; H] = [[0u8; KEY_SIZE]; H];
+        let mut hidden_seeds: Array<[u8; KEY_SIZE], H> = Array::new( [0u8; KEY_SIZE]);
         for (to, from) in hide.iter().enumerate() {
             hidden_seeds[to] = seeds[*from];
         }

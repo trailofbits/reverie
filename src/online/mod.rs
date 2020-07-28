@@ -9,6 +9,7 @@ mod tests;
 use crate::algebra::{Domain, RingElement};
 use crate::crypto::{RingHasher, TreePRF, KEY_SIZE};
 use crate::fs::View;
+use crate::preprocessing;
 use crate::util::Array;
 use crate::Instruction;
 
@@ -38,6 +39,36 @@ pub struct Proof<D: Domain, const R: usize, const N: usize, const NT: usize> {
     runs: Array<Run<R, N, NT>, R>,
     chunk_size: usize,
     _ph: PhantomData<D>,
+}
+
+/// This ensures that the user can only get access to the output
+/// by validating the online execution against a correctly validated and matching pre-processing execution.
+///
+/// Avoiding potential misuse where the user fails to check the pre-processing.
+pub struct Output<D: Domain, const R: usize> {
+    result: Vec<D::Scalar>,
+    pp_hashes: Array<Hash, R>,
+}
+
+impl<D: Domain, const R: usize> Output<D, R> {
+    pub fn check(self, pp: &preprocessing::Output<R>) -> Option<Vec<D::Scalar>> {
+        if pp.hidden.len() != R {
+            return None;
+        }
+        for i in 0..R {
+            if pp.hidden[i] != self.pp_hashes[i] {
+                return None;
+            }
+        }
+        Some(self.result)
+    }
+
+    // provides access to the output without checking the pre-processing
+    // ONLY USED IN TESTS: enables testing of the online phase separately from pre-processing
+    #[cfg(test)]
+    pub(super) fn unsafe_output(&self) -> &[D::Scalar] {
+        &self.result[..]
+    }
 }
 
 #[cfg(test)]

@@ -87,33 +87,6 @@ impl<D: Domain, I: Iterator<Item = D::Batch>, const N: usize> Iterator for Share
     }
 }
 
-/// This ensures that the user can only get access to the output
-/// by validating the online execution against a correctly validated and matching pre-processing execution.
-///
-/// Avoiding potential misuse where the user fails to check the pre-processing.
-pub struct Output<D: Domain, const R: usize> {
-    result: Vec<D::Scalar>,
-    pp_hashes: Array<Hash, R>,
-}
-
-impl<D: Domain, const R: usize> Output<D, R> {
-    pub fn check(self, pp_hashes: &[Hash; R]) -> Option<Vec<D::Scalar>> {
-        for i in 0..R {
-            if pp_hashes[i] != self.pp_hashes[i] {
-                return None;
-            }
-        }
-        Some(self.result)
-    }
-
-    // provides access to the output without checking the pre-processing
-    // ONLY USED IN TESTS: enables testing of the online phase separately from pre-processing
-    #[cfg(test)]
-    pub(super) fn unsafe_output(&self) -> &[D::Scalar] {
-        &self.result[..]
-    }
-}
-
 impl<
         D: Domain,
         PI: Iterator<Item = Instruction<D::Scalar>> + Clone,
@@ -132,7 +105,7 @@ impl<
 
     pub async fn verify(mut self, mut proof: Receiver<Vec<u8>>) -> Option<Output<D, R>> {
         struct State<D: Domain, RNG: RngCore, const N: usize> {
-            views: [View; N], // view transcripts for players
+            views: Array<View, N>, // view transcripts for players
             omitted: usize,   // index of omitted player
             commitment: Hash, // commitment to the view of the unopened player
             chunk_size: usize,
@@ -184,13 +157,6 @@ impl<
                             Packable::unpack(&mut masked_witness, &chunk.witness[..]).ok()?;
                             Packable::unpack(&mut corrections, &chunk.corrections[..]).ok()?;
                             Packable::unpack(&mut broadcast, &chunk.broadcast[..]).ok()?;
-                            #[cfg(test)]
-                            #[cfg(debug_assertions)]
-                            {
-                                println!("recv:masked_witness = {:?}", &masked_witness[..]);
-                                println!("recv:corrections = {:?}", &corrections[..]);
-                                println!("recv:broadcast = {:?}", &broadcast[..]);
-                            }
 
                             // add corrections to player 0 view
                             if self.omitted != 0 {
@@ -246,11 +212,6 @@ impl<
                                                     + broadcast.next()?; // share of omitted player
                                                                          // reconstruct
 
-                                        #[cfg(test)]
-                                        #[cfg(debug_assertions)]
-                                        {
-                                            println!("verifier-broadcast: {:?}", recon);
-                                        }
                                         transcript.write(recon);
                                         // corrected wire
                                         let c_w = recon.reconstruct() + a_w * b_w;
@@ -264,11 +225,7 @@ impl<
                                     Instruction::Output(src) => {
                                         let recon: D::Sharing =
                                             masks.next().unwrap() + broadcast.next()?;
-                                        #[cfg(test)]
-                                        #[cfg(debug_assertions)]
-                                        {
-                                            println!("verifier-broadcast: {:?}", recon);
-                                        }
+
                                         transcript.write(recon);
                                         output.write(wires.get(src) + recon.reconstruct());
                                         if masks.len() == 0 {
@@ -301,7 +258,7 @@ impl<
             State::<D, ViewRNG, N> {
                 chunk_size: self.proof.chunk_size,
                 omitted,
-                views: views.unbox(),
+                views: views,
                 commitment: Hash::from(run.commitment),
                 preprocessing: PreprocessingExecution::new(rngs.unbox(), omitted),
             }
@@ -355,7 +312,7 @@ impl<
         // collect transcript hashes from all executions
         let mut global: View = View::new();
         let mut result: Vec<D::Scalar> = vec![];
-        let mut omitted: [usize; N] = [0; N];
+        let mut omitted: [usize; R] = [0; R];
         let mut pp_hashes: Vec<Hash> = Vec::with_capacity(R);
         {
             let mut scope: Scope = global.scope(LABEL_SCOPE_ONLINE_TRANSCRIPT);

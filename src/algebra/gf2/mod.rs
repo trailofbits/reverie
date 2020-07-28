@@ -21,3 +21,6 @@ pub use domain64::GF2P64;
 pub use domain8::GF2P8;
 
 use batch::BATCH_SIZE_BYTES;
+
+pub const BIT0: BitScalar = <BitScalar as RingElement>::ZERO;
+pub const BIT1: BitScalar = <BitScalar as RingElement>::ONE;

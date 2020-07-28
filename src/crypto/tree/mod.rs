@@ -161,6 +161,14 @@ impl<const N: usize> TreePRF<N> {
         self.expand_internal(&mut result[..], log2(N));
         result
     }
+
+    /// Expand a TreePRF into an array of PRFs (one for every leaf).
+    /// Does an in-order traversal on the tree to extract the first "leafs" nodes.
+    pub fn expand_vec(&self, len: usize) -> Vec<Option<[u8; KEY_SIZE]>> {
+        let mut result = vec![None; len];
+        self.expand_internal(&mut result[..], log2(N));
+        result
+    }
 }
 
 #[cfg(test)]

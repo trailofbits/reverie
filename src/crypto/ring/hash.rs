@@ -24,7 +24,7 @@ impl<R: Serializable> RingHasher<R> {
         }
     }
 
-    pub fn update(&mut self, elem: &R) {
+    pub fn update(&mut self, elem: R) {
         let _ = elem.serialize(&mut self.hasher);
     }
 
@@ -37,6 +37,6 @@ impl<R: Serializable> RingHasher<R> {
 
 impl<R: Serializable> Writer<R> for RingHasher<R> {
     fn write(&mut self, elem: R) {
-        let _ = elem.serialize(&mut self.hasher);
+        self.update(elem);
     }
 }

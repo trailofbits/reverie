@@ -6,6 +6,7 @@ version = "0.1.0"
 
 [dependencies]
 async-channel = "*"
+async-scoped = "0.4.1"
 async-std = "*"
 async-stream = "0.2.1"
 bincode = "1.3.1"
@@ -19,15 +20,9 @@ rand_core = "*"
 rayon = "1.3"
 serde = {version = "1.0", features = ["derive"]}
 static_assertions = "1.1.0"
-subtle = "2.2.3"
 
 [dev-dependencies]
-aes = "0.3.2" # for comparision in benchmarks
-
-# used for testing
-[[bin]]
-name = "reverie"
-path = "src/bin.rs"
+aes = "0.3.2"
 
 [features]
 profiler = ["cpuprofiler"]

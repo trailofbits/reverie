@@ -164,11 +164,6 @@ impl<D: Domain, const N: usize> Prover<D, N> {
                     let b_m: D::Sharing = masks.next().unwrap();
                     let ab_gamma: D::Sharing = ab_gamma.next().unwrap();
                     let recon = a_m.action(b_w) + b_m.action(a_w) + ab_gamma;
-                    #[cfg(test)]
-                    #[cfg(debug_assertions)]
-                    {
-                        println!("prover-broadcast: {:?}", recon);
-                    }
 
                     // reconstruct
                     broadcast.write(recon);
@@ -181,22 +176,7 @@ impl<D: Domain, const N: usize> Prover<D, N> {
                 }
                 Instruction::Output(_src) => {
                     let recon: D::Sharing = masks.next().unwrap();
-
-                    // reconstruct
-                    #[cfg(test)]
-                    #[cfg(debug_assertions)]
-                    {
-                        println!("prover-broadcast: {:?}", recon);
-                    }
                     broadcast.write(recon);
-
-                    // output for debugging
-                    #[cfg(test)]
-                    #[cfg(debug_assertions)]
-                    {
-                        let output = self.wires.get(_src) + recon.reconstruct();
-                        println!("prover-output: {:?}", output);
-                    }
                 }
             }
         }
@@ -226,7 +206,7 @@ impl<D: Domain, const R: usize, const N: usize, const NT: usize> StreamingProver
         mut witness: WI,
     ) -> (Proof<D, R, N, NT>, Self) {
         struct State<D: Domain, R: RngCore, const N: usize> {
-            views: [View; N], // view transcripts for players
+            views: Array<View, N>, // view transcripts for players
             transcript: RingHasher<D::Sharing>,
             preprocessing: PreprocessingExecution<D, R, N, true>,
             online: Prover<D, N>,
@@ -288,12 +268,12 @@ impl<D: Domain, const R: usize, const N: usize, const NT: usize> StreamingProver
             let keys: Array<_, N> = tree.expand().map(|x: &Option<[u8; KEY_SIZE]>| x.unwrap());
             let views = keys.map(|key| View::new_keyed(key));
             let rngs = views.map(|view| view.rng(LABEL_RNG_PREPROCESSING));
-            State {
-                views: views.unbox(),
+            Box::new(State {
+                views,
                 transcript: RingHasher::new(),
-                preprocessing: PreprocessingExecution::new(rngs.unbox()),
+                preprocessing: PreprocessingExecution::new(rngs),
                 online: Prover::<D, N>::new(),
-            }
+            })
         });
 
         // create async parallel task for every repetition
@@ -472,13 +452,7 @@ impl<D: Domain, const R: usize, const N: usize, const NT: usize> StreamingProver
                             }
 
                             // serialize the chunk
-                            #[cfg(test)]
-                            #[cfg(debug_assertions)]
-                            {
-                                println!("send:masked_witness = {:?}", &masked[..]);
-                                println!("send:corrections = {:?}", &corrections[..]);
-                                println!("send:broadcast = {:?}", &broadcast[..]);
-                            }
+
                             chunk.witness.clear();
                             chunk.broadcast.clear();
                             chunk.corrections.clear();
@@ -504,13 +478,13 @@ impl<D: Domain, const R: usize, const N: usize, const NT: usize> StreamingProver
             .zip(self.preprocessing.seeds.iter())
             .map(|(omitted, seed)| {
                 let tree: TreePRF<NT> = TreePRF::new(*seed);
-                let keys: Array<_, N> = tree.expand().map(|x: &Option<[u8; KEY_SIZE]>| x.unwrap());
-                let views = keys.map(|key| View::new_keyed(key));
+                let keys = tree.expand::<N>();
+                let views = keys.map(|key: &Option<[u8; KEY_SIZE]>| View::new_keyed(&key.unwrap()));
                 let rngs = views.map(|view| view.rng(LABEL_RNG_PREPROCESSING));
                 State {
                     omitted,
                     chunk_size: self.chunk_size,
-                    preprocessing: PreprocessingExecution::new(rngs.unbox()),
+                    preprocessing: PreprocessingExecution::new(rngs),
                     online: Prover::<D, N>::new(),
                 }
             });
@@ -529,11 +503,8 @@ impl<D: Domain, const R: usize, const N: usize, const NT: usize> StreamingProver
 
         // schedule up to 2 tasks immediately (for better performance)
         let mut scheduled = 0;
-        for _ in 0..2 {
-            scheduled +=
-                feed::<D, _, _>(self.chunk_size, &mut inputs[..], &mut program, &mut witness).await
-                    as usize;
-        }
+        scheduled += feed::<D, _, _>(self.chunk_size, &mut inputs[..], &mut program, &mut witness)
+            .await as usize;
 
         // wait for all scheduled tasks to complete
         while scheduled > 0 {
