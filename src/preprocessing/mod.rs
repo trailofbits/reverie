@@ -285,7 +285,6 @@ impl<
             oracle.rng(LABEL_RNG_OPEN_PREPROCESSING)
         };
 
-
         // interpret the oracle response as a subset of indexes to hide
         // (implicitly: which executions to open)
         let hide: [usize; H] = random_subset::<_, R, H>(&mut challenge_rng);
@@ -303,7 +302,7 @@ impl<
 
         // extract pre-processing key material for the hidden views
         // (returned to the prover for use in the online phase)
-        let mut hidden_seeds: Array<[u8; KEY_SIZE], H> = Array::new( [0u8; KEY_SIZE]);
+        let mut hidden_seeds: Array<[u8; KEY_SIZE], H> = Array::new([0u8; KEY_SIZE]);
         for (to, from) in hide.iter().enumerate() {
             hidden_seeds[to] = seeds[*from];
         }

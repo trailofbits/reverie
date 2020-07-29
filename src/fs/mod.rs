@@ -10,10 +10,6 @@ mod scope;
 pub use rng::ViewRNG;
 pub use scope::Scope;
 
-/// The hasher is wrapped in a buffered interface
-/// to enable the use of AVX2/AVX512 operations on supporting platforms.
-///
-/// https://docs.rs/blake3/0.3.4/blake3/struct.Hasher.html#method.update
 pub struct View {
     hasher: Hasher,
 }
@@ -26,10 +22,9 @@ impl View {
         // create keyed hasher
         let mut key: [u8; 32] = [0u8; 32];
         key[..16].copy_from_slice(&seed[..]);
-
-        let hasher: Hasher = Hasher::new_keyed(&key);
-
-        View { hasher }
+        View {
+            hasher: Hasher::new_keyed(&key),
+        }
     }
 
     /// Produce a new unseeded view

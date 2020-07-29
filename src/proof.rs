@@ -15,17 +15,17 @@ const CHANNEL_CAPACITY: usize = 100;
 const CHUNK_SIZE: usize = 10_000_000;
 
 /// # Example
-/// 
+///
 /// Proving that you know bits a, b st. a * b = 1
-/// 
+///
 /// ```
 /// use reverie::Instruction;
 /// use reverie::ProofGF2P8;
 /// use reverie::algebra::gf2::*;
-/// 
+///
 /// // result of satisfying witness
 /// let result = vec![BIT1];
-/// 
+///
 /// // inputs (the witness)
 /// let witness = vec![BIT1, BIT1];
 ///
@@ -36,29 +36,29 @@ const CHUNK_SIZE: usize = 10_000_000;
 ///     Instruction::Mul(2, 0, 1), // w[2] <- w[0] * w[1]
 ///     Instruction::Output(2)     // output the value of w[2]
 /// ];
-/// 
+///
 /// // generate a proof (proof implements serde Serialize / Deserialize)
 /// let proof = ProofGF2P8::new(&program[..], &witness[..]);
-/// 
+///
 /// // verify the proof (in production you should check the result)
-/// let output = proof.verify(&program[..]).unwrap(); 
-/// 
+/// let output = proof.verify(&program[..]).unwrap();
+///
 /// assert_eq!(&output[..], &result[..]);
 /// ```
 pub type ProofGF2P8 = Proof<gf2::GF2P8, 8, 8, 252, 256, 44>;
 
 /// # Example
-/// 
+///
 /// Proving that you know bits a, b st. a * b = 1
-/// 
+///
 /// ```
 /// use reverie::Instruction;
 /// use reverie::ProofGF2P64;
 /// use reverie::algebra::gf2::*;
-/// 
+///
 /// // result of satisfying witness
 /// let result = vec![BIT1];
-/// 
+///
 /// // inputs (the witness)
 /// let witness = vec![BIT1, BIT1];
 ///
@@ -69,20 +69,20 @@ pub type ProofGF2P8 = Proof<gf2::GF2P8, 8, 8, 252, 256, 44>;
 ///     Instruction::Mul(2, 0, 1), // w[2] <- w[0] * w[1]
 ///     Instruction::Output(2)     // output the value of w[2]
 /// ];
-/// 
+///
 /// // generate a proof (proof implements serde Serialize / Deserialize)
 /// let proof = ProofGF2P64::new(&program[..], &witness[..]);
-/// 
+///
 /// // verify the proof (in production you should check the result)
-/// let output = proof.verify(&program[..]).unwrap(); 
-/// 
+/// let output = proof.verify(&program[..]).unwrap();
+///
 /// assert_eq!(&output[..], &result[..]);
 /// ```
 pub type ProofGF2P64 = Proof<gf2::GF2P64, 64, 64, 631, 1024, 2>;
 
 /// Simplified interface for in-memory proofs
 /// with pre-processing verified simultaneously with online execution.
-/// 
+///
 ///
 #[derive(Deserialize, Serialize)]
 pub struct Proof<
@@ -115,15 +115,12 @@ impl<
         let (preprocessing, pp_output) =
             preprocessing::Proof::new(seed, program.iter().cloned(), CHUNK_SIZE);
 
-
-
         // create prover for online phase
         let (online, prover) = online::StreamingProver::new(
             pp_output,
             program.iter().cloned(),
             witness.iter().cloned(),
         );
-
         let (send, recv) = bounded(CHANNEL_CAPACITY);
         let prover_task =
             task::spawn(prover.stream(send, program.into_iter(), witness.into_iter()));
@@ -158,7 +155,7 @@ impl<
             send.send(chunk).await.ok()?;
         }
 
-        // check that online execution matches preprocessing
+        // check that online execution matches preprocessing (executing both in parallel)
         task_online.await?.check(&preprocessing)
     }
 

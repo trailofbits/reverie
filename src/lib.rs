@@ -26,7 +26,7 @@ pub mod algebra;
 
 // simplified API for basic usage
 mod proof;
-pub use proof::{ProofGF2P8, ProofGF2P64};
+pub use proof::{ProofGF2P64, ProofGF2P8};
 
 // pre-processing
 pub mod preprocessing;

@@ -106,8 +106,8 @@ impl<
     pub async fn verify(mut self, mut proof: Receiver<Vec<u8>>) -> Option<Output<D, R>> {
         struct State<D: Domain, RNG: RngCore, const N: usize> {
             views: Array<View, N>, // view transcripts for players
-            omitted: usize,   // index of omitted player
-            commitment: Hash, // commitment to the view of the unopened player
+            omitted: usize,        // index of omitted player
+            commitment: Hash,      // commitment to the view of the unopened player
             chunk_size: usize,
             preprocessing: PreprocessingExecution<D, RNG, N>,
         }
