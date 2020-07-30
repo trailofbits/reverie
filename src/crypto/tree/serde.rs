@@ -98,7 +98,7 @@ mod tests {
 
     #[test]
     fn serde_tree() {
-        let tree: TreePRF<32> = TreePRF::new([7u8; 16]);
+        let tree: TreePRF<32> = TreePRF::new([7u8; KEY_SIZE]);
 
         let serialized = bincode::serialize(&tree).unwrap();
 

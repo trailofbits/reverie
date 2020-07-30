@@ -1,4 +1,4 @@
-use super::crypto::KEY_SIZE;
+use crate::crypto::{KEY_SIZE, PRG};
 
 use blake3::{Hash, Hasher};
 
@@ -37,8 +37,15 @@ impl View {
     }
 
     /// Return the PRNG bound to the present view
-    pub fn rng(&self, label: &'static [u8]) -> ViewRNG {
-        ViewRNG::new(&self.hasher, label)
+    pub fn prg(&self, label: &'static [u8]) -> PRG {
+        let mut hasher = self.hasher.clone();
+        hasher.update(label);
+        hasher.update(&(label.len() as u8).to_le_bytes());
+        hasher.update(&[0]);
+        let mut xof = hasher.finalize_xof();
+        let mut seed: [u8; KEY_SIZE] = [0u8; KEY_SIZE];
+        xof.fill(&mut seed);
+        PRG::new(seed)
     }
 
     /// Produce a hash of the view.
@@ -64,4 +71,12 @@ impl View {
         }
         // when scope is dropped it flushes the content to the hash.
     }
+}
+
+pub fn union_views<'a, I: Iterator<Item = &'a View>>(views: I) -> Hash {
+    let mut hasher = Hasher::new();
+    for view in views {
+        hasher.update(view.hash().as_bytes());
+    }
+    hasher.finalize()
 }

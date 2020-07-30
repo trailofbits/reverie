@@ -3,14 +3,45 @@ mod tree;
 
 use crate::util::*;
 
+use rand_chacha::ChaCha12Rng;
+use rand_core::{Error, RngCore, SeedableRng};
+
 pub use blake3::{Hash, Hasher, OutputReader};
 
 pub use ring::RingHasher;
 
 pub use tree::TreePRF;
 
-// we target 128-bits of security
-pub const KEY_SIZE: usize = 16;
+// we target 128-bits of PQ security
+pub const KEY_SIZE: usize = 32;
+
+pub const HASH_SIZE: usize = 32;
+
+pub struct PRG(ChaCha12Rng);
+
+impl PRG {
+    pub fn new(seed: [u8; KEY_SIZE]) -> Self {
+        Self(ChaCha12Rng::from_seed(seed))
+    }
+}
+
+impl RngCore for PRG {
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        self.0.fill_bytes(dest)
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Error> {
+        Ok(self.fill_bytes(dest))
+    }
+
+    fn next_u32(&mut self) -> u32 {
+        self.0.next_u32()
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        self.0.next_u64()
+    }
+}
 
 // benchmark to compare the performance of cryptographic primitives
 #[cfg(test)]

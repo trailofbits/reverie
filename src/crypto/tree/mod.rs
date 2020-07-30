@@ -15,26 +15,26 @@ pub enum TreePRF<const N: usize> {
     Internal(Arc<TreePRF<N>>, Arc<TreePRF<N>>), // used for punctured children
 }
 
-// The length-doubling prng used for the PRF tree
-fn doubling_prng(key: &[u8; KEY_SIZE]) -> ([u8; KEY_SIZE], [u8; KEY_SIZE]) {
-    // seed and obtain PRG
-    let mut rng = {
-        let mut k = [0u8; 32];
-        k[..KEY_SIZE].copy_from_slice(&key[..]);
-        Hasher::new_keyed(&k).finalize_xof()
-    };
+const fn num_levels(n: usize) -> usize {
+    if n & (n - 1) == 0 {
+        log2(n)
+    } else {
+        log2(n) + 1
+    }
+}
 
-    // read 2 x 128-bit from the PRG
+// The length-doubling prng used for the PRF tree
+fn doubling_prg(key: [u8; KEY_SIZE]) -> ([u8; KEY_SIZE], [u8; KEY_SIZE]) {
+    let mut rng = PRG::new(key);
     let mut left = [0u8; KEY_SIZE];
     let mut right = [0u8; KEY_SIZE];
-    rng.fill(&mut left);
-    rng.fill(&mut right);
+    let _ = rng.fill_bytes(&mut left);
+    let _ = rng.fill_bytes(&mut right);
     (left, right)
 }
 
 impl<const N: usize> TreePRF<N> {
     pub fn new(key: [u8; KEY_SIZE]) -> TreePRF<N> {
-        assert!(N.is_power_of_two());
         TreePRF::Leaf(key)
     }
 
@@ -48,7 +48,7 @@ impl<const N: usize> TreePRF<N> {
                     TreePRF::Punctured
                 } else {
                     // compute left and right trees
-                    let (left, right) = doubling_prng(key);
+                    let (left, right) = doubling_prg(*key);
                     let (left, right) = (Self::new(left), Self::new(right));
 
                     // puncture recursively
@@ -100,7 +100,7 @@ impl<const N: usize> TreePRF<N> {
     /// Puncture the PRF at the provided index:
     pub fn puncture(&self, idx: usize) -> TreePRF<N> {
         assert!(idx < N, "puncturing outside domain");
-        self.puncture_internal(idx << 1, log2(N))
+        self.puncture_internal(idx << 1, num_levels(N))
     }
 
     fn expand_internal<'a>(
@@ -140,7 +140,7 @@ impl<const N: usize> TreePRF<N> {
                     &mut result[1..]
                 } else {
                     // compute left and right trees
-                    let (left, right) = doubling_prng(key);
+                    let (left, right) = doubling_prg(*key);
                     let (left, right) = (Self::new(left), Self::new(right));
 
                     // expand the left child
@@ -155,19 +155,39 @@ impl<const N: usize> TreePRF<N> {
 
     /// Expand a TreePRF into an array of PRFs (one for every leaf).
     /// Does an in-order traversal on the tree to extract the first "leafs" nodes.
-    pub fn expand<const L: usize>(&self) -> Array<Option<[u8; KEY_SIZE]>, L> {
-        assert!(L <= N); // should be optimized out
-        let mut result: Array<Option<[u8; KEY_SIZE]>, L> = Array::new(None);
-        self.expand_internal(&mut result[..], log2(N));
-        result
+    pub fn expand(&self, dst: &mut [Option<[u8; KEY_SIZE]>; N]) {
+        self.expand_internal(&mut dst[..], num_levels(N));
     }
 
-    /// Expand a TreePRF into an array of PRFs (one for every leaf).
-    /// Does an in-order traversal on the tree to extract the first "leafs" nodes.
-    pub fn expand_vec(&self, len: usize) -> Vec<Option<[u8; KEY_SIZE]>> {
-        let mut result = vec![None; len];
-        self.expand_internal(&mut result[..], log2(N));
-        result
+    pub fn expand_full(result: &mut [[u8; KEY_SIZE]; N], root: &[u8; KEY_SIZE]) {
+        fn expand_full_internal<'a>(
+            result: &'a mut [[u8; KEY_SIZE]],
+            root: [u8; KEY_SIZE],
+            levels: usize,
+        ) -> &'a mut [[u8; KEY_SIZE]] {
+            if result.len() == 0 {
+                // destination full
+                result
+            } else if levels == 0 {
+                // leaf
+                result[0] = root;
+                &mut result[1..]
+            } else {
+                // internal
+                let (left, right) = doubling_prg(root);
+                let result = expand_full_internal(result, left, levels - 1);
+                expand_full_internal(result, right, levels - 1)
+            }
+        }
+        expand_full_internal(
+            result,
+            *root,
+            if N & (N - 1) == 0 {
+                log2(N)
+            } else {
+                log2(N) + 1
+            },
+        );
     }
 }
 
@@ -223,8 +243,10 @@ mod tests {
         }
 
         // check that the new tree agree with the original on every non-punctured index
-        let expand: Array<_, N> = tree.expand();
-        let p_expand: Array<_, N> = p_tree.expand();
+        let mut expand: Array<_, N> = Array::new(None);
+        let mut p_expand: Array<_, N> = Array::new(None);
+        tree.expand(&mut expand);
+        p_tree.expand(&mut p_expand);
         for i in 0..N {
             assert!(expand[i].is_some());
             if punctured.contains(&i) {
@@ -245,9 +267,10 @@ mod benchmark {
     #[bench]
     fn bench_tree_expand64(b: &mut Bencher) {
         let seed = test::black_box([0u8; KEY_SIZE]);
+        let mut dst: Array<_, 64> = Array::new(None);
         b.iter(|| {
             let tree: TreePRF<64> = TreePRF::new(seed);
-            let _: Array<_, 64> = tree.expand();
+            tree.expand(&mut dst);
         });
     }
 }

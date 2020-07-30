@@ -1,23 +1,29 @@
 use super::*;
 
+use crate::consts::{LABEL_RNG_BEAVER, LABEL_RNG_INPUT};
+use crate::crypto::PRG;
 use crate::util::{VoidWriter, Writer};
 use crate::Instruction;
 
-use rand_core::RngCore;
+struct Player {
+    input: PRG,
+    beaver: PRG,
+}
 
-macro_rules! new_sharings {
-    ( $shares:expr, $batches:expr, $rngs:expr ) => {{
-        for j in 0..N {
-            $batches[j] = D::Batch::gen(&mut $rngs[j]);
+impl Player {
+    fn new(view: &View) -> Self {
+        Player {
+            beaver: view.prg(LABEL_RNG_BEAVER),
+            input: view.prg(LABEL_RNG_INPUT),
         }
-        D::convert($shares, &$batches[..]);
-    }};
+    }
 }
 
 /// Implementation of pre-processing phase used by the prover during online execution
-pub struct PreprocessingExecution<D: Domain, R: RngCore, const N: usize, const O: bool> {
+pub struct PreprocessingExecution<D: Domain, const N: usize, const O: bool> {
     // interpreter state
     masks: VecMap<D::Sharing>,
+    players: [Player; N],
 
     // input mask state
     next_input: usize,
@@ -27,15 +33,14 @@ pub struct PreprocessingExecution<D: Domain, R: RngCore, const N: usize, const O
     share_a: Vec<D::Sharing>, // beta sharings (from input)
     share_b: Vec<D::Sharing>, // alpha sharings (from input)
     share_g: Vec<D::Sharing>, // gamma sharings (output)
-    rngs: Array<R, N>,        // rngs
 }
 
-impl<D: Domain, R: RngCore, const N: usize, const O: bool> PreprocessingExecution<D, R, N, O> {
-    pub fn new(rngs: Array<R, N>) -> Self {
+impl<D: Domain, const N: usize, const O: bool> PreprocessingExecution<D, N, O> {
+    pub fn new(views: &[View; N]) -> Self {
         PreprocessingExecution {
             next_input: D::Batch::DIMENSION,
             share_input: vec![D::Sharing::ZERO; D::Batch::DIMENSION],
-            rngs,
+            players: Array::from_iter(views.iter().map(Player::new)).unbox(),
             share_g: vec![D::Sharing::ZERO; D::Batch::DIMENSION],
             share_a: Vec::with_capacity(D::Batch::DIMENSION),
             share_b: Vec::with_capacity(D::Batch::DIMENSION),
@@ -71,7 +76,7 @@ impl<D: Domain, R: RngCore, const N: usize, const O: bool> PreprocessingExecutio
         // compute random c sharing and reconstruct a,b sharings
         for i in 0..N {
             // reconstruct a, b and c
-            batches_c[i] = D::Batch::gen(&mut self.rngs[i]);
+            batches_c[i] = D::Batch::gen(&mut self.players[i].beaver);
             a = a + batches_a[i];
             b = b + batches_b[i];
             c = c + batches_c[i];
@@ -128,7 +133,10 @@ impl<D: Domain, R: RngCore, const N: usize, const O: bool> PreprocessingExecutio
                     // check if need for new batch of input masks
                     if self.next_input == D::Batch::DIMENSION {
                         let mut batch_m = [D::Batch::ZERO; N];
-                        new_sharings!(&mut self.share_input[..], batch_m, &mut self.rngs);
+                        for j in 0..N {
+                            batch_m[j] = D::Batch::gen(&mut self.players[j].input);
+                        }
+                        D::convert(&mut self.share_input[..], &batch_m);
                         self.next_input = 0;
                     }
 
@@ -158,7 +166,10 @@ impl<D: Domain, R: RngCore, const N: usize, const O: bool> PreprocessingExecutio
                 Instruction::Mul(dst, src1, src2) => {
                     // generate sharings for the output of the next batch of multiplications
                     if self.share_a.len() == 0 {
-                        new_sharings!(&mut self.share_g[..], batch_g, &mut self.rngs);
+                        for j in 0..N {
+                            batch_g[j] = D::Batch::gen(&mut self.players[j].beaver);
+                        }
+                        D::convert(&mut self.share_g[..], &batch_g);
                     }
 
                     // push the input masks to the stack
