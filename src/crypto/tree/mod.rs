@@ -2,17 +2,21 @@ use super::*;
 
 use std::sync::Arc;
 
-use blake3::Hasher;
+use serde::{Deserialize, Serialize};
 
-mod serde;
+mod serialize;
 
-/// Since we have no additional overhead from assuming that the tree is always complete.
-/// We assume that the number of elements in the tree is a power of two for simplicity.
-#[derive(Debug, Clone)]
-pub enum TreePRF<const N: usize> {
-    Punctured,                                  // child has been punctured
-    Leaf([u8; KEY_SIZE]),                       // used for leaf nodes and full sub-trees
-    Internal(Arc<TreePRF<N>>, Arc<TreePRF<N>>), // used for punctured children
+#[derive(Eq, PartialEq, Debug, Clone, Serialize, Deserialize)]
+pub struct TreePRF {
+    size: usize,
+    root: Node,
+}
+
+#[derive(Eq, PartialEq, Debug, Clone)]
+enum Node {
+    Punctured,                      // child has been punctured
+    Leaf([u8; KEY_SIZE]),           // used for leaf nodes and full sub-trees
+    Internal(Arc<Node>, Arc<Node>), // used for punctured children
 }
 
 const fn num_levels(n: usize) -> usize {
@@ -33,90 +37,65 @@ fn doubling_prg(key: [u8; KEY_SIZE]) -> ([u8; KEY_SIZE], [u8; KEY_SIZE]) {
     (left, right)
 }
 
-impl<const N: usize> TreePRF<N> {
-    pub fn new(key: [u8; KEY_SIZE]) -> TreePRF<N> {
-        TreePRF::Leaf(key)
-    }
-
-    fn puncture_internal(&self, idx: usize, level: usize) -> TreePRF<N> {
-        debug_assert!(level <= log2(N));
-
+impl Node {
+    fn puncture(&self, idx: usize, level: usize) -> Self {
         match self {
-            TreePRF::Leaf(key) => {
+            Node::Leaf(key) => {
                 if level == 0 {
                     // this is the leaf we are looking for
-                    TreePRF::Punctured
+                    Node::Punctured
                 } else {
                     // compute left and right trees
                     let (left, right) = doubling_prg(*key);
-                    let (left, right) = (Self::new(left), Self::new(right));
+                    let (left, right) = (Node::Leaf(left), Node::Leaf(right));
 
                     // puncture recursively
                     if (idx >> level) & 1 == 0 {
-                        TreePRF::Internal(
-                            Arc::new(left.puncture_internal(idx, level - 1)),
-                            Arc::new(right),
-                        )
+                        Node::Internal(Arc::new(left.puncture(idx, level - 1)), Arc::new(right))
                     } else {
-                        TreePRF::Internal(
-                            Arc::new(left),
-                            Arc::new(right.puncture_internal(idx, level - 1)),
-                        )
+                        Node::Internal(Arc::new(left), Arc::new(right.puncture(idx, level - 1)))
                     }
                 }
             }
-            TreePRF::Internal(left, right) => {
+            Node::Internal(left, right) => {
                 // we should not be at a leaf
                 debug_assert!(level > 0);
 
                 // puncture recursively
                 let res = if (idx >> level) & 1 == 0 {
-                    (
-                        Arc::new(left.puncture_internal(idx, level - 1)),
-                        Arc::clone(right),
-                    )
+                    (Arc::new(left.puncture(idx, level - 1)), Arc::clone(right))
                 } else {
-                    (
-                        Arc::clone(left),
-                        Arc::new(right.puncture_internal(idx, level - 1)),
-                    )
+                    (Arc::clone(left), Arc::new(right.puncture(idx, level - 1)))
                 };
 
                 // check if both children are punctured (in which case we can remove the level)
                 let punctured_left =
-                    std::mem::discriminant(&*res.0) == std::mem::discriminant(&TreePRF::Punctured);
+                    std::mem::discriminant(&*res.0) == std::mem::discriminant(&Node::Punctured);
                 let punctured_right =
-                    std::mem::discriminant(&*res.1) == std::mem::discriminant(&TreePRF::Punctured);
+                    std::mem::discriminant(&*res.1) == std::mem::discriminant(&Node::Punctured);
                 if punctured_left && punctured_right {
-                    TreePRF::Punctured
+                    Node::Punctured
                 } else {
-                    TreePRF::Internal(res.0, res.1)
+                    Node::Internal(res.0, res.1)
                 }
             }
-            TreePRF::Punctured => TreePRF::Punctured, // place already punctured
+            Node::Punctured => Node::Punctured, // place already punctured
         }
     }
 
-    /// Puncture the PRF at the provided index:
-    pub fn puncture(&self, idx: usize) -> TreePRF<N> {
-        assert!(idx < N, "puncturing outside domain");
-        self.puncture_internal(idx << 1, num_levels(N))
-    }
-
-    fn expand_internal<'a>(
+    fn expand<'a>(
         &self,
         result: &'a mut [Option<[u8; KEY_SIZE]>],
         level: usize,
     ) -> &'a mut [Option<[u8; KEY_SIZE]>] {
         // check if we have extracted the required number of leafs
-        debug_assert!(level <= log2(N));
         if result.len() == 0 {
             return result;
         }
 
         // otherwise descend
         match self {
-            TreePRF::Punctured => {
+            Node::Punctured => {
                 // all the 2^level children of a punctured node are also punctured
                 let length = std::cmp::min(1 << level, result.len());
                 for i in 0..length {
@@ -124,16 +103,16 @@ impl<const N: usize> TreePRF<N> {
                 }
                 &mut result[length..]
             }
-            TreePRF::Internal(left, right) => {
+            Node::Internal(left, right) => {
                 debug_assert!(level > 0);
 
                 // expand the left child
-                let result = left.expand_internal(result, level - 1);
+                let result = left.expand(result, level - 1);
 
                 // fill the remainder from the right child
-                right.expand_internal(result, level - 1)
+                right.expand(result, level - 1)
             }
-            TreePRF::Leaf(key) => {
+            Node::Leaf(key) => {
                 if level == 0 {
                     // we are in a leaf
                     result[0] = Some(*key);
@@ -141,25 +120,44 @@ impl<const N: usize> TreePRF<N> {
                 } else {
                     // compute left and right trees
                     let (left, right) = doubling_prg(*key);
-                    let (left, right) = (Self::new(left), Self::new(right));
+                    let (left, right) = (Node::Leaf(left), Node::Leaf(right));
 
                     // expand the left child
-                    let result = left.expand_internal(result, level - 1);
+                    let result = left.expand(result, level - 1);
 
                     // fill the remainder from the right child
-                    right.expand_internal(result, level - 1)
+                    right.expand(result, level - 1)
                 }
             }
+        }
+    }
+}
+
+impl TreePRF {
+    pub fn new(size: usize, key: [u8; KEY_SIZE]) -> TreePRF {
+        TreePRF {
+            size,
+            root: Node::Leaf(key),
+        }
+    }
+
+    /// Puncture the PRF at the provided index:
+    pub fn puncture(&self, idx: usize) -> TreePRF {
+        assert!(idx < self.size);
+        Self {
+            size: self.size,
+            root: self.root.puncture(idx << 1, num_levels(self.size)),
         }
     }
 
     /// Expand a TreePRF into an array of PRFs (one for every leaf).
     /// Does an in-order traversal on the tree to extract the first "leafs" nodes.
-    pub fn expand(&self, dst: &mut [Option<[u8; KEY_SIZE]>; N]) {
-        self.expand_internal(&mut dst[..], num_levels(N));
+    pub fn expand(&self, dst: &mut [Option<[u8; KEY_SIZE]>]) {
+        assert_eq!(dst.len(), self.size);
+        self.root.expand(&mut dst[..], num_levels(self.size));
     }
 
-    pub fn expand_full(result: &mut [[u8; KEY_SIZE]; N], root: &[u8; KEY_SIZE]) {
+    pub fn expand_full(result: &mut [[u8; KEY_SIZE]], root: [u8; KEY_SIZE]) {
         fn expand_full_internal<'a>(
             result: &'a mut [[u8; KEY_SIZE]],
             root: [u8; KEY_SIZE],
@@ -179,15 +177,8 @@ impl<const N: usize> TreePRF<N> {
                 expand_full_internal(result, right, levels - 1)
             }
         }
-        expand_full_internal(
-            result,
-            *root,
-            if N & (N - 1) == 0 {
-                log2(N)
-            } else {
-                log2(N) + 1
-            },
-        );
+        let size = result.len();
+        expand_full_internal(result, root, num_levels(size));
     }
 }
 
@@ -199,43 +190,38 @@ mod tests {
     use std::collections::HashSet;
 
     #[test]
-    fn test_puncture16() {
-        for _ in 0..100 {
-            test_puncture::<16>();
+    fn test_expand_full() {
+        let size = 324;
+        let mut rng = rand::thread_rng();
+        let seed: [u8; KEY_SIZE] = rng.gen();
+        let tree: TreePRF = TreePRF::new(size, seed);
+        let mut results_full = vec![[0u8; KEY_SIZE]; size];
+        let mut results = vec![None; size];
+        TreePRF::expand_full(&mut results_full, seed);
+        tree.expand(&mut results);
+        for (a, b) in results.iter().zip(results_full.iter()) {
+            debug_assert_eq!(a.unwrap(), *b);
         }
     }
 
     #[test]
-    fn test_puncture32() {
-        for _ in 0..100 {
-            test_puncture::<32>();
+    fn test_puncture() {
+        let mut rng = rand::thread_rng();
+        for _ in 0..10 {
+            let size: usize = (rng.gen::<usize>() % 2048) + 1;
+            rnd_puncture(size);
         }
     }
 
-    #[test]
-    fn test_puncture64() {
-        test_puncture::<64>();
-    }
-
-    #[test]
-    fn test_puncture256() {
-        test_puncture::<256>();
-    }
-
-    #[test]
-    fn test_puncture512() {
-        test_puncture::<512>();
-    }
-
-    fn test_puncture<const N: usize>() {
+    fn rnd_puncture(size: usize) {
         // original tree
         let mut rng = rand::thread_rng();
-        let tree: TreePRF<N> = TreePRF::new(rng.gen());
+        let tree: TreePRF = TreePRF::new(size, rng.gen());
 
         // generate punctured tree
         let mut p_tree = tree.clone();
         let mut punctured: HashSet<usize> = HashSet::new();
-        for i in 0..N {
+        for i in 0..size {
             if rng.gen() {
                 p_tree = p_tree.puncture(i);
                 punctured.insert(i);
@@ -243,11 +229,11 @@ mod tests {
         }
 
         // check that the new tree agree with the original on every non-punctured index
-        let mut expand: Array<_, N> = Array::new(None);
-        let mut p_expand: Array<_, N> = Array::new(None);
+        let mut expand = vec![None; size];
+        let mut p_expand = vec![None; size];
         tree.expand(&mut expand);
         p_tree.expand(&mut p_expand);
-        for i in 0..N {
+        for i in 0..size {
             assert!(expand[i].is_some());
             if punctured.contains(&i) {
                 assert_eq!(p_expand[i], None);
@@ -255,22 +241,5 @@ mod tests {
                 assert_eq!(expand[i], p_expand[i]);
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod benchmark {
-    use super::*;
-
-    use test::Bencher;
-
-    #[bench]
-    fn bench_tree_expand64(b: &mut Bencher) {
-        let seed = test::black_box([0u8; KEY_SIZE]);
-        let mut dst: Array<_, 64> = Array::new(None);
-        b.iter(|| {
-            let tree: TreePRF<64> = TreePRF::new(seed);
-            tree.expand(&mut dst);
-        });
     }
 }

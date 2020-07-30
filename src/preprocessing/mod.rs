@@ -1,6 +1,6 @@
 mod constants;
 pub mod prover;
-pub mod verifier;
+// pub mod verifier;
 
 use crate::algebra::*;
 use crate::consts::*;
@@ -20,12 +20,11 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 async fn feed<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>>(
-    chunk: usize,
     senders: &mut [Sender<Arc<Vec<Instruction<D::Scalar>>>>],
     program: &mut PI,
 ) -> bool {
     // next slice of program
-    let ps = Arc::new(read_n(program, chunk));
+    let ps = Arc::new(read_n(program, BATCH_SIZE));
     if ps.len() == 0 {
         return false;
     }
@@ -46,12 +45,10 @@ async fn feed<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>>(
 /// - R  : number of repetitions
 /// - RT : size of PRF tree for repetitions
 /// - H  : hidden views (repetitions of online phase)
-#[derive(Deserialize, Serialize)]
-pub struct Proof<D: Domain, const N: usize, const R: usize, const H: usize> {
-    hidden: Array<[u8; 32], H>, // commitments to the hidden pre-processing executions
-    random: TreePRF<{ R }>, // punctured PRF used to derive the randomness for the opened pre-processing executions
-    chunk_size: usize,
-    ph: PhantomData<D>,
+pub struct Proof<D: Domain> {
+    hidden: Vec<[u8; HASH_SIZE]>, // commitments to the hidden pre-processing executions
+    random: TreePRF, // punctured PRF used to derive the randomness for the opened pre-processing executions
+    _ph: PhantomData<D>,
 }
 
 /// Represents the randomness for the preprocessing executions used during the online execution.
@@ -61,57 +58,55 @@ pub struct Proof<D: Domain, const N: usize, const R: usize, const H: usize> {
 ///
 /// For this reason PreprocessingOutput does not implement Copy/Clone
 /// and the online phase takes ownership of the struct, nor does it expose any fields.
-pub struct PreprocessingOutput<D: Domain, const H: usize, const N: usize> {
-    pub(crate) seeds: Array<[u8; KEY_SIZE], H>,
-    pub(crate) chunk_size: usize,
-    ph: PhantomData<D>,
+pub struct PreprocessingOutput<D: Domain> {
+    pub(crate) seeds: Vec<[u8; KEY_SIZE]>,
+    _ph: PhantomData<D>,
 }
 
-pub struct Output<const H: usize> {
-    pub(crate) hidden: [Hash; H],
+pub struct Output<D: Domain> {
+    pub(crate) hidden: Vec<Hash>,
+    _ph: PhantomData<D>,
 }
 
-impl<D: Domain, const H: usize, const N: usize> PreprocessingOutput<D, H, N> {
+impl<D: Domain> PreprocessingOutput<D> {
     // used during testing
     #[cfg(test)]
     pub(crate) fn dummy() -> Self {
+        unimplemented!()
+        /*
         PreprocessingOutput {
             chunk_size: 1024,
             seeds: Array::new([0u8; KEY_SIZE]),
             ph: PhantomData,
         }
+        */
     }
 }
 
-impl<D: Domain, const N: usize, const R: usize, const H: usize> Proof<D, N, R, H> {
+impl<D: Domain> Proof<D> {
     async fn preprocess<PI: Iterator<Item = Instruction<D::Scalar>>>(
-        chunk_size: usize,
         seeds: &[[u8; KEY_SIZE]],
         mut program: PI,
     ) -> Vec<Hash> {
-        async fn process<D: Domain, const N: usize>(
+        async fn process<D: Domain>(
             root: [u8; KEY_SIZE],
             outputs: Sender<()>,
-            inputs: Receiver<
-                Arc<Vec<Instruction<D::Scalar>>>, // next slice of program
-            >,
+            inputs: Receiver<Arc<Vec<Instruction<D::Scalar>>>>,
         ) -> Result<Hash, SendError<()>> {
             // expand repetition seed into per-player seeds
-            let mut seeds: [[u8; KEY_SIZE]; N] = [[0u8; KEY_SIZE]; N];
-            TreePRF::<N>::expand_full(&mut seeds, &root);
+            let mut seeds: Vec<[u8; KEY_SIZE]> = vec![[0u8; KEY_SIZE]; D::PLAYERS];
+            TreePRF::expand_full(&mut seeds, root);
 
             // create keyed views for every player
-            let mut views: Array<View, N> =
-                Array::from_iter(seeds.iter().map(|seed| View::new_keyed(seed)));
+            let mut views: Vec<View> = seeds.iter().map(|seed| View::new_keyed(seed)).collect();
 
             // prepare pre-processing state
-            let mut preprocessing: Box<prover::PreprocessingExecution<D, N, false>> =
-                Box::new(prover::PreprocessingExecution::new(&views));
+            let mut preprocessing: prover::PreprocessingExecution<D> =
+                prover::PreprocessingExecution::new(&views, false);
 
             loop {
                 match inputs.recv().await {
                     Ok(program) => {
-                        // pre-process next chunk of program and add corrections to player 0 view
                         preprocessing
                             .prove(&program[..], &mut views[0].scope(LABEL_SCOPE_CORRECTION));
                         outputs.send(()).await?;
@@ -125,26 +120,23 @@ impl<D: Domain, const N: usize, const R: usize, const H: usize> Proof<D, N, R, H
         }
 
         // create async parallel task for every repetition
-        let mut tasks = Vec::with_capacity(R);
-        let mut inputs: Vec<Sender<Arc<Vec<Instruction<D::Scalar>>>>> = Vec::with_capacity(R);
-        let mut outputs = Vec::with_capacity(R);
+        let mut tasks = Vec::with_capacity(D::PREPROCESSING_REPETITIONS);
+        let mut inputs: Vec<Sender<Arc<Vec<Instruction<D::Scalar>>>>> =
+            Vec::with_capacity(D::PREPROCESSING_REPETITIONS);
+        let mut outputs = Vec::with_capacity(D::PREPROCESSING_REPETITIONS);
 
         for seed in seeds.iter().cloned() {
             let (send_inputs, recv_inputs) = async_channel::bounded(5);
             let (send_outputs, recv_outputs) = async_channel::bounded(5);
-            tasks.push(task::spawn(process::<D, N>(
-                seed,
-                send_outputs,
-                recv_inputs,
-            )));
+            tasks.push(task::spawn(process::<D>(seed, send_outputs, recv_inputs)));
             inputs.push(send_inputs);
             outputs.push(recv_outputs);
         }
 
         // schedule up to 2 tasks immediately (for better performance)
         let mut scheduled = 0;
-        scheduled += feed::<D, _>(chunk_size, &mut inputs[..], &mut program).await as usize;
-        scheduled += feed::<D, _>(chunk_size, &mut inputs[..], &mut program).await as usize;
+        scheduled += feed::<D, _>(&mut inputs[..], &mut program).await as usize;
+        scheduled += feed::<D, _>(&mut inputs[..], &mut program).await as usize;
 
         // wait for all scheduled tasks to complete
         while scheduled > 0 {
@@ -152,30 +144,31 @@ impl<D: Domain, const N: usize, const R: usize, const H: usize> Proof<D, N, R, H
                 let _ = rx.recv().await;
             }
             scheduled -= 1;
-            scheduled += feed::<D, _>(chunk_size, &mut inputs[..], &mut program).await as usize;
+            scheduled += feed::<D, _>(&mut inputs[..], &mut program).await as usize;
         }
 
         // close inputs channels
         inputs.clear();
 
         // collect final commitments
-        let mut hashes: Vec<Hash> = Vec::with_capacity(R);
+        let mut hashes: Vec<Hash> = Vec::with_capacity(D::PREPROCESSING_REPETITIONS);
         for t in tasks.into_iter() {
             hashes.push(t.await.unwrap());
         }
         hashes
     }
 
-    pub fn verify<PI: Iterator<Item = Instruction<D::Scalar>>>(
+    pub async fn verify<PI: Iterator<Item = Instruction<D::Scalar>>>(
         &self,
         program: PI,
-    ) -> Option<Output<H>> {
+    ) -> Option<Output<D>> {
         // derive keys and hidden execution indexes
-        let mut roots: Array<Option<[u8; KEY_SIZE]>, R> = Array::new(None);
+        let mut roots: Vec<Option<[u8; KEY_SIZE]>> = vec![None; D::PREPROCESSING_REPETITIONS];
         self.random.expand(&mut roots);
 
-        let mut opened: Vec<bool> = Vec::with_capacity(R);
-        let mut hidden: Vec<usize> = Vec::with_capacity(H);
+        // derive the hidden indexes
+        let mut opened: Vec<bool> = Vec::with_capacity(D::PREPROCESSING_REPETITIONS);
+        let mut hidden: Vec<usize> = Vec::with_capacity(D::ONLINE_REPETITIONS);
         for (i, key) in roots.iter().enumerate() {
             opened.push(key.is_some());
             if key.is_none() {
@@ -184,21 +177,21 @@ impl<D: Domain, const N: usize, const R: usize, const H: usize> Proof<D, N, R, H
         }
 
         // prover must open exactly R-H repetitions
-        if hidden.len() != H {
+        if hidden.len() != D::ONLINE_REPETITIONS {
             return None;
         }
 
-        // recompute the opened views
-        let seeds: Vec<[u8; KEY_SIZE]> = roots
+        // recompute the opened repetitions
+        let opened_roots: Vec<[u8; KEY_SIZE]> = roots
             .iter()
             .filter(|v| v.is_some())
             .map(|v| v.unwrap())
             .collect();
 
-        let opened_hashes = task::block_on(Self::preprocess(self.chunk_size, &seeds[..], program));
+        let opened_hashes = Self::preprocess(&opened_roots[..], program).await;
 
         // interleave the proved hashes with the recomputed ones
-        let mut hashes = Vec::with_capacity(R);
+        let mut hashes = Vec::with_capacity(D::PREPROCESSING_REPETITIONS);
         {
             let mut open_hsh = opened_hashes.iter();
             let mut hide_hsh = self.hidden.iter();
@@ -223,9 +216,15 @@ impl<D: Domain, const N: usize, const R: usize, const H: usize> Proof<D, N, R, H
         };
 
         // accept if the hidden indexes where computed correctly (Fiat-Shamir transform)
-        if &hidden[..] == &random_subset::<_, R, H>(&mut challenge_prg)[..] {
+        let subset: Vec<usize> = random_subset(
+            &mut challenge_prg,
+            D::PREPROCESSING_REPETITIONS,
+            D::ONLINE_REPETITIONS,
+        );
+        if &hidden[..] == &subset[..] {
             Some(Output {
-                hidden: self.hidden.map(|h| Hash::from(*h)).unbox(),
+                hidden: self.hidden.iter().map(|h| Hash::from(*h)).collect(),
+                _ph: PhantomData,
             })
         } else {
             None
@@ -238,14 +237,14 @@ impl<D: Domain, const N: usize, const R: usize, const H: usize> Proof<D, N, R, H
     pub fn new<PI: Iterator<Item = Instruction<D::Scalar>>>(
         global: [u8; KEY_SIZE],
         program: PI,
-        chunk_size: usize,
-    ) -> (Self, PreprocessingOutput<D, H, N>) {
+    ) -> (Self, PreprocessingOutput<D>) {
         // expand the global seed into per-repetition roots
-        let mut roots: Array<[u8; KEY_SIZE], R> = Array::new([0; KEY_SIZE]);
-        TreePRF::<R>::expand_full(&mut roots, &global);
+        let mut roots: Vec<[u8; KEY_SIZE]> = vec![[0; KEY_SIZE]; D::PREPROCESSING_REPETITIONS];
+        TreePRF::expand_full(&mut roots, global);
 
         // block and wait for hashes to compute
-        let hashes = task::block_on(Self::preprocess(chunk_size, &roots[..], program));
+        println!("roots: {:?}", &roots[..]);
+        let hashes = task::block_on(Self::preprocess(&roots[..], program));
 
         // send the pre-processing commitments to the random oracle, receive challenges
         let mut challenge_prg = {
@@ -260,39 +259,41 @@ impl<D: Domain, const N: usize, const R: usize, const H: usize> Proof<D, N, R, H
 
         // interpret the oracle response as a subset of indexes to hide
         // (implicitly: which executions to open)
-        let hide: [usize; H] = random_subset::<_, R, H>(&mut challenge_prg);
+        let hidden: Vec<usize> = random_subset(
+            &mut challenge_prg,
+            D::PREPROCESSING_REPETITIONS,
+            D::ONLINE_REPETITIONS,
+        );
 
         // puncture the prf at the hidden indexes
         // (implicitly: pass the randomness for all other executions to the verifier)
-        let mut tree: TreePRF<R> = TreePRF::new(global);
-        for i in hide.iter().cloned() {
+        let mut tree: TreePRF = TreePRF::new(D::PREPROCESSING_REPETITIONS, global);
+        for i in hidden.iter().cloned() {
             tree = tree.puncture(i);
         }
 
-        // extract hashes for the hidden evaluations
-        let hidden_hashes: Array<[u8; HASH_SIZE], H> =
-            Array::from_iter(hide.iter().cloned().map(|i| *hashes[i].as_bytes()));
-
         // extract pre-processing key material for the hidden views
         // (returned to the prover for use in the online phase)
-        let mut hidden_seeds: Array<[u8; KEY_SIZE], H> = Array::new([0u8; KEY_SIZE]);
-        for (to, from) in hide.iter().cloned().enumerate() {
-            hidden_seeds[to] = roots[from];
+        let mut hidden_seeds: Vec<[u8; KEY_SIZE]> = Vec::with_capacity(D::ONLINE_REPETITIONS);
+        for i in hidden.iter().cloned() {
+            hidden_seeds.push(roots[i]);
         }
 
         (
             // proof (used by the verifier)
             Proof {
-                hidden: hidden_hashes,
+                hidden: hidden
+                    .iter()
+                    .cloned()
+                    .map(|i| *hashes[i].as_bytes())
+                    .collect(),
                 random: tree,
-                chunk_size,
-                ph: PhantomData,
+                _ph: PhantomData,
             },
             // randomness used to re-executed the hidden views (used by the prover)
             PreprocessingOutput {
-                chunk_size,
                 seeds: hidden_seeds,
-                ph: PhantomData,
+                _ph: PhantomData,
             },
         )
     }
@@ -314,8 +315,9 @@ mod tests {
         ]; // maybe generate random program?
         let mut rng = rand::thread_rng();
         let seed: [u8; KEY_SIZE] = rng.gen();
-        let proof = Proof::<GF2P8, 8, 252, 44>::new(seed, program.iter().cloned(), 1000);
-        assert!(proof.0.verify(program.into_iter()).is_some());
+        let proof = Proof::<GF2P8>::new(seed, program.iter().cloned());
+
+        assert!(task::block_on(proof.0.verify(program.into_iter())).is_some());
     }
 }
 
@@ -328,7 +330,6 @@ mod benchmark {
     use test::Bencher;
 
     const MULT: usize = 1_000_000;
-    const CHUNK_SIZE: usize = MULT;
 
     /*
     /// Benchmark proof generation of pre-processing using parameters from the paper

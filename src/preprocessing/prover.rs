@@ -20,10 +20,11 @@ impl Player {
 }
 
 /// Implementation of pre-processing phase used by the prover during online execution
-pub struct PreprocessingExecution<D: Domain, const N: usize, const O: bool> {
+pub struct PreprocessingExecution<D: Domain> {
     // interpreter state
+    online: bool,
     masks: VecMap<D::Sharing>,
-    players: [Player; N],
+    players: Vec<Player>,
 
     // input mask state
     next_input: usize,
@@ -33,18 +34,21 @@ pub struct PreprocessingExecution<D: Domain, const N: usize, const O: bool> {
     share_a: Vec<D::Sharing>, // beta sharings (from input)
     share_b: Vec<D::Sharing>, // alpha sharings (from input)
     share_g: Vec<D::Sharing>, // gamma sharings (output)
+    _ph: PhantomData<D>,
 }
 
-impl<D: Domain, const N: usize, const O: bool> PreprocessingExecution<D, N, O> {
-    pub fn new(views: &[View; N]) -> Self {
+impl<D: Domain> PreprocessingExecution<D> {
+    pub fn new(views: &[View], online: bool) -> Self {
         PreprocessingExecution {
+            online,
             next_input: D::Batch::DIMENSION,
             share_input: vec![D::Sharing::ZERO; D::Batch::DIMENSION],
-            players: Array::from_iter(views.iter().map(Player::new)).unbox(),
+            players: views.iter().map(Player::new).collect(),
             share_g: vec![D::Sharing::ZERO; D::Batch::DIMENSION],
             share_a: Vec::with_capacity(D::Batch::DIMENSION),
             share_b: Vec::with_capacity(D::Batch::DIMENSION),
             masks: VecMap::new(),
+            _ph: PhantomData,
         }
     }
 
@@ -53,18 +57,18 @@ impl<D: Domain, const N: usize, const O: bool> PreprocessingExecution<D, N, O> {
         &mut self,
         ab_gamma: &mut Vec<D::Sharing>,
         corrections: &mut CW, // player 0 corrections
-        batch_g: &[D::Batch; N],
+        batch_g: &[D::Batch],
+        batch_a: &mut [D::Batch],
+        batch_b: &mut [D::Batch],
+        batch_c: &mut [D::Batch],
+        batch_gab: &mut [D::Batch],
     ) {
-        let mut batches_a: [D::Batch; N] = [D::Batch::ZERO; N];
-        let mut batches_b: [D::Batch; N] = [D::Batch::ZERO; N];
-        let mut batches_c: [D::Batch; N] = [D::Batch::ZERO; N];
-
         debug_assert_eq!(self.share_a.len(), D::Batch::DIMENSION);
         debug_assert_eq!(self.share_b.len(), D::Batch::DIMENSION);
 
         // transpose sharings into per player batches
-        D::convert_inv(&mut batches_a[..], &self.share_a[..]);
-        D::convert_inv(&mut batches_b[..], &self.share_b[..]);
+        D::convert_inv(&mut batch_a[..], &self.share_a[..]);
+        D::convert_inv(&mut batch_b[..], &self.share_b[..]);
         self.share_a.clear();
         self.share_b.clear();
 
@@ -74,12 +78,12 @@ impl<D: Domain, const N: usize, const O: bool> PreprocessingExecution<D, N, O> {
         let mut c = D::Batch::ZERO;
 
         // compute random c sharing and reconstruct a,b sharings
-        for i in 0..N {
+        for i in 0..D::PLAYERS {
             // reconstruct a, b and c
-            batches_c[i] = D::Batch::gen(&mut self.players[i].beaver);
-            a = a + batches_a[i];
-            b = b + batches_b[i];
-            c = c + batches_c[i];
+            batch_c[i] = D::Batch::gen(&mut self.players[i].beaver);
+            a = a + batch_a[i];
+            b = b + batch_b[i];
+            c = c + batch_c[i];
         }
 
         // correct shares for player 0 (correction bits)
@@ -90,18 +94,17 @@ impl<D: Domain, const N: usize, const O: bool> PreprocessingExecution<D, N, O> {
         corrections.write(delta);
 
         // compute ab_gamma shares only in online execution (to save time and memory)
-        if O {
+        if self.online {
             // compute ab_gamma in parallel using batch operations
-            batches_c[0] = batches_c[0] + delta;
-            let mut batches_gab: [D::Batch; N] = [D::Batch::ZERO; N];
-            for i in 0..N {
-                batches_gab[i] = batches_c[i] + batch_g[i];
+            batch_c[0] = batch_c[0] + delta;
+            for i in 0..D::PLAYERS {
+                batch_gab[i] = batch_c[i] + batch_g[i];
             }
 
             // transpose into shares
             let start = ab_gamma.len();
             ab_gamma.resize(start + D::Batch::DIMENSION, D::Sharing::ZERO);
-            D::convert(&mut ab_gamma[start..], &batches_gab);
+            D::convert(&mut ab_gamma[start..], &batch_gab);
         }
 
         debug_assert_eq!(self.share_a.len(), 0);
@@ -121,7 +124,13 @@ impl<D: Domain, const N: usize, const O: bool> PreprocessingExecution<D, N, O> {
         debug_assert_eq!(self.share_b.len(), 0);
 
         // look forward in program until executed enough multiplications for next batch
-        let mut batch_g = [D::Batch::ZERO; N];
+        let mut batch_g = vec![D::Batch::ZERO; D::PLAYERS];
+        let mut batch_a = vec![D::Batch::ZERO; D::PLAYERS];
+        let mut batch_b = vec![D::Batch::ZERO; D::PLAYERS];
+        let mut batch_c = vec![D::Batch::ZERO; D::PLAYERS];
+        let mut batch_m = vec![D::Batch::ZERO; D::PLAYERS];
+        let mut batch_gab = vec![D::Batch::ZERO; D::PLAYERS];
+
         for step in program {
             debug_assert_eq!(self.share_a.len(), self.share_b.len());
             debug_assert_eq!(self.share_g.len(), D::Batch::DIMENSION);
@@ -132,8 +141,7 @@ impl<D: Domain, const N: usize, const O: bool> PreprocessingExecution<D, N, O> {
                 Instruction::Input(dst) => {
                     // check if need for new batch of input masks
                     if self.next_input == D::Batch::DIMENSION {
-                        let mut batch_m = [D::Batch::ZERO; N];
-                        for j in 0..N {
+                        for j in 0..D::PLAYERS {
                             batch_m[j] = D::Batch::gen(&mut self.players[j].input);
                         }
                         D::convert(&mut self.share_input[..], &batch_m);
@@ -166,7 +174,7 @@ impl<D: Domain, const N: usize, const O: bool> PreprocessingExecution<D, N, O> {
                 Instruction::Mul(dst, src1, src2) => {
                     // generate sharings for the output of the next batch of multiplications
                     if self.share_a.len() == 0 {
-                        for j in 0..N {
+                        for j in 0..D::PLAYERS {
                             batch_g[j] = D::Batch::gen(&mut self.players[j].beaver);
                         }
                         D::convert(&mut self.share_g[..], &batch_g);
@@ -188,7 +196,15 @@ impl<D: Domain, const N: usize, const O: bool> PreprocessingExecution<D, N, O> {
 
                     // if the batch is full, generate next batch of ab_gamma shares
                     if self.share_a.len() == D::Batch::DIMENSION {
-                        self.generate(ab_gamma, corrections, &batch_g);
+                        self.generate(
+                            ab_gamma,
+                            corrections,
+                            &batch_g,
+                            &mut batch_a,
+                            &mut batch_b,
+                            &mut batch_c,
+                            &mut batch_gab,
+                        );
                     }
                 }
                 Instruction::Output(src) => {
@@ -202,7 +218,15 @@ impl<D: Domain, const N: usize, const O: bool> PreprocessingExecution<D, N, O> {
         if self.share_a.len() > 0 {
             self.share_a.resize(D::Batch::DIMENSION, D::Sharing::ZERO);
             self.share_b.resize(D::Batch::DIMENSION, D::Sharing::ZERO);
-            self.generate(ab_gamma, corrections, &batch_g);
+            self.generate(
+                ab_gamma,
+                corrections,
+                &batch_g,
+                &mut batch_a,
+                &mut batch_b,
+                &mut batch_c,
+                &mut batch_gab,
+            );
         }
     }
 
@@ -211,7 +235,7 @@ impl<D: Domain, const N: usize, const O: bool> PreprocessingExecution<D, N, O> {
         program: &[Instruction<D::Scalar>], // program slice (possibly a subset of the full program)
         corrections: &mut CW,               // player 0 corrections
     ) {
-        assert!(!O, "method only valid in pre-processing proof");
+        assert!(!self.online, "method only valid in pre-processing proof");
         let mut ab_gamma = vec![];
         self.process(
             program,

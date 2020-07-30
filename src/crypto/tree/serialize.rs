@@ -5,6 +5,14 @@ use std::fmt;
 
 use super::*;
 
+const MAX_SIZE: usize = 4096;
+
+#[derive(Debug, Serialize, Deserialize)]
+struct FlatTree {
+    size: u16,
+    nodes: Vec<FlatNode>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 enum FlatNode {
     Punctured,
@@ -12,10 +20,10 @@ enum FlatNode {
     Leaf([u8; KEY_SIZE]),
 }
 
-struct TreeVistor<const N: usize>();
+struct TreeVistor();
 
-impl<'de, const N: usize> Visitor<'de> for TreeVistor<N> {
-    type Value = TreePRF<N>;
+impl<'de> Visitor<'de> for TreeVistor {
+    type Value = Node;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         write!(formatter, "a sequence of flat nodes")
@@ -23,9 +31,9 @@ impl<'de, const N: usize> Visitor<'de> for TreeVistor<N> {
 
     fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
         // read into vector
-        let mut res: Vec<FlatNode> = Vec::with_capacity(2 * N);
+        let mut res: Vec<FlatNode> = Vec::with_capacity(MAX_SIZE);
         while let Some(v) = seq.next_element()? {
-            if res.len() >= 2 * N {
+            if res.len() >= MAX_SIZE {
                 break;
             }
             res.push(v);
@@ -45,11 +53,11 @@ impl<'de, const N: usize> Visitor<'de> for TreeVistor<N> {
     }
 }
 
-fn flatten<const N: usize>(dst: &mut Vec<FlatNode>, tree: &TreePRF<N>) {
-    match tree {
-        TreePRF::Punctured => dst.push(FlatNode::Punctured),
-        TreePRF::Leaf(key) => dst.push(FlatNode::Leaf(*key)),
-        TreePRF::Internal(left, right) => {
+fn flatten(dst: &mut Vec<FlatNode>, node: &Node) {
+    match node {
+        Node::Punctured => dst.push(FlatNode::Punctured),
+        Node::Leaf(key) => dst.push(FlatNode::Leaf(*key)),
+        Node::Internal(left, right) => {
             dst.push(FlatNode::Internal);
             flatten(dst, left);
             flatten(dst, right);
@@ -57,20 +65,20 @@ fn flatten<const N: usize>(dst: &mut Vec<FlatNode>, tree: &TreePRF<N>) {
     }
 }
 
-fn unflatten<const N: usize>(src: &[FlatNode]) -> Option<(&[FlatNode], TreePRF<N>)> {
+fn unflatten(src: &[FlatNode]) -> Option<(&[FlatNode], Node)> {
     match src.get(0)? {
-        FlatNode::Punctured => Some((&src[1..], TreePRF::Punctured)),
-        FlatNode::Leaf(key) => Some((&src[1..], TreePRF::Leaf(*key))),
+        FlatNode::Punctured => Some((&src[1..], Node::Punctured)),
+        FlatNode::Leaf(key) => Some((&src[1..], Node::Leaf(*key))),
         FlatNode::Internal => {
             let src = &src[1..];
             let (src, left) = unflatten(src)?;
             let (src, right) = unflatten(src)?;
-            Some((src, TreePRF::Internal(Arc::new(left), Arc::new(right))))
+            Some((src, Node::Internal(Arc::new(left), Arc::new(right))))
         }
     }
 }
 
-impl<const N: usize> Serialize for TreePRF<N> {
+impl Serialize for Node {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -81,12 +89,12 @@ impl<const N: usize> Serialize for TreePRF<N> {
     }
 }
 
-impl<'de, const N: usize> Deserialize<'de> for TreePRF<N> {
-    fn deserialize<D>(deserializer: D) -> Result<TreePRF<N>, D::Error>
+impl<'de> Deserialize<'de> for Node {
+    fn deserialize<D>(deserializer: D) -> Result<Node, D::Error>
     where
         D: Deserializer<'de>,
     {
-        deserializer.deserialize_seq(TreeVistor::<N>())
+        deserializer.deserialize_seq(TreeVistor())
     }
 }
 
@@ -95,15 +103,11 @@ mod tests {
     use super::*;
 
     use bincode;
-
     #[test]
     fn serde_tree() {
-        let tree: TreePRF<32> = TreePRF::new([7u8; KEY_SIZE]);
-
+        let tree: TreePRF = TreePRF::new(256, [7u8; KEY_SIZE]);
         let serialized = bincode::serialize(&tree).unwrap();
-
-        let tree_new: TreePRF<32> = bincode::deserialize(&serialized[..]).unwrap();
-
-        println!("{:?} {:?}", &serialized[..], tree_new);
+        let tree_new: TreePRF = bincode::deserialize(&serialized[..]).unwrap();
+        assert_eq!(tree, tree_new);
     }
 }

@@ -1,31 +1,29 @@
-use std::mem;
+use std::collections::HashSet;
 
 use rand::RngCore;
 
 #[inline(always)]
-pub fn random_usize<R: RngCore, const M: usize>(rng: &mut R) -> usize {
+pub fn random_usize<R: RngCore>(rng: &mut R, m: usize) -> usize {
     // generate a 128-bit integer (to minimize statistical bias)
     let mut le_bytes: [u8; 16] = [0u8; 16];
     rng.fill_bytes(&mut le_bytes);
 
     // reduce mod the number of repetitions
-    let n: u128 = u128::from_le_bytes(le_bytes) % (M as u128);
+    let n: u128 = u128::from_le_bytes(le_bytes) % (m as u128);
     n as usize
 }
 
-pub fn random_subset<R: RngCore, const M: usize, const S: usize>(rng: &mut R) -> [usize; S] {
-    let mut members: [bool; M] = [false; M];
-    let mut samples: [usize; S] = unsafe { mem::MaybeUninit::zeroed().assume_init() };
-    let mut collect: usize = 0;
+pub fn random_subset<R: RngCore>(rng: &mut R, m: usize, l: usize) -> Vec<usize> {
+    let mut members: HashSet<usize> = HashSet::new();
+    let mut samples: Vec<usize> = Vec::with_capacity(l);
 
-    while collect < S {
+    while samples.len() < l {
         // generate random usize
-        let n = random_usize::<R, M>(rng);
+        let n = random_usize::<R>(rng, m);
 
         // if not in set, add to the vector
-        if !mem::replace(&mut members[n as usize], true) {
-            samples[collect] = n;
-            collect += 1;
+        if members.insert(n) {
+            samples.push(n);
         }
     }
 

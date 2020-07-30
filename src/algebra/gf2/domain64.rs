@@ -10,6 +10,10 @@ impl Domain for GF2P64 {
     type Batch = BitBatch;
     type Sharing = BitSharing64;
 
+    const PLAYERS: usize = 64;
+    const PREPROCESSING_REPETITIONS: usize = 631;
+    const ONLINE_REPETITIONS: usize = 23;
+
     #[inline(always)]
     fn convert(dst: &mut [Self::Sharing], src: &[Self::Batch]) {
         // do a single bounds check up front
