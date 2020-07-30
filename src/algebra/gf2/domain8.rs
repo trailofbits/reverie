@@ -3,7 +3,9 @@ use super::*;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 use core::arch::x86_64::*;
 
-#[derive(Debug, Copy, Clone)]
+use serde::Serialize;
+
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub struct GF2P8 {}
 
 impl GF2P8 {

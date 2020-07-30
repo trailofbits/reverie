@@ -6,6 +6,8 @@ use std::ops::{Add, Mul, Sub};
 use rand::distributions::{Distribution, Standard};
 use rand::{Rng, RngCore};
 
+use serde::{Deserialize, Serialize};
+
 use crate::util::Writer;
 
 mod ring;

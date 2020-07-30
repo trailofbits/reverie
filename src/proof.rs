@@ -14,6 +14,9 @@ use serde::{Deserialize, Serialize};
 const CHANNEL_CAPACITY: usize = 100;
 const CHUNK_SIZE: usize = 10_000_000;
 
+/// Proof system offering 128-bits of classical (non Post Quantum) security.
+/// Proof size is ~ 88 bits / multiplication.
+///
 /// # Example
 ///
 /// Proving that you know bits a, b st. a * b = 1
@@ -47,6 +50,10 @@ const CHUNK_SIZE: usize = 10_000_000;
 /// ```
 pub type ProofGF2P8 = Proof<gf2::GF2P8, 8, 8, 252, 256, 44>;
 
+/// Proof system offering 128-bits of classical (non Post Quantum) security.
+/// Proof size is ~ 46 bits / multiplication.
+/// The proof generation / verification is roughly 8 times that of ProofGF2P8
+///
 /// # Example
 ///
 /// Proving that you know bits a, b st. a * b = 1
@@ -78,12 +85,10 @@ pub type ProofGF2P8 = Proof<gf2::GF2P8, 8, 8, 252, 256, 44>;
 ///
 /// assert_eq!(&output[..], &result[..]);
 /// ```
-pub type ProofGF2P64 = Proof<gf2::GF2P64, 64, 64, 631, 1024, 2>;
+pub type ProofGF2P64 = Proof<gf2::GF2P64, 64, 64, 631, 1024, 23>;
 
 /// Simplified interface for in-memory proofs
 /// with pre-processing verified simultaneously with online execution.
-///
-///
 #[derive(Deserialize, Serialize)]
 pub struct Proof<
     D: Domain,
@@ -159,12 +164,88 @@ impl<
         task_online.await?.check(&preprocessing)
     }
 
+    /// Create a new proof for the correct execution of program(witness)
+    ///
+    /// Note that there is no notion of the witness "satisfying" the program,
+    /// rather we produce a proof that "program(witness)" results in the particular output.
+    /// This allows e.g. the computation of y = SHA-256(x) with y being output to the verifier,
+    /// without the need for an equality check inside the program.
+    ///
+    /// If the "program" is not well-formed, the behavior is undefined (but safe).
+    /// In particular accessing an unassigned wire might cause a panic.
+    /// If "witness" is too short for the program, this causes a panic.
+    ///
+    /// # Arguments
+    ///
+    /// - `program`: A slice of instructions (including input gates).
+    /// - `witness`: The input to the program (length matching the number of input gates)
+    ///
+    /// # Output
+    ///
+    /// A stand alone proof for both online and preprocessing execution.
     pub fn new(program: &[Instruction<D::Scalar>], witness: &[D::Scalar]) -> Self {
         task::block_on(Self::new_async(program.to_owned(), witness.to_owned()))
     }
 
+    /// Verify the a proof and return the output of the program
+    ///
+    /// # Arguments
+    ///
+    /// # Output
+    ///
+    /// If the proof is valid: a vector of scalars from the domain (usually bits),
+    /// which is the output of the program run on the witness.
+    /// Usually the verifier then checks that the output is some expected constant,
+    /// e.g. the vector [1]
+    ///
+    /// If the proof is invalid: None.
     pub fn verify(&self, program: &[Instruction<D::Scalar>]) -> Option<Vec<D::Scalar>> {
         task::block_on(self.verify_async(program.to_owned()))
+    }
+}
+
+impl<
+        'de,
+        D: Domain,
+        const P: usize,
+        const PT: usize,
+        const R: usize,
+        const RT: usize,
+        const H: usize,
+    > Proof<D, P, PT, R, RT, H>
+where
+    D: Deserialize<'de>,
+{
+    /// Deserialize a byte slice into a proof using bincode
+    ///
+    /// # Arguments
+    ///
+    /// - `bytes`: The serialized proof
+    ///
+    /// # Output
+    ///
+    /// A proof structure if the serialized proof is well-formed, otherwise None.
+    pub fn deserialize(bytes: &'de [u8]) -> Option<Self> {
+        bincode::deserialize(bytes).ok()
+    }
+}
+
+impl<
+        'de,
+        D: Domain,
+        const P: usize,
+        const PT: usize,
+        const R: usize,
+        const RT: usize,
+        const H: usize,
+    > Proof<D, P, PT, R, RT, H>
+where
+    D: Serialize,
+{
+    /// Serialize the proof into a byte vector using bincode
+    /// (which can be sent to the verifier)
+    pub fn serialize(&self) -> Vec<u8> {
+        bincode::serialize(self).unwrap()
     }
 }
 
@@ -178,18 +259,18 @@ mod tests {
 
     #[test]
     fn test_gf2p64_simplified() {
-        let mut result = vec![
+        let result = vec![
             <BitScalar as RingElement>::ONE,
             <BitScalar as RingElement>::ONE,
             <BitScalar as RingElement>::ZERO,
             <BitScalar as RingElement>::ONE,
         ];
-        let mut witness = vec![
+        let witness = vec![
             <BitScalar as RingElement>::ZERO,
             <BitScalar as RingElement>::ONE,
             <BitScalar as RingElement>::ONE,
         ];
-        let mut program: Vec<Instruction<BitScalar>> = vec![
+        let program: Vec<Instruction<BitScalar>> = vec![
             Instruction::Input(0),     // v[0] <- 0
             Instruction::Input(1),     // v[1] <- 1
             Instruction::Input(2),     // v[2] <- 1
@@ -202,26 +283,28 @@ mod tests {
             Instruction::Output(0),    // <- v[0]
         ];
         let proof = ProofGF2P64::new(&program[..], &witness[..]);
-
-        let output = proof.verify(&program[..]).unwrap();
-
+        let blob = proof.serialize();
+        let output = ProofGF2P64::deserialize(&blob[..])
+            .unwrap()
+            .verify(&program[..])
+            .unwrap();
         assert_eq!(&output[..], &result[..]);
     }
 
     #[test]
     fn test_gf2p8_simplified() {
-        let mut result = vec![
+        let result = vec![
             <BitScalar as RingElement>::ONE,
             <BitScalar as RingElement>::ONE,
             <BitScalar as RingElement>::ZERO,
             <BitScalar as RingElement>::ONE,
         ];
-        let mut witness = vec![
+        let witness = vec![
             <BitScalar as RingElement>::ZERO,
             <BitScalar as RingElement>::ONE,
             <BitScalar as RingElement>::ONE,
         ];
-        let mut program: Vec<Instruction<BitScalar>> = vec![
+        let program: Vec<Instruction<BitScalar>> = vec![
             Instruction::Input(0),     // v[0] <- 0
             Instruction::Input(1),     // v[1] <- 1
             Instruction::Input(2),     // v[2] <- 1
@@ -234,9 +317,11 @@ mod tests {
             Instruction::Output(0),    // <- v[0]
         ];
         let proof = ProofGF2P8::new(&program[..], &witness[..]);
-
-        let output = proof.verify(&program[..]).unwrap();
-
+        let blob = proof.serialize();
+        let output = ProofGF2P8::deserialize(&blob[..])
+            .unwrap()
+            .verify(&program[..])
+            .unwrap();
         assert_eq!(&output[..], &result[..]);
     }
 }

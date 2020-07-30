@@ -2,7 +2,7 @@ use super::*;
 
 use std::mem::MaybeUninit;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub struct GF2P64 {}
 
 impl Domain for GF2P64 {
