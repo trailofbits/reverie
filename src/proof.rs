@@ -43,10 +43,10 @@ const CHANNEL_CAPACITY: usize = 100;
 /// ];
 ///
 /// // generate a proof (proof implements serde Serialize / Deserialize)
-/// let proof = ProofGF2P8::new(&program[..], &witness[..]);
+/// let proof = ProofGF2P8::new(program.clone(), witness.clone());
 ///
 /// // verify the proof (in production you should check the result)
-/// let output = proof.verify(&program[..]).unwrap();
+/// let output = proof.verify(program).unwrap();
 ///
 /// assert_eq!(&output[..], &result[..]);
 /// ```
@@ -80,10 +80,10 @@ pub type ProofGF2P8 = Proof<gf2::GF2P8>;
 /// ];
 ///
 /// // generate a proof (proof implements serde Serialize / Deserialize)
-/// let proof = ProofGF2P64::new(&program[..], &witness[..]);
+/// let proof = ProofGF2P64::new(program.clone(), witness.clone());
 ///
 /// // verify the proof (in production you should check the result)
-/// let output = proof.verify(&program[..]).unwrap();
+/// let output = proof.verify(program).unwrap();
 ///
 /// assert_eq!(&output[..], &result[..]);
 /// ```
