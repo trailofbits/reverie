@@ -105,8 +105,8 @@ mod benchmark {
 
         let mut rng = thread_rng();
 
-        let mut v = BitSharing8(rng.gen());
-        let mut s = BitScalar(rng.gen::<u8>() & 1);
+        let v = BitSharing8(rng.gen());
+        let s = BitScalar(rng.gen::<u8>() & 1);
 
         b.iter(|| {
             black_box(for _ in 0..1_000_000 {

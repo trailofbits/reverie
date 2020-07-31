@@ -11,15 +11,15 @@ use crate::util::*;
 
 use std::mem;
 use std::sync::Arc;
-use std::time::Duration;
 
 use async_channel::{Receiver, SendError, Sender};
 use async_std::task;
 
 use blake3::Hash;
-use rand::RngCore;
 
 use bincode;
+
+const DEFAULT_CAPACITY: usize = BATCH_SIZE;
 
 async fn feed<
     D: Domain,
@@ -48,7 +48,6 @@ async fn feed<
     debug_assert_eq!(senders.len(), D::ONLINE_REPETITIONS);
     for tx in senders.iter_mut() {
         tx.send((ps.clone(), ws.clone())).await.unwrap();
-        task::sleep(Duration::from_millis(100)).await;
     }
     true
 }
@@ -216,8 +215,8 @@ impl<D: Domain> StreamingProver<D> {
             let mut transcript = RingHasher::new();
             let mut online = Prover::<D>::new();
 
-            let mut masks = Vec::with_capacity(1024);
-            let mut ab_gamma = Vec::with_capacity(1024);
+            let mut masks = Vec::with_capacity(DEFAULT_CAPACITY);
+            let mut ab_gamma = Vec::with_capacity(DEFAULT_CAPACITY);
             loop {
                 match inputs.recv().await {
                     Ok((program, witness)) => {
@@ -257,8 +256,8 @@ impl<D: Domain> StreamingProver<D> {
         let mut inputs = Vec::with_capacity(D::ONLINE_REPETITIONS);
         let mut outputs = Vec::with_capacity(D::ONLINE_REPETITIONS);
         for root in preprocessing.seeds.iter().cloned() {
-            let (send_inputs, recv_inputs) = async_channel::bounded(5);
-            let (send_outputs, recv_outputs) = async_channel::bounded(5);
+            let (send_inputs, recv_inputs) = async_channel::bounded(2);
+            let (send_outputs, recv_outputs) = async_channel::bounded(2);
             tasks.push(task::spawn(process::<D>(root, send_outputs, recv_inputs)));
             inputs.push(send_inputs);
             outputs.push(recv_outputs);
@@ -266,8 +265,10 @@ impl<D: Domain> StreamingProver<D> {
 
         // schedule up to 2 tasks immediately (for better performance)
         let mut scheduled = 0;
+
         scheduled +=
             feed::<D, _, _>(BATCH_SIZE, &mut inputs[..], &mut program, &mut witness).await as usize;
+
         scheduled +=
             feed::<D, _, _>(BATCH_SIZE, &mut inputs[..], &mut program, &mut witness).await as usize;
 
@@ -275,14 +276,14 @@ impl<D: Domain> StreamingProver<D> {
         while scheduled > 0 {
             scheduled -= 1;
 
+            // schedule a new task
+            scheduled += feed::<D, _, _>(BATCH_SIZE, &mut inputs[..], &mut program, &mut witness)
+                .await as usize;
+
             // wait for output from every task to avoid one task racing a head
             for rx in outputs.iter_mut() {
                 let _ = rx.recv().await;
             }
-
-            // schedule a new task
-            scheduled += feed::<D, _, _>(BATCH_SIZE, &mut inputs[..], &mut program, &mut witness)
-                .await as usize;
         }
 
         // close input writers
@@ -362,11 +363,11 @@ impl<D: Domain> StreamingProver<D> {
             let mut online = Prover::<D>::new();
 
             // output buffers used during execution
-            let mut masks = Vec::with_capacity(1024);
-            let mut ab_gamma = Vec::with_capacity(1024);
-            let mut corrections = Vec::with_capacity(1024);
-            let mut broadcast = Vec::with_capacity(1024);
-            let mut masked: Vec<D::Scalar> = Vec::with_capacity(1024);
+            let mut masks = Vec::with_capacity(DEFAULT_CAPACITY);
+            let mut ab_gamma = Vec::with_capacity(DEFAULT_CAPACITY);
+            let mut corrections = Vec::with_capacity(DEFAULT_CAPACITY);
+            let mut broadcast = Vec::with_capacity(DEFAULT_CAPACITY);
+            let mut masked: Vec<D::Scalar> = Vec::with_capacity(DEFAULT_CAPACITY);
 
             // packed elements to be serialized
             let mut chunk = Chunk {
@@ -428,8 +429,8 @@ impl<D: Domain> StreamingProver<D> {
         let mut inputs = Vec::with_capacity(D::ONLINE_REPETITIONS);
         let mut outputs = Vec::with_capacity(D::ONLINE_REPETITIONS);
         for (root, omit) in self.preprocessing.seeds.iter().zip(self.omitted.iter()) {
-            let (sender_inputs, reader_inputs) = async_channel::bounded(5);
-            let (sender_outputs, reader_outputs) = async_channel::bounded(5);
+            let (sender_inputs, reader_inputs) = async_channel::bounded(3);
+            let (sender_outputs, reader_outputs) = async_channel::bounded(3);
             tasks.push(task::spawn(process::<D>(
                 *root,
                 *omit,

@@ -2,19 +2,6 @@ use super::*;
 
 use crate::Instruction;
 
-use rand_core::RngCore;
-
-macro_rules! new_sharings {
-    ( $shares:expr, $batches:expr, $rngs:expr, $omit:expr ) => {{
-        for j in 0..N {
-            if $omit != j {
-                $batches[j] = D::Batch::gen(&mut $rngs[j]);
-            }
-        }
-        D::convert($shares, &$batches[..]);
-    }};
-}
-
 /// Implementation of pre-processing phase used by the prover during online execution
 pub struct PreprocessingExecution<D: Domain> {
     // interpreter state
