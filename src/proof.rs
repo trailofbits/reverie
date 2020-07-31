@@ -1,4 +1,5 @@
 use crate::algebra::*;
+use crate::crypto::KEY_SIZE;
 use crate::online;
 use crate::preprocessing;
 use crate::Instruction;
@@ -48,7 +49,7 @@ const CHUNK_SIZE: usize = 10_000_000;
 ///
 /// assert_eq!(&output[..], &result[..]);
 /// ```
-pub type ProofGF2P8 = Proof<gf2::GF2P8, 8, 8, 252, 256, 44>;
+pub type ProofGF2P8 = Proof<gf2::GF2P8>;
 
 /// Proof system offering 128-bits of classical (non Post Quantum) security.
 /// Proof size is ~ 46 bits / multiplication.
@@ -85,40 +86,25 @@ pub type ProofGF2P8 = Proof<gf2::GF2P8, 8, 8, 252, 256, 44>;
 ///
 /// assert_eq!(&output[..], &result[..]);
 /// ```
-pub type ProofGF2P64 = Proof<gf2::GF2P64, 64, 64, 631, 1024, 23>;
+pub type ProofGF2P64 = Proof<gf2::GF2P64>;
 
 /// Simplified interface for in-memory proofs
 /// with pre-processing verified simultaneously with online execution.
-#[derive(Deserialize, Serialize)]
-pub struct Proof<
-    D: Domain,
-    const P: usize,
-    const PT: usize,
-    const R: usize,
-    const RT: usize,
-    const H: usize,
-> {
-    preprocessing: preprocessing::Proof<D, P, PT, R, RT, H>,
-    online: online::Proof<D, H, P, PT>,
+// #[derive(Deserialize, Serialize)]
+pub struct Proof<D: Domain> {
+    preprocessing: preprocessing::Proof<D>,
+    online: online::Proof<D>,
     chunks: Vec<Vec<u8>>,
 }
 
-impl<
-        D: Domain,
-        const P: usize,
-        const PT: usize,
-        const R: usize,
-        const RT: usize,
-        const H: usize,
-    > Proof<D, P, PT, R, RT, H>
-{
+impl<D: Domain> Proof<D> {
     async fn new_async(program: Vec<Instruction<D::Scalar>>, witness: Vec<D::Scalar>) -> Self {
-        // prove preprocessing
-        let mut seed: [u8; 16] = [0; 16];
-
+        // pick global random seed
+        let mut seed: [u8; KEY_SIZE] = [0; KEY_SIZE];
         OsRng.fill_bytes(&mut seed);
-        let (preprocessing, pp_output) =
-            preprocessing::Proof::new(seed, program.iter().cloned(), CHUNK_SIZE);
+
+        // prove preprocessing
+        let (preprocessing, pp_output) = preprocessing::Proof::new(seed, program.iter().cloned());
 
         // create prover for online phase
         let (online, prover) = online::StreamingProver::new(
@@ -147,7 +133,7 @@ impl<
 
     async fn verify_async(&self, program: Vec<Instruction<D::Scalar>>) -> Option<Vec<D::Scalar>> {
         // verify pre-processing
-        let preprocessing = self.preprocessing.verify(program.clone().into_iter())?;
+        let preprocessing_task = self.preprocessing.verify(program.clone().into_iter());
 
         // verify the online execution
         let verifier =
@@ -161,7 +147,7 @@ impl<
         }
 
         // check that online execution matches preprocessing (executing both in parallel)
-        task_online.await?.check(&preprocessing)
+        task_online.await?.check(&preprocessing_task.await?)
     }
 
     /// Create a new proof for the correct execution of program(witness)
@@ -204,15 +190,8 @@ impl<
     }
 }
 
-impl<
-        'de,
-        D: Domain,
-        const P: usize,
-        const PT: usize,
-        const R: usize,
-        const RT: usize,
-        const H: usize,
-    > Proof<D, P, PT, R, RT, H>
+/*
+impl<'de, D: Domain> Proof<D>
 where
     D: Deserialize<'de>,
 {
@@ -248,6 +227,7 @@ where
         bincode::serialize(self).unwrap()
     }
 }
+*/
 
 #[cfg(test)]
 mod tests {
@@ -283,11 +263,7 @@ mod tests {
             Instruction::Output(0),    // <- v[0]
         ];
         let proof = ProofGF2P64::new(&program[..], &witness[..]);
-        let blob = proof.serialize();
-        let output = ProofGF2P64::deserialize(&blob[..])
-            .unwrap()
-            .verify(&program[..])
-            .unwrap();
+        let output = proof.verify(&program[..]).unwrap();
         assert_eq!(&output[..], &result[..]);
     }
 
@@ -317,11 +293,7 @@ mod tests {
             Instruction::Output(0),    // <- v[0]
         ];
         let proof = ProofGF2P8::new(&program[..], &witness[..]);
-        let blob = proof.serialize();
-        let output = ProofGF2P8::deserialize(&blob[..])
-            .unwrap()
-            .verify(&program[..])
-            .unwrap();
+        let output = proof.verify(&program[..]).unwrap();
         assert_eq!(&output[..], &result[..]);
     }
 }

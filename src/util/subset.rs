@@ -13,11 +13,19 @@ pub fn random_usize<R: RngCore>(rng: &mut R, m: usize) -> usize {
     n as usize
 }
 
-pub fn random_subset<R: RngCore>(rng: &mut R, m: usize, l: usize) -> Vec<usize> {
-    let mut members: HashSet<usize> = HashSet::new();
-    let mut samples: Vec<usize> = Vec::with_capacity(l);
+pub fn random_vector<R: RngCore>(rng: &mut R, m: usize, len: usize) -> Vec<usize> {
+    let mut samples: Vec<usize> = Vec::with_capacity(len);
+    while samples.len() < len {
+        samples.push(random_usize::<R>(rng, m));
+    }
+    samples
+}
 
-    while samples.len() < l {
+pub fn random_subset<R: RngCore>(rng: &mut R, m: usize, len: usize) -> Vec<usize> {
+    let mut members: HashSet<usize> = HashSet::new();
+    let mut samples: Vec<usize> = Vec::with_capacity(len);
+
+    while samples.len() < len {
         // generate random usize
         let n = random_usize::<R>(rng, m);
 

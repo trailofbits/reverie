@@ -10,7 +10,6 @@ use crate::algebra::{Domain, RingElement};
 use crate::crypto::{RingHasher, TreePRF, KEY_SIZE};
 use crate::fs::View;
 use crate::preprocessing;
-use crate::util::Array;
 use crate::Instruction;
 
 use std::marker::PhantomData;
@@ -29,15 +28,15 @@ pub struct Chunk {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Run<const R: usize, const N: usize, const NT: usize> {
+pub struct Run<D: Domain> {
     commitment: [u8; 32],
-    open: TreePRF<NT>,
+    open: TreePRF,
+    _ph: PhantomData<D>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Proof<D: Domain, const R: usize, const N: usize, const NT: usize> {
-    runs: Array<Run<R, N, NT>, R>,
-    chunk_size: usize,
+pub struct Proof<D: Domain> {
+    runs: Vec<Run<D>>,
     _ph: PhantomData<D>,
 }
 
@@ -45,17 +44,16 @@ pub struct Proof<D: Domain, const R: usize, const N: usize, const NT: usize> {
 /// by validating the online execution against a correctly validated and matching pre-processing execution.
 ///
 /// Avoiding potential misuse where the user fails to check the pre-processing.
-pub struct Output<D: Domain, const R: usize> {
+pub struct Output<D: Domain> {
     result: Vec<D::Scalar>,
-    pp_hashes: Array<Hash, R>,
+    pp_hashes: Vec<Hash>,
 }
 
-impl<D: Domain, const R: usize> Output<D, R> {
-    pub fn check(self, pp: &preprocessing::Output<R>) -> Option<Vec<D::Scalar>> {
-        if pp.hidden.len() != R {
-            return None;
-        }
-        for i in 0..R {
+impl<D: Domain> Output<D> {
+    pub fn check(self, pp: &preprocessing::Output<D>) -> Option<Vec<D::Scalar>> {
+        assert_eq!(pp.hidden.len(), D::ONLINE_REPETITIONS);
+        assert_eq!(self.pp_hashes.len(), D::ONLINE_REPETITIONS);
+        for i in 0..D::ONLINE_REPETITIONS {
             if pp.hidden[i] != self.pp_hashes[i] {
                 return None;
             }

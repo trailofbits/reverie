@@ -4,11 +4,12 @@ use crate::algebra::Packable;
 use crate::algebra::{Domain, RingModule, Sharing};
 use crate::consts::*;
 use crate::crypto::TreePRF;
-use crate::fs::Scope;
+use crate::fs::*;
 use crate::preprocessing::prover::PreprocessingExecution;
 use crate::preprocessing::PreprocessingOutput;
 use crate::util::*;
 
+use std::mem;
 use std::sync::Arc;
 
 use async_channel::{Receiver, SendError, Sender};
@@ -59,21 +60,20 @@ fn count_inputs<D: Domain>(program: &[Instruction<D::Scalar>]) -> usize {
     inputs
 }
 
-pub struct StreamingProver<D: Domain, const R: usize, const N: usize, const NT: usize> {
-    preprocessing: PreprocessingOutput<D, R, N>,
-    chunk_size: usize,
-    omitted: [usize; R],
+pub struct StreamingProver<D: Domain> {
+    preprocessing: PreprocessingOutput<D>,
+    omitted: Vec<usize>,
 }
 
-struct BatchExtractor<D: Domain, W: Writer<D::Batch>, const N: usize> {
+struct BatchExtractor<D: Domain, W: Writer<D::Batch>> {
     idx: usize,
     shares: Vec<D::Sharing>,
     writer: W,
 }
 
-impl<D: Domain, W: Writer<D::Batch>, const N: usize> BatchExtractor<D, W, N> {
+impl<D: Domain, W: Writer<D::Batch>> BatchExtractor<D, W> {
     fn new(idx: usize, writer: W) -> Self {
-        debug_assert!(idx < N);
+        debug_assert!(idx < D::PLAYERS);
         BatchExtractor {
             idx,
             shares: Vec::with_capacity(D::Batch::DIMENSION),
@@ -82,13 +82,11 @@ impl<D: Domain, W: Writer<D::Batch>, const N: usize> BatchExtractor<D, W, N> {
     }
 }
 
-impl<D: Domain, W: Writer<D::Batch>, const N: usize> Writer<D::Sharing>
-    for BatchExtractor<D, W, N>
-{
+impl<D: Domain, W: Writer<D::Batch>> Writer<D::Sharing> for BatchExtractor<D, W> {
     fn write(&mut self, elem: D::Sharing) {
         self.shares.push(elem);
         if self.shares.len() == D::Batch::DIMENSION {
-            let mut batches = [D::Batch::ZERO; N];
+            let mut batches = vec![D::Batch::ZERO; D::PLAYERS];
             D::convert_inv(&mut batches[..], &self.shares[..]);
             self.writer.write(batches[self.idx]);
             self.shares.clear();
@@ -96,13 +94,13 @@ impl<D: Domain, W: Writer<D::Batch>, const N: usize> Writer<D::Sharing>
     }
 }
 
-impl<D: Domain, W: Writer<D::Batch>, const N: usize> Drop for BatchExtractor<D, W, N> {
+impl<D: Domain, W: Writer<D::Batch>> Drop for BatchExtractor<D, W> {
     fn drop(&mut self) {
         if self.shares.len() == 0 {
             return;
         }
 
-        let mut batches = [D::Batch::ZERO; N];
+        let mut batches = vec![D::Batch::ZERO; D::PLAYERS];
         self.shares.resize(D::Batch::DIMENSION, D::Sharing::ZERO);
         D::convert_inv(&mut batches[..], &self.shares[..]);
         self.writer.write(batches[self.idx]);
@@ -110,11 +108,11 @@ impl<D: Domain, W: Writer<D::Batch>, const N: usize> Drop for BatchExtractor<D, 
     }
 }
 
-struct Prover<D: Domain, const N: usize> {
+struct Prover<D: Domain> {
     wires: VecMap<D::Scalar>,
 }
 
-impl<D: Domain, const N: usize> Prover<D, N> {
+impl<D: Domain> Prover<D> {
     fn new() -> Self {
         Prover {
             wires: VecMap::new(),
@@ -183,17 +181,17 @@ impl<D: Domain, const N: usize> Prover<D, N> {
     }
 }
 
-impl<D: Domain, const R: usize, const N: usize, const NT: usize> StreamingProver<D, R, N, NT> {
+impl<D: Domain> StreamingProver<D> {
     /// Creates a new proof of program execution on the input provided.
     ///
     /// It is crucial for zero-knowledge that the pre-processing output is not reused!
     /// To help ensure this Proof::new takes ownership of PreprocessedProverOutput,
     /// which prevents the programmer from accidentally re-using the output
     pub fn new<PI: Iterator<Item = Instruction<D::Scalar>>, WI: Iterator<Item = D::Scalar>>(
-        preprocessing: PreprocessingOutput<D, R, N>,
+        preprocessing: PreprocessingOutput<D>,
         program: PI,
         witness: WI,
-    ) -> (Proof<D, R, N, NT>, Self) {
+    ) -> (Proof<D>, Self) {
         task::block_on(Self::new_internal(preprocessing, program, witness))
     }
 
@@ -201,109 +199,79 @@ impl<D: Domain, const R: usize, const N: usize, const NT: usize> StreamingProver
         PI: Iterator<Item = Instruction<D::Scalar>>,
         WI: Iterator<Item = D::Scalar>,
     >(
-        preprocessing: PreprocessingOutput<D, R, N>,
+        preprocessing: PreprocessingOutput<D>,
         mut program: PI,
         mut witness: WI,
-    ) -> (Proof<D, R, N, NT>, Self) {
-        struct State<D: Domain, R: RngCore, const N: usize> {
-            views: Array<View, N>, // view transcripts for players
-            transcript: RingHasher<D::Sharing>,
-            preprocessing: PreprocessingExecution<D, R, N, true>,
-            online: Prover<D, N>,
-        }
+    ) -> (Proof<D>, Self) {
+        async fn process<D: Domain>(
+            root: [u8; KEY_SIZE],
+            outputs: Sender<()>,
+            inputs: Receiver<(
+                Arc<Vec<Instruction<D::Scalar>>>, // next slice of program
+                Arc<Vec<D::Scalar>>,              // next slice of witness
+            )>,
+        ) -> Result<(Hash, Vec<View>), SendError<Vec<u8>>> {
+            let mut seeds = vec![[0u8; KEY_SIZE]; D::PLAYERS];
+            TreePRF::expand_full(&mut seeds, root);
 
-        impl<D: Domain, R: RngCore, const N: usize> State<D, R, N> {
-            async fn consume(
-                mut self,
-                outputs: Sender<()>,
-                inputs: Receiver<(
-                    Arc<Vec<Instruction<D::Scalar>>>, // next slice of program
-                    Arc<Vec<D::Scalar>>,              // next slice of witness
-                )>,
-            ) -> Result<(Hash, Vec<Hash>), SendError<Vec<u8>>> {
-                loop {
-                    match inputs.recv().await {
-                        Ok((program, witness)) => {
-                            // execute the next slice of program
-                            {
-                                // add corrections to player 0 view
-                                let mut corr: Scope = self.views[0].scope(LABEL_SCOPE_CORRECTION);
-                                // prepare pre-processing execution (online mode)
-                                let mut masks = Vec::with_capacity(1024);
-                                let mut ab_gamma = Vec::with_capacity(1024);
-                                self.preprocessing.process(
-                                    &program[..],
-                                    &mut corr,
-                                    &mut masks,
-                                    &mut ab_gamma,
-                                );
+            let mut views: Vec<View> = seeds.iter().map(|seed| View::new_keyed(seed)).collect();
+            let mut preprocessing = PreprocessingExecution::<D>::new(&views[..], true);
+            let mut transcript = RingHasher::new();
+            let mut online = Prover::<D>::new();
 
-                                // compute public transcript
-                                self.online.run(
-                                    &program[..],
-                                    &witness[..],
-                                    &masks[..],
-                                    &ab_gamma[..],
-                                    &mut VoidWriter::new(),
-                                    &mut self.transcript,
-                                );
-                            }
+            let mut masks = Vec::with_capacity(1024);
+            let mut ab_gamma = Vec::with_capacity(1024);
 
-                            // needed for syncronization
-                            outputs.send(()).await.unwrap();
+            loop {
+                match inputs.recv().await {
+                    Ok((program, witness)) => {
+                        // execute the next slice of program
+                        {
+                            // prepare pre-processing execution (online mode)
+                            preprocessing.process(
+                                &program[..],
+                                &mut views[0].scope(LABEL_SCOPE_CORRECTION),
+                                &mut masks,
+                                &mut ab_gamma,
+                            );
+
+                            // compute public transcript
+                            online.run(
+                                &program[..],
+                                &witness[..],
+                                &masks[..],
+                                &ab_gamma[..],
+                                &mut VoidWriter::new(),
+                                &mut transcript,
+                            );
                         }
-                        Err(_) => {
-                            return Ok((
-                                self.transcript.finalize(),
-                                self.views.iter().map(|view| view.hash()).collect(),
-                            ))
-                        }
+
+                        // needed for syncronization
+                        outputs.send(()).await.unwrap();
                     }
+                    Err(_) => return Ok((transcript.finalize(), views)),
                 }
             }
         }
 
-        let states = preprocessing.seeds.iter().map(|seed| {
-            let tree: TreePRF<NT> = TreePRF::new(*seed);
-            let keys: Array<_, N> = tree.expand().map(|x: &Option<[u8; KEY_SIZE]>| x.unwrap());
-            let views = keys.map(|key| View::new_keyed(key));
-            let rngs = views.map(|view| view.rng(LABEL_RNG_PREPROCESSING));
-            Box::new(State {
-                views,
-                transcript: RingHasher::new(),
-                preprocessing: PreprocessingExecution::new(rngs),
-                online: Prover::<D, N>::new(),
-            })
-        });
-
         // create async parallel task for every repetition
-        let mut tasks = Vec::with_capacity(R);
-        let mut inputs = Vec::with_capacity(R);
-        let mut outputs = Vec::with_capacity(R);
-        for state in states {
+        let mut tasks = Vec::with_capacity(D::ONLINE_REPETITIONS);
+        let mut inputs = Vec::with_capacity(D::ONLINE_REPETITIONS);
+        let mut outputs = Vec::with_capacity(D::ONLINE_REPETITIONS);
+        for root in preprocessing.seeds.iter().cloned() {
             let (send_inputs, recv_inputs) = async_channel::bounded(5);
             let (send_outputs, recv_outputs) = async_channel::bounded(5);
-            tasks.push(task::spawn(state.consume(send_outputs, recv_inputs)));
+            tasks.push(task::spawn(process::<D>(root, send_outputs, recv_inputs)));
             inputs.push(send_inputs);
             outputs.push(recv_outputs);
         }
 
         // schedule up to 2 tasks immediately (for better performance)
         let mut scheduled = 0;
-        scheduled += feed::<D, _, _>(
-            preprocessing.chunk_size,
-            &mut inputs[..],
-            &mut program,
-            &mut witness,
-        )
-        .await as usize;
-        scheduled += feed::<D, _, _>(
-            preprocessing.chunk_size,
-            &mut inputs[..],
-            &mut program,
-            &mut witness,
-        )
-        .await as usize;
+        scheduled +=
+            feed::<D, _, _>(BATCH_SIZE, &mut inputs[..], &mut program, &mut witness).await as usize;
+        scheduled +=
+            feed::<D, _, _>(BATCH_SIZE, &mut inputs[..], &mut program, &mut witness).await as usize;
 
         // wait for all scheduled tasks to complete
         while scheduled > 0 {
@@ -315,62 +283,55 @@ impl<D: Domain, const R: usize, const N: usize, const NT: usize> StreamingProver
             }
 
             // schedule a new task
-            scheduled += feed::<D, _, _>(
-                preprocessing.chunk_size,
-                &mut inputs[..],
-                &mut program,
-                &mut witness,
-            )
-            .await as usize;
+            scheduled += feed::<D, _, _>(BATCH_SIZE, &mut inputs[..], &mut program, &mut witness)
+                .await as usize;
         }
 
         // close input writers
         inputs.clear();
 
         // extract which players to omit in every run (Fiat-Shamir)
-        let mut global: View = View::new();
-        let mut commitments = Vec::new();
-        {
+        let mut views = Vec::new();
+        let mut challenge_rng = {
+            let mut global: View = View::new();
             let mut scope: Scope = global.scope(LABEL_SCOPE_ONLINE_TRANSCRIPT);
             for t in tasks.into_iter() {
-                let (public, comm) = t.await.unwrap();
-                commitments.push(comm);
+                let (public, players) = t.await.unwrap();
+                views.push(players);
                 scope.join(&public);
             }
-        }
-        let mut rng = global.rng(LABEL_RNG_OPEN_ONLINE);
-        let mut omitted: [usize; R] = [0; R];
-        for i in 0..R {
-            omitted[i] = random_usize::<_, N>(&mut rng);
-        }
+            mem::drop(scope);
+            global.prg(LABEL_RNG_OPEN_ONLINE)
+        };
 
-        // puncture prfs at omitted players
-        let runs = Array::from_iter(
-            omitted
-                .iter()
-                .cloned()
-                .zip(commitments.iter())
-                .zip(preprocessing.seeds.iter())
-                .map(|((omit, comm), seed)| {
-                    let tree = TreePRF::new(*seed);
-                    Run {
-                        commitment: *comm[omit].as_bytes(),
-                        open: tree.puncture(omit),
-                    }
-                }),
-        );
+        let omitted: Vec<usize> =
+            random_vector(&mut challenge_rng, D::PLAYERS, D::ONLINE_REPETITIONS);
+
+        debug_assert_eq!(omitted.len(), D::ONLINE_REPETITIONS);
+
+        let runs = omitted
+            .iter()
+            .cloned()
+            .zip(views.iter())
+            .zip(preprocessing.seeds.iter().cloned())
+            .map(|((omit, views), seed)| {
+                let tree = TreePRF::new(D::PLAYERS, seed);
+                Run {
+                    commitment: *views[omit].hash().as_bytes(),
+                    open: tree.puncture(omit),
+                    _ph: PhantomData,
+                }
+            })
+            .collect();
 
         // rewind the program and input iterators and
         // return prover ready to stream out the proof
-        let chunk_size = preprocessing.chunk_size;
         (
             Proof {
                 runs,
-                chunk_size,
                 _ph: PhantomData,
             },
             StreamingProver {
-                chunk_size,
                 omitted,
                 preprocessing,
             },
@@ -386,125 +347,108 @@ impl<D: Domain, const R: usize, const N: usize, const NT: usize> StreamingProver
         mut program: PI,
         mut witness: WI,
     ) -> Result<(), SendError<Vec<u8>>> {
-        struct State<D: Domain, R: RngCore, const N: usize> {
+        async fn process<D: Domain>(
+            root: [u8; KEY_SIZE],
             omitted: usize,
-            chunk_size: usize,
-            preprocessing: PreprocessingExecution<D, R, N, true>,
-            online: Prover<D, N>,
-        }
+            outputs: Sender<Vec<u8>>,
+            inputs: Receiver<(
+                Arc<Vec<Instruction<D::Scalar>>>, // next slice of program
+                Arc<Vec<D::Scalar>>,              // next slice of witness
+            )>,
+        ) -> Result<(), SendError<Vec<u8>>> {
+            let mut seeds = vec![[0u8; KEY_SIZE]; D::PLAYERS];
+            TreePRF::expand_full(&mut seeds, root);
 
-        impl<D: Domain, R: RngCore, const N: usize> State<D, R, N> {
-            async fn consume(
-                mut self,
-                outputs: Sender<Vec<u8>>,
-                inputs: Receiver<(
-                    Arc<Vec<Instruction<D::Scalar>>>, // next slice of program
-                    Arc<Vec<D::Scalar>>,              // next slice of witness
-                )>,
-            ) -> Result<(), SendError<Vec<u8>>> {
-                // output buffers used during execution
-                let mut masks = Vec::with_capacity(2 * self.chunk_size);
-                let mut ab_gamma = Vec::with_capacity(self.chunk_size);
-                let mut corrections = Vec::with_capacity(self.chunk_size);
-                let mut broadcast = Vec::with_capacity(self.chunk_size);
-                let mut masked = Vec::with_capacity(self.chunk_size);
+            let views: Vec<View> = seeds.iter().map(|seed| View::new_keyed(seed)).collect();
+            let mut preprocessing = PreprocessingExecution::<D>::new(&views[..], true);
+            let mut online = Prover::<D>::new();
 
-                // packed elements to be serialized
-                let mut chunk = Chunk {
-                    witness: Vec::with_capacity(self.chunk_size),
-                    broadcast: Vec::with_capacity(self.chunk_size),
-                    corrections: Vec::with_capacity(self.chunk_size),
-                };
+            // output buffers used during execution
+            let mut masks = Vec::with_capacity(1024);
+            let mut ab_gamma = Vec::with_capacity(1024);
+            let mut corrections = Vec::with_capacity(1024);
+            let mut broadcast = Vec::with_capacity(1024);
+            let mut masked: Vec<D::Scalar> = Vec::with_capacity(1024);
 
-                loop {
-                    match inputs.recv().await {
-                        Ok((program, witness)) => {
-                            broadcast.clear();
-                            corrections.clear();
-                            masked.clear();
-                            masks.clear();
-                            ab_gamma.clear();
+            // packed elements to be serialized
+            let mut chunk = Chunk {
+                witness: Vec::with_capacity(BATCH_SIZE),
+                broadcast: Vec::with_capacity(BATCH_SIZE),
+                corrections: Vec::with_capacity(BATCH_SIZE),
+            };
 
-                            // execute the next slice of program
-                            {
-                                // prepare pre-processing execution (online mode), save the corrections.
-                                let mut corrections =
-                                    SwitchWriter::new(&mut corrections, self.omitted != 0);
-                                self.preprocessing.process(
-                                    &program[..],
-                                    &mut corrections,
-                                    &mut masks,
-                                    &mut ab_gamma,
-                                );
+            loop {
+                match inputs.recv().await {
+                    Ok((program, witness)) => {
+                        broadcast.clear();
+                        corrections.clear();
+                        masked.clear();
+                        masks.clear();
+                        ab_gamma.clear();
 
-                                // compute public transcript
-                                self.online.run(
-                                    &program[..],
-                                    &witness[..],
-                                    &masks[..],
-                                    &ab_gamma[..],
-                                    &mut masked,
-                                    &mut BatchExtractor::<D, _, N>::new(
-                                        self.omitted,
-                                        &mut broadcast,
-                                    ),
-                                );
-                            }
+                        // execute the next slice of program
+                        {
+                            // prepare pre-processing execution (online mode), save the corrections.
+                            let mut corrections = SwitchWriter::new(&mut corrections, omitted != 0);
+                            preprocessing.process(
+                                &program[..],
+                                &mut corrections,
+                                &mut masks,
+                                &mut ab_gamma,
+                            );
 
-                            // serialize the chunk
-
-                            chunk.witness.clear();
-                            chunk.broadcast.clear();
-                            chunk.corrections.clear();
-                            Packable::pack(&mut chunk.witness, &masked[..]).unwrap();
-                            Packable::pack(&mut chunk.broadcast, &broadcast[..]).unwrap();
-                            Packable::pack(&mut chunk.corrections, &corrections[..]).unwrap();
-                            outputs
-                                .send(bincode::serialize(&chunk).unwrap())
-                                .await
-                                .unwrap();
+                            // compute public transcript
+                            online.run(
+                                &program[..],
+                                &witness[..],
+                                &masks[..],
+                                &ab_gamma[..],
+                                &mut masked,
+                                &mut BatchExtractor::<D, _>::new(omitted, &mut broadcast),
+                            );
                         }
-                        Err(_) => return Ok(()),
+
+                        // serialize the chunk
+
+                        chunk.witness.clear();
+                        chunk.broadcast.clear();
+                        chunk.corrections.clear();
+                        Packable::pack(&mut chunk.witness, &masked[..]).unwrap();
+                        Packable::pack(&mut chunk.broadcast, &broadcast[..]).unwrap();
+                        Packable::pack(&mut chunk.corrections, &corrections[..]).unwrap();
+                        outputs
+                            .send(bincode::serialize(&chunk).unwrap())
+                            .await
+                            .unwrap();
                     }
+                    Err(_) => return Ok(()),
                 }
             }
         }
 
-        // initialize state for every
-        let states = self
-            .omitted
-            .iter()
-            .cloned()
-            .zip(self.preprocessing.seeds.iter())
-            .map(|(omitted, seed)| {
-                let tree: TreePRF<NT> = TreePRF::new(*seed);
-                let keys = tree.expand::<N>();
-                let views = keys.map(|key: &Option<[u8; KEY_SIZE]>| View::new_keyed(&key.unwrap()));
-                let rngs = views.map(|view| view.rng(LABEL_RNG_PREPROCESSING));
-                State {
-                    omitted,
-                    chunk_size: self.chunk_size,
-                    preprocessing: PreprocessingExecution::new(rngs),
-                    online: Prover::<D, N>::new(),
-                }
-            });
-
         // create async parallel task for every repetition
-        let mut tasks = Vec::with_capacity(R);
-        let mut inputs = Vec::with_capacity(R);
-        let mut outputs = Vec::with_capacity(R);
-        for state in states {
+        let mut tasks = Vec::with_capacity(D::ONLINE_REPETITIONS);
+        let mut inputs = Vec::with_capacity(D::ONLINE_REPETITIONS);
+        let mut outputs = Vec::with_capacity(D::ONLINE_REPETITIONS);
+        for (root, omit) in self.preprocessing.seeds.iter().zip(self.omitted.iter()) {
             let (sender_inputs, reader_inputs) = async_channel::bounded(5);
             let (sender_outputs, reader_outputs) = async_channel::bounded(5);
-            tasks.push(task::spawn(state.consume(sender_outputs, reader_inputs)));
+            tasks.push(task::spawn(process::<D>(
+                *root,
+                *omit,
+                sender_outputs,
+                reader_inputs,
+            )));
             inputs.push(sender_inputs);
             outputs.push(reader_outputs);
         }
 
         // schedule up to 2 tasks immediately (for better performance)
         let mut scheduled = 0;
-        scheduled += feed::<D, _, _>(self.chunk_size, &mut inputs[..], &mut program, &mut witness)
-            .await as usize;
+        scheduled +=
+            feed::<D, _, _>(BATCH_SIZE, &mut inputs[..], &mut program, &mut witness).await as usize;
+        scheduled +=
+            feed::<D, _, _>(BATCH_SIZE, &mut inputs[..], &mut program, &mut witness).await as usize;
 
         // wait for all scheduled tasks to complete
         while scheduled > 0 {
@@ -517,9 +461,8 @@ impl<D: Domain, const R: usize, const N: usize, const NT: usize> StreamingProver
             }
 
             // schedule a new task and wait for all works to complete one
-            scheduled +=
-                feed::<D, _, _>(self.chunk_size, &mut inputs[..], &mut program, &mut witness).await
-                    as usize;
+            scheduled += feed::<D, _, _>(BATCH_SIZE, &mut inputs[..], &mut program, &mut witness)
+                .await as usize;
         }
 
         // wait for tasks to finish

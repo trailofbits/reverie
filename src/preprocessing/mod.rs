@@ -1,6 +1,6 @@
 mod constants;
 pub mod prover;
-// pub mod verifier;
+pub mod verifier;
 
 use crate::algebra::*;
 use crate::consts::*;
@@ -18,6 +18,20 @@ use async_std::task;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
+
+struct Player {
+    input: PRG,
+    beaver: PRG,
+}
+
+impl Player {
+    fn new(view: &View) -> Self {
+        Player {
+            beaver: view.prg(LABEL_RNG_BEAVER),
+            input: view.prg(LABEL_RNG_INPUT),
+        }
+    }
+}
 
 async fn feed<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>>(
     senders: &mut [Sender<Arc<Vec<Instruction<D::Scalar>>>>],
@@ -243,7 +257,6 @@ impl<D: Domain> Proof<D> {
         TreePRF::expand_full(&mut roots, global);
 
         // block and wait for hashes to compute
-        println!("roots: {:?}", &roots[..]);
         let hashes = task::block_on(Self::preprocess(&roots[..], program));
 
         // send the pre-processing commitments to the random oracle, receive challenges

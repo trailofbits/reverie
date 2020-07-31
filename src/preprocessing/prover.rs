@@ -5,19 +5,7 @@ use crate::crypto::PRG;
 use crate::util::{VoidWriter, Writer};
 use crate::Instruction;
 
-struct Player {
-    input: PRG,
-    beaver: PRG,
-}
 
-impl Player {
-    fn new(view: &View) -> Self {
-        Player {
-            beaver: view.prg(LABEL_RNG_BEAVER),
-            input: view.prg(LABEL_RNG_INPUT),
-        }
-    }
-}
 
 /// Implementation of pre-processing phase used by the prover during online execution
 pub struct PreprocessingExecution<D: Domain> {

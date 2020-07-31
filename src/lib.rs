@@ -1,6 +1,3 @@
-// This crate relies on const_generics:
-// It is simply much less painful to use rather than GenericArray,
-// where e.g. it is impossible to enforce equality of lengths for arrays
 #![feature(const_int_pow)]
 #![feature(test)]
 #![feature(stdsimd)]
@@ -22,16 +19,14 @@ mod tests;
 pub mod algebra;
 
 // simplified API for basic usage
-/*
 mod proof;
 pub use proof::{ProofGF2P64, ProofGF2P8};
-*/
 
 // pre-processing
 pub mod preprocessing;
 
 // online phase
-//pub mod online;
+pub mod online;
 
 // abstraction for Fiat-Shamir
 mod fs;
