@@ -51,14 +51,9 @@ async fn feed<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>>(
 }
 
 /// Represents repeated execution of the preprocessing phase.
-/// The preprocessing phase is executed R times, then fed to a random oracle,
+/// The preprocessing phase is executed D::ONLINE_REPETITIONS times, then fed to a random oracle,
 /// which dictates the subset of executions to open.
-///
-/// - N  : number of players
-/// - NT : size of PRF tree for players
-/// - R  : number of repetitions
-/// - RT : size of PRF tree for repetitions
-/// - H  : hidden views (repetitions of online phase)
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Proof<D: Domain> {
     hidden: Vec<[u8; HASH_SIZE]>, // commitments to the hidden pre-processing executions
     random: TreePRF, // punctured PRF used to derive the randomness for the opened pre-processing executions
@@ -80,21 +75,6 @@ pub struct PreprocessingOutput<D: Domain> {
 pub struct Output<D: Domain> {
     pub(crate) hidden: Vec<Hash>,
     _ph: PhantomData<D>,
-}
-
-impl<D: Domain> PreprocessingOutput<D> {
-    // used during testing
-    #[cfg(test)]
-    pub(crate) fn dummy() -> Self {
-        unimplemented!()
-        /*
-        PreprocessingOutput {
-            chunk_size: 1024,
-            seeds: Array::new([0u8; KEY_SIZE]),
-            ph: PhantomData,
-        }
-        */
-    }
 }
 
 impl<D: Domain> Proof<D> {
@@ -344,19 +324,6 @@ mod benchmark {
 
     const MULT: usize = 1_000_000;
 
-    /*
-    /// Benchmark proof generation of pre-processing using parameters from the paper
-    /// (Table 1. p. 10, https://eprint.iacr.org/2018/475/20190311:173838)
-    ///
-    /// n =  64 (simulated players)
-    /// M =  23 (number of pre-processing executions)
-    /// t =  23 (online phase executions (hidden pre-processing executions))
-    #[bench]
-    fn bench_preprocessing_proof_gen_n64(b: &mut Bencher) {
-        b.iter(|| PreprocessedProof::<GF2P8, 64, 64, 631, 1024, 23>::new(BEAVER, [0u8; KEY_SIZE]));
-    }
-    */
-
     /// Benchmark proof generation of pre-processing using parameters from the paper
     /// (Table 1. p. 10, https://eprint.iacr.org/2018/475/20190311:173838)
     ///
@@ -367,13 +334,7 @@ mod benchmark {
     fn bench_preprocessing_proof_gen_n8(b: &mut Bencher) {
         let mut program = vec![Instruction::Input(1), Instruction::Input(2)];
         program.resize(MULT + 2, Instruction::Mul(0, 1, 2));
-        b.iter(|| {
-            Proof::<GF2P8, 8, 8, 252, 256, 44>::new(
-                [0u8; KEY_SIZE],
-                program.iter().cloned(),
-                CHUNK_SIZE,
-            )
-        });
+        b.iter(|| Proof::<GF2P8>::new([0u8; KEY_SIZE], program.iter().cloned()));
     }
 
     /*
@@ -401,11 +362,7 @@ mod benchmark {
     fn bench_preprocessing_proof_verify_n8(b: &mut Bencher) {
         let mut program = vec![Instruction::Input(1), Instruction::Input(2)];
         program.resize(MULT + 2, Instruction::Mul(0, 1, 2));
-        let (proof, _) = Proof::<GF2P8, 8, 8, 252, 256, 44>::new(
-            [0u8; KEY_SIZE],
-            program.iter().cloned(),
-            CHUNK_SIZE,
-        );
-        b.iter(|| proof.verify(program.iter().cloned()));
+        let (proof, _) = Proof::<GF2P8>::new([0u8; KEY_SIZE], program.iter().cloned());
+        b.iter(|| task::block_on(proof.verify(program.iter().cloned())));
     }
 }

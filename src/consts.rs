@@ -22,4 +22,6 @@ pub const LABEL_SCOPE_CORRECTION: &'static [u8] = "correction_elements".as_bytes
 pub const LABEL_SCOPE_AGGREGATE_COMMIT: &'static [u8] = "aggregate_commit".as_bytes();
 
 // execute up to 10 000 000 instructions in a single batch
+// this is sufficient for smaller proofs to fit inside a single batch,
+// however still enables the providing of any relation even with limited memory.
 pub const BATCH_SIZE: usize = 10_000_000;

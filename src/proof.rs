@@ -7,13 +7,14 @@ use crate::Instruction;
 use rand::rngs::OsRng;
 use rand_core::RngCore;
 
-use async_channel::bounded;
+use async_channel::{bounded, Receiver, Sender};
 use async_std::task;
 
 use serde::{Deserialize, Serialize};
 
+use std::sync::Arc;
+
 const CHANNEL_CAPACITY: usize = 100;
-const CHUNK_SIZE: usize = 10_000_000;
 
 /// Proof system offering 128-bits of classical (non Post Quantum) security.
 /// Proof size is ~ 88 bits / multiplication.
@@ -90,7 +91,7 @@ pub type ProofGF2P64 = Proof<gf2::GF2P64>;
 
 /// Simplified interface for in-memory proofs
 /// with pre-processing verified simultaneously with online execution.
-// #[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct Proof<D: Domain> {
     preprocessing: preprocessing::Proof<D>,
     online: online::Proof<D>,
@@ -98,7 +99,29 @@ pub struct Proof<D: Domain> {
 }
 
 impl<D: Domain> Proof<D> {
-    async fn new_async(program: Vec<Instruction<D::Scalar>>, witness: Vec<D::Scalar>) -> Self {
+    async fn new_async(
+        program: Arc<Vec<Instruction<D::Scalar>>>,
+        witness: Arc<Vec<D::Scalar>>,
+    ) -> Self {
+        async fn online_proof<D: Domain>(
+            send: Sender<Vec<u8>>,
+            program: Arc<Vec<Instruction<D::Scalar>>>,
+            witness: Arc<Vec<D::Scalar>>,
+            pp_output: preprocessing::PreprocessingOutput<D>,
+        ) -> Option<online::Proof<D>> {
+            let (online, prover) = online::StreamingProver::new(
+                pp_output,
+                program.clone().iter().cloned(),
+                witness.clone().iter().cloned(),
+            )
+            .await;
+            prover
+                .stream(send, program.iter().cloned(), witness.iter().cloned())
+                .await
+                .unwrap();
+            Some(online)
+        }
+
         // pick global random seed
         let mut seed: [u8; KEY_SIZE] = [0; KEY_SIZE];
         OsRng.fill_bytes(&mut seed);
@@ -107,41 +130,59 @@ impl<D: Domain> Proof<D> {
         let (preprocessing, pp_output) = preprocessing::Proof::new(seed, program.iter().cloned());
 
         // create prover for online phase
-        let (online, prover) = online::StreamingProver::new(
-            pp_output,
-            program.iter().cloned(),
-            witness.iter().cloned(),
-        );
         let (send, recv) = bounded(CHANNEL_CAPACITY);
-        let prover_task =
-            task::spawn(prover.stream(send, program.into_iter(), witness.into_iter()));
+        let prover_task = task::spawn(online_proof(
+            send,
+            program.clone(),
+            witness.clone(),
+            pp_output,
+        ));
 
         // read all chunks from online execution
-        let mut chunks = vec![];
+        let mut chunks = Vec::with_capacity(D::ONLINE_REPETITIONS);
         while let Ok(chunk) = recv.recv().await {
             chunks.push(chunk)
         }
 
         // should never fail
-        prover_task.await.unwrap();
         Proof {
             preprocessing,
-            online,
+            online: prover_task.await.unwrap(),
             chunks,
         }
     }
 
-    async fn verify_async(&self, program: Vec<Instruction<D::Scalar>>) -> Option<Vec<D::Scalar>> {
+    async fn verify_async(
+        &self,
+        program: Arc<Vec<Instruction<D::Scalar>>>,
+    ) -> Option<Vec<D::Scalar>> {
+        async fn online_verification<D: Domain>(
+            program: Arc<Vec<Instruction<D::Scalar>>>,
+            proof: online::Proof<D>,
+            recv: Receiver<Vec<u8>>,
+        ) -> Option<online::Output<D>> {
+            let verifier = online::StreamingVerifier::new(program.iter().cloned(), proof);
+            verifier.verify(recv).await
+        }
+
+        async fn preprocessing_verification<D: Domain>(
+            program: Arc<Vec<Instruction<D::Scalar>>>,
+            proof: preprocessing::Proof<D>,
+        ) -> Option<preprocessing::Output<D>> {
+            proof.verify(program.iter().cloned()).await
+        }
+
         // verify pre-processing
-        let preprocessing_task = self.preprocessing.verify(program.clone().into_iter());
+        let preprocessing_task = task::spawn(preprocessing_verification(
+            program.clone(),
+            self.preprocessing.clone(),
+        ));
 
         // verify the online execution
-        let verifier =
-            online::StreamingVerifier::new(program.clone().into_iter(), self.online.clone());
         let (send, recv) = bounded(CHANNEL_CAPACITY);
-        let task_online = task::spawn(verifier.verify(recv));
+        let task_online = task::spawn(online_verification(program, self.online.clone(), recv));
 
-        // send proof to the verifier
+        // send proof to the online verifier
         for chunk in self.chunks.clone().into_iter() {
             send.send(chunk).await.ok()?;
         }
@@ -169,8 +210,8 @@ impl<D: Domain> Proof<D> {
     /// # Output
     ///
     /// A stand alone proof for both online and preprocessing execution.
-    pub fn new(program: &[Instruction<D::Scalar>], witness: &[D::Scalar]) -> Self {
-        task::block_on(Self::new_async(program.to_owned(), witness.to_owned()))
+    pub fn new(program: Vec<Instruction<D::Scalar>>, witness: Vec<D::Scalar>) -> Self {
+        task::block_on(Self::new_async(Arc::new(program), Arc::new(witness)))
     }
 
     /// Verify the a proof and return the output of the program
@@ -185,12 +226,11 @@ impl<D: Domain> Proof<D> {
     /// e.g. the vector [1]
     ///
     /// If the proof is invalid: None.
-    pub fn verify(&self, program: &[Instruction<D::Scalar>]) -> Option<Vec<D::Scalar>> {
-        task::block_on(self.verify_async(program.to_owned()))
+    pub fn verify(&self, program: Vec<Instruction<D::Scalar>>) -> Option<Vec<D::Scalar>> {
+        task::block_on(self.verify_async(Arc::new(program)))
     }
 }
 
-/*
 impl<'de, D: Domain> Proof<D>
 where
     D: Deserialize<'de>,
@@ -209,15 +249,7 @@ where
     }
 }
 
-impl<
-        'de,
-        D: Domain,
-        const P: usize,
-        const PT: usize,
-        const R: usize,
-        const RT: usize,
-        const H: usize,
-    > Proof<D, P, PT, R, RT, H>
+impl<'de, D: Domain> Proof<D>
 where
     D: Serialize,
 {
@@ -227,7 +259,6 @@ where
         bincode::serialize(self).unwrap()
     }
 }
-*/
 
 #[cfg(test)]
 mod tests {
@@ -262,8 +293,8 @@ mod tests {
             Instruction::Add(0, 0, 2), // v[0] <- v[0] + v[2] = 1
             Instruction::Output(0),    // <- v[0]
         ];
-        let proof = ProofGF2P64::new(&program[..], &witness[..]);
-        let output = proof.verify(&program[..]).unwrap();
+        let proof = ProofGF2P64::new(program.clone(), witness);
+        let output = proof.verify(program).unwrap();
         assert_eq!(&output[..], &result[..]);
     }
 
@@ -292,8 +323,44 @@ mod tests {
             Instruction::Add(0, 0, 2), // v[0] <- v[0] + v[2] = 1
             Instruction::Output(0),    // <- v[0]
         ];
-        let proof = ProofGF2P8::new(&program[..], &witness[..]);
-        let output = proof.verify(&program[..]).unwrap();
+        let proof = ProofGF2P8::new(program.clone(), witness);
+        let output = proof.verify(program).unwrap();
         assert_eq!(&output[..], &result[..]);
+    }
+}
+
+#[cfg(test)]
+#[cfg(not(debug_assertions))]
+mod benchmark {
+    use super::super::algebra::gf2::*;
+    use super::*;
+
+    use test::Bencher;
+
+    const MULT: usize = 1_000_000;
+
+    #[bench]
+    fn bench_simple_proof_gen_n8(b: &mut Bencher) {
+        let mut program = vec![Instruction::Input(1), Instruction::Input(2)];
+        let witness = vec![
+            <BitScalar as RingElement>::ZERO,
+            <BitScalar as RingElement>::ONE,
+            <BitScalar as RingElement>::ONE,
+        ];
+        program.resize(MULT + 2, Instruction::Mul(0, 1, 2));
+        b.iter(|| ProofGF2P64::new(program.clone(), witness.clone()));
+    }
+
+    #[bench]
+    fn bench_simple_proof_verify_n8(b: &mut Bencher) {
+        let mut program = vec![Instruction::Input(1), Instruction::Input(2)];
+        let witness = vec![
+            <BitScalar as RingElement>::ZERO,
+            <BitScalar as RingElement>::ONE,
+            <BitScalar as RingElement>::ONE,
+        ];
+        program.resize(MULT + 2, Instruction::Mul(0, 1, 2));
+        let proof = ProofGF2P64::new(program.clone(), witness.clone());
+        b.iter(|| proof.verify(program.clone()));
     }
 }

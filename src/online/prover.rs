@@ -11,6 +11,7 @@ use crate::util::*;
 
 use std::mem;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_channel::{Receiver, SendError, Sender};
 use async_std::task;
@@ -44,8 +45,10 @@ async fn feed<
     }
 
     // feed to workers
-    for sender in senders {
-        sender.send((ps.clone(), ws.clone())).await.unwrap();
+    debug_assert_eq!(senders.len(), D::ONLINE_REPETITIONS);
+    for tx in senders.iter_mut() {
+        tx.send((ps.clone(), ws.clone())).await.unwrap();
+        task::sleep(Duration::from_millis(100)).await;
     }
     true
 }
@@ -187,15 +190,7 @@ impl<D: Domain> StreamingProver<D> {
     /// It is crucial for zero-knowledge that the pre-processing output is not reused!
     /// To help ensure this Proof::new takes ownership of PreprocessedProverOutput,
     /// which prevents the programmer from accidentally re-using the output
-    pub fn new<PI: Iterator<Item = Instruction<D::Scalar>>, WI: Iterator<Item = D::Scalar>>(
-        preprocessing: PreprocessingOutput<D>,
-        program: PI,
-        witness: WI,
-    ) -> (Proof<D>, Self) {
-        task::block_on(Self::new_internal(preprocessing, program, witness))
-    }
-
-    async fn new_internal<
+    pub async fn new<
         PI: Iterator<Item = Instruction<D::Scalar>>,
         WI: Iterator<Item = D::Scalar>,
     >(
@@ -203,6 +198,8 @@ impl<D: Domain> StreamingProver<D> {
         mut program: PI,
         mut witness: WI,
     ) -> (Proof<D>, Self) {
+        assert_eq!(preprocessing.seeds.len(), D::ONLINE_REPETITIONS);
+
         async fn process<D: Domain>(
             root: [u8; KEY_SIZE],
             outputs: Sender<()>,
@@ -221,7 +218,6 @@ impl<D: Domain> StreamingProver<D> {
 
             let mut masks = Vec::with_capacity(1024);
             let mut ab_gamma = Vec::with_capacity(1024);
-
             loop {
                 match inputs.recv().await {
                     Ok((program, witness)) => {
@@ -246,10 +242,12 @@ impl<D: Domain> StreamingProver<D> {
                             );
                         }
 
-                        // needed for syncronization
+                        // needed for synchronization
                         outputs.send(()).await.unwrap();
                     }
-                    Err(_) => return Ok((transcript.finalize(), views)),
+                    Err(_) => {
+                        return Ok((transcript.finalize(), views));
+                    }
                 }
             }
         }
@@ -389,10 +387,9 @@ impl<D: Domain> StreamingProver<D> {
                         // execute the next slice of program
                         {
                             // prepare pre-processing execution (online mode), save the corrections.
-                            let mut corrections = SwitchWriter::new(&mut corrections, omitted != 0);
                             preprocessing.process(
                                 &program[..],
-                                &mut corrections,
+                                &mut SwitchWriter::new(&mut corrections, omitted != 0),
                                 &mut masks,
                                 &mut ab_gamma,
                             );
