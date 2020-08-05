@@ -1,11 +1,10 @@
 use crate::algebra::Serializable;
+use crate::crypto::{Hash, Hasher};
 use crate::util::Writer;
 
 use std::io;
 use std::io::Write;
 use std::marker::PhantomData;
-
-use blake3::{Hash, Hasher};
 
 const HASH_BUFFER_CAPACITY: usize = 8 * 1024;
 

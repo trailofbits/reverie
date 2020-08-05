@@ -11,17 +11,19 @@ use crate::Instruction;
 
 use std::marker::PhantomData;
 use std::mem;
+use std::sync::Arc;
 
 use async_channel::{Receiver, SendError, Sender};
 use async_std::task;
 
-use std::sync::Arc;
+use rand::seq::SliceRandom;
 
 use serde::{Deserialize, Serialize};
 
 struct Player {
     input: PRG,
     beaver: PRG,
+    branch: PRG,
 }
 
 impl Player {
@@ -29,6 +31,7 @@ impl Player {
         Player {
             beaver: view.prg(LABEL_RNG_BEAVER),
             input: view.prg(LABEL_RNG_INPUT),
+            branch: view.prg(LABEL_RNG_BRANCH),
         }
     }
 }
@@ -55,7 +58,7 @@ async fn feed<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>>(
 /// which dictates the subset of executions to open.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Proof<D: Domain> {
-    hidden: Vec<[u8; HASH_SIZE]>, // commitments to the hidden pre-processing executions
+    hidden: Vec<Hash>, // commitments to the hidden pre-processing executions
     random: TreePRF, // punctured PRF used to derive the randomness for the opened pre-processing executions
     _ph: PhantomData<D>,
 }
@@ -77,13 +80,43 @@ pub struct Output<D: Domain> {
     _ph: PhantomData<D>,
 }
 
+pub fn pack_branches<D: Domain>(branches: &[&[D::Scalar]]) -> Vec<Vec<D::Batch>> {
+    let mut batches: Vec<Vec<D::Batch>> = Vec::with_capacity(branches.len());
+    for branch in branches {
+        let res: Vec<D::Batch> = Vec::with_capacity(branches[0].len() / D::Batch::DIMENSION + 1);
+        for chunk in branch.chunks(D::Batch::DIMENSION) {
+            res.push(if chunk.len() < D::Batch::DIMENSION {
+                // copy and pad with zero elements
+                let mut batch = vec![D::Scalar::ZERO; D::Batch::DIMENSION];
+                batch[..chunk.len()].copy_from_slice(chunk);
+                <D::Batch as RingModule<D::Scalar>>::pack(&batch[..])
+            } else {
+                // zero copy
+                <D::Batch as RingModule<D::Scalar>>::pack(chunk)
+            })
+        }
+        batches.push(res);
+    }
+    batches
+}
+
 impl<D: Domain> Proof<D> {
     async fn preprocess<PI: Iterator<Item = Instruction<D::Scalar>>>(
         seeds: &[[u8; KEY_SIZE]],
+        branches: &[&[D::Scalar]],
         mut program: PI,
     ) -> Vec<Hash> {
+        assert!(
+            branches.len() > 0,
+            "even when the branch feature is not used, the branch is simply a constant"
+        );
+
+        // pack branch scalars into batches for efficiency
+        let branches = Arc::new(pack_branches::<D>(branches));
+
         async fn process<D: Domain>(
             root: [u8; KEY_SIZE],
+            branches: Arc<Vec<Vec<D::Batch>>>,
             outputs: Sender<()>,
             inputs: Receiver<Arc<Vec<Instruction<D::Scalar>>>>,
         ) -> Result<Hash, SendError<()>> {
@@ -94,9 +127,14 @@ impl<D: Domain> Proof<D> {
             // create keyed views for every player
             let mut views: Vec<View> = seeds.iter().map(|seed| View::new_keyed(seed)).collect();
 
-            // prepare pre-processing state
-            let mut preprocessing: prover::PreprocessingExecution<D> =
-                prover::PreprocessingExecution::new(&views, false);
+            // randomly permute the branches
+            let mut prg = PRG::new(root);
+            let mut perm: Vec<&[D::Batch]> = branches.iter().map(|v| &v[..]).collect();
+            perm.shuffle(&mut prg);
+
+            // preprocessing
+            let (mut preprocessing, tree): (prover::PreprocessingExecution<D>, _) =
+                prover::PreprocessingExecution::new(&views, &perm[..], false);
 
             loop {
                 match inputs.recv().await {
@@ -122,7 +160,12 @@ impl<D: Domain> Proof<D> {
         for seed in seeds.iter().cloned() {
             let (send_inputs, recv_inputs) = async_channel::bounded(5);
             let (send_outputs, recv_outputs) = async_channel::bounded(5);
-            tasks.push(task::spawn(process::<D>(seed, send_outputs, recv_inputs)));
+            tasks.push(task::spawn(process::<D>(
+                seed,
+                branches.clone(),
+                send_outputs,
+                recv_inputs,
+            )));
             inputs.push(send_inputs);
             outputs.push(recv_outputs);
         }
@@ -154,6 +197,7 @@ impl<D: Domain> Proof<D> {
 
     pub async fn verify<PI: Iterator<Item = Instruction<D::Scalar>>>(
         &self,
+        branches: &[&[D::Scalar]],
         program: PI,
     ) -> Option<Output<D>> {
         // derive keys and hidden execution indexes
@@ -182,7 +226,7 @@ impl<D: Domain> Proof<D> {
             .map(|v| v.unwrap())
             .collect();
 
-        let opened_hashes = Self::preprocess(&opened_roots[..], program).await;
+        let opened_hashes = Self::preprocess(&opened_roots[..], branches, program).await;
 
         // interleave the proved hashes with the recomputed ones
         let mut hashes = Vec::with_capacity(D::PREPROCESSING_REPETITIONS);
@@ -191,9 +235,9 @@ impl<D: Domain> Proof<D> {
             let mut hide_hsh = self.hidden.iter();
             for open in opened {
                 if open {
-                    hashes.push(*open_hsh.next().unwrap())
+                    hashes.push(open_hsh.next().unwrap())
                 } else {
-                    hashes.push(Hash::from(*hide_hsh.next().unwrap()))
+                    hashes.push(hide_hsh.next().unwrap())
                 }
             }
         }
@@ -217,7 +261,7 @@ impl<D: Domain> Proof<D> {
         );
         if &hidden[..] == &subset[..] {
             Some(Output {
-                hidden: self.hidden.iter().map(|h| Hash::from(*h)).collect(),
+                hidden: self.hidden.iter().cloned().collect(),
                 _ph: PhantomData,
             })
         } else {
@@ -230,6 +274,7 @@ impl<D: Domain> Proof<D> {
     ///
     pub fn new<PI: Iterator<Item = Instruction<D::Scalar>>>(
         global: [u8; KEY_SIZE],
+        branches: &[&[D::Scalar]],
         program: PI,
     ) -> (Self, PreprocessingOutput<D>) {
         // expand the global seed into per-repetition roots
@@ -237,7 +282,7 @@ impl<D: Domain> Proof<D> {
         TreePRF::expand_full(&mut roots, global);
 
         // block and wait for hashes to compute
-        let hashes = task::block_on(Self::preprocess(&roots[..], program));
+        let hashes = task::block_on(Self::preprocess(&roots[..], branches, program));
 
         // send the pre-processing commitments to the random oracle, receive challenges
         let mut challenge_prg = {
@@ -275,11 +320,7 @@ impl<D: Domain> Proof<D> {
         (
             // proof (used by the verifier)
             Proof {
-                hidden: hidden
-                    .iter()
-                    .cloned()
-                    .map(|i| *hashes[i].as_bytes())
-                    .collect(),
+                hidden: hidden.iter().cloned().map(|i| hashes[i].clone()).collect(),
                 random: tree,
                 _ph: PhantomData,
             },
@@ -294,7 +335,7 @@ impl<D: Domain> Proof<D> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::algebra::gf2::GF2P8;
+    use super::super::algebra::gf2::{BitScalar, GF2P8};
     use super::*;
 
     use rand::Rng;
@@ -308,9 +349,11 @@ mod tests {
         ]; // maybe generate random program?
         let mut rng = rand::thread_rng();
         let seed: [u8; KEY_SIZE] = rng.gen();
-        let proof = Proof::<GF2P8>::new(seed, program.iter().cloned());
+        let branch: Vec<BitScalar> = vec![];
+        let branches: Vec<&[BitScalar]> = vec![&branch];
+        let proof = Proof::<GF2P8>::new(seed, &branches[..], program.iter().cloned());
 
-        assert!(task::block_on(proof.0.verify(program.into_iter())).is_some());
+        assert!(task::block_on(proof.0.verify(&branches[..], program.into_iter())).is_some());
     }
 }
 

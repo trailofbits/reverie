@@ -1,15 +1,24 @@
+mod merkle;
 mod ring;
 mod tree;
+
+use std::io;
 
 use crate::util::*;
 
 use rand_chacha::ChaCha12Rng;
-use rand_core::{Error, RngCore, SeedableRng};
+use rand_core::{self, RngCore, SeedableRng};
 
-pub use blake3::{Hash, Hasher, OutputReader};
+use serde::de::{Deserializer, Error, SeqAccess, Unexpected, Visitor};
+use serde::ser::{SerializeTuple, Serializer};
+use serde::{Deserialize, Serialize};
 
+use blake3;
+
+use std::fmt;
+
+pub use merkle::MerkleTree;
 pub use ring::RingHasher;
-
 pub use tree::TreePRF;
 
 // we target 128-bits of PQ security
@@ -17,7 +26,84 @@ pub const KEY_SIZE: usize = 32;
 
 pub const HASH_SIZE: usize = 32;
 
+#[derive(Default, Clone, Debug)]
+pub struct Hasher(blake3::Hasher);
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Hash(blake3::Hash);
+
 pub struct PRG(ChaCha12Rng);
+
+impl AsRef<[u8]> for Hash {
+    fn as_ref(&self) -> &[u8] {
+        &self.0.as_bytes()[..]
+    }
+}
+
+impl Hash {
+    pub fn as_bytes(&self) -> &[u8; HASH_SIZE] {
+        self.0.as_bytes()
+    }
+}
+
+impl Serialize for Hash {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut tup = serializer.serialize_tuple(HASH_SIZE)?;
+        for b in self.0.as_bytes().iter() {
+            tup.serialize_element(b)?;
+        }
+        tup.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for Hash {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct HashVistor();
+        impl<'de> Visitor<'de> for HashVistor {
+            type Value = Hash;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                write!(formatter, "a sequence of flat nodes")
+            }
+
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                let mut hash: [u8; HASH_SIZE] = [0u8; HASH_SIZE];
+                for b in hash.iter_mut() {
+                    *b = seq.next_element()?.unwrap();
+                }
+                Ok(Hash(blake3::Hash::from(hash)))
+            }
+        }
+        deserializer.deserialize_tuple(HASH_SIZE, HashVistor())
+    }
+}
+
+impl Hasher {
+    pub fn new() -> Hasher {
+        Hasher(blake3::Hasher::new())
+    }
+
+    pub fn new_keyed(key: &[u8; KEY_SIZE]) -> Hasher {
+        Hasher(blake3::Hasher::new_keyed(key))
+    }
+
+    pub fn update(&mut self, input: &[u8]) {
+        self.0.update(input);
+    }
+
+    pub fn finalize(&self) -> Hash {
+        Hash(self.0.finalize())
+    }
+}
+impl io::Write for Hasher {
+    fn write(&mut self, input: &[u8]) -> io::Result<usize> {
+        self.0.write(input)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.0.flush()
+    }
+}
 
 impl PRG {
     pub fn new(seed: [u8; KEY_SIZE]) -> Self {
@@ -30,7 +116,7 @@ impl RngCore for PRG {
         self.0.fill_bytes(dest)
     }
 
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Error> {
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
         Ok(self.fill_bytes(dest))
     }
 

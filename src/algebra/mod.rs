@@ -57,7 +57,7 @@ pub trait Domain: Debug + Copy + Send + Sync + 'static {
     const PREPROCESSING_REPETITIONS: usize;
     const ONLINE_REPETITIONS: usize;
 
-    type Scalar: RingElement + Packable;
+    type Scalar: RingElement + Packable + Sized;
 
     /// a batch of ring elements belonging to a single player
     type Batch: RingModule<Self::Scalar> + Samplable + Serializable + Debug + Packable;

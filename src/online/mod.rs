@@ -7,14 +7,13 @@ mod tests;
 */
 
 use crate::algebra::{Domain, RingElement};
-use crate::crypto::{RingHasher, TreePRF, KEY_SIZE};
+use crate::crypto::{Hash, RingHasher, TreePRF, KEY_SIZE};
 use crate::fs::View;
 use crate::preprocessing;
 use crate::Instruction;
 
 use std::marker::PhantomData;
 
-use blake3::Hash;
 use serde::{Deserialize, Serialize};
 
 pub use prover::StreamingProver;

@@ -6,6 +6,7 @@ pub trait RingElement:
     Copy
     + Copy
     + Send
+    + Sized
     + Sync
     + Add<Output = Self>
     + Sub<Output = Self>
@@ -32,4 +33,8 @@ pub trait RingModule<S: RingElement>: RingElement {
     // action of the scalar ring upon the module:
     // s * (r_1, r_2, ..., r_dimension) = (s * r_1, s * r_2, ..., s * r_dimension)
     fn action(&self, s: S) -> Self;
+
+    fn pack(vs: &[S]) -> Self;
+
+    fn unpack(&self, vs: &mut [S]);
 }

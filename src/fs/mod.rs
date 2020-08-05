@@ -1,6 +1,4 @@
-use crate::crypto::{KEY_SIZE, PRG};
-
-use blake3::{Hash, Hasher};
+use crate::crypto::{Hash, Hasher, KEY_SIZE, PRG};
 
 use std::io::Write;
 
@@ -39,10 +37,7 @@ impl View {
         hasher.update(label);
         hasher.update(&(label.len() as u8).to_le_bytes());
         hasher.update(&[0]);
-        let mut xof = hasher.finalize_xof();
-        let mut seed: [u8; KEY_SIZE] = [0u8; KEY_SIZE];
-        xof.fill(&mut seed);
-        PRG::new(seed)
+        PRG::new(*hasher.finalize().as_bytes())
     }
 
     /// Produce a hash of the view.

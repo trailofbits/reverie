@@ -1,9 +1,8 @@
 use super::*;
 
 use crate::algebra::Serializable;
+use crate::crypto::Hash;
 use crate::util::Writer;
-
-use blake3::Hash;
 
 /// Represents a labelled Scope, enabling use to write (key, value) pairs
 /// to the transcript, without needing to hold all of "value" in memory.

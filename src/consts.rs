@@ -6,6 +6,9 @@ pub const LABEL_RNG_BEAVER: &'static [u8] = "beaver_rng".as_bytes();
 // RNG label for beaver triples
 pub const LABEL_RNG_INPUT: &'static [u8] = "input_rng".as_bytes();
 
+// RNG label for branch information
+pub const LABEL_RNG_BRANCH: &'static [u8] = "branch_rng".as_bytes();
+
 // RNG label for openings
 pub const LABEL_RNG_OPEN_PREPROCESSING: &'static [u8] = "open_preprocessing".as_bytes();
 
@@ -21,5 +24,5 @@ pub const LABEL_SCOPE_CORRECTION: &'static [u8] = "correction_elements".as_bytes
 // Scope label for aggregated commitment
 pub const LABEL_SCOPE_AGGREGATE_COMMIT: &'static [u8] = "aggregate_commit".as_bytes();
 
-// execute up to 1 000 000 instructions in a single batch
-pub const BATCH_SIZE: usize = 1_000_000;
+// Number of instructions executed in a single batch
+pub const BATCH_SIZE: usize = 10_000_000;

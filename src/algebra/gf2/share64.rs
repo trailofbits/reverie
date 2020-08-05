@@ -42,6 +42,14 @@ impl RingModule<BitScalar> for BitSharing64 {
         BitSharing64(if s.0 == 0 { 0 } else { self.0 })
     }
 
+    fn pack(vs: &[BitScalar]) -> Self {
+        unimplemented!()
+    }
+
+    fn unpack(&self, vs: &mut [BitScalar]) {
+        unimplemented!()
+    }
+
     /*
     #[inline(always)]
     fn get(&self, n: usize) -> Self::Scalar {

@@ -1,11 +1,9 @@
 use super::*;
 
-use crate::consts::{LABEL_RNG_BEAVER, LABEL_RNG_INPUT};
+use crate::consts::{LABEL_RNG_BEAVER, LABEL_RNG_BRANCH, LABEL_RNG_INPUT};
 use crate::crypto::PRG;
 use crate::util::{VoidWriter, Writer};
 use crate::Instruction;
-
-
 
 /// Implementation of pre-processing phase used by the prover during online execution
 pub struct PreprocessingExecution<D: Domain> {
@@ -26,18 +24,46 @@ pub struct PreprocessingExecution<D: Domain> {
 }
 
 impl<D: Domain> PreprocessingExecution<D> {
-    pub fn new(views: &[View], online: bool) -> Self {
-        PreprocessingExecution {
-            online,
-            next_input: D::Batch::DIMENSION,
-            share_input: vec![D::Sharing::ZERO; D::Batch::DIMENSION],
-            players: views.iter().map(Player::new).collect(),
-            share_g: vec![D::Sharing::ZERO; D::Batch::DIMENSION],
-            share_a: Vec::with_capacity(D::Batch::DIMENSION),
-            share_b: Vec::with_capacity(D::Batch::DIMENSION),
-            masks: VecMap::new(),
-            _ph: PhantomData,
+    pub fn new(views: &[View], branches: &[&[D::Batch]], online: bool) -> (Self, MerkleTree) {
+        // pre-compute branch maskings
+
+        let mut rngs: Vec<PRG> = views
+            .iter()
+            .map(|view| view.prg(LABEL_RNG_BRANCH))
+            .collect();
+
+        let mut branch_hashes: Vec<RingHasher<D::Batch>> =
+            (0..D::PLAYERS).map(|_| RingHasher::new()).collect();
+
+        let len_branches = branches.get(0).map(|b0| b0.len()).unwrap_or(0);
+
+        for j in 0..len_branches {
+            let mut pad = D::Batch::ZERO;
+            for i in 0..D::PLAYERS {
+                pad = pad + D::Batch::gen(&mut rngs[i]);
+            }
+            for b in 0..branches.len() {
+                branch_hashes[b].write(pad + branches[b][j])
+            }
         }
+
+        // return pre-processor for circuit
+
+        (
+            PreprocessingExecution {
+                online,
+                next_input: D::Batch::DIMENSION,
+                share_input: vec![D::Sharing::ZERO; D::Batch::DIMENSION],
+                players: views.iter().map(Player::new).collect(),
+                share_g: vec![D::Sharing::ZERO; D::Batch::DIMENSION],
+                share_a: Vec::with_capacity(D::Batch::DIMENSION),
+                share_b: Vec::with_capacity(D::Batch::DIMENSION),
+                masks: VecMap::new(),
+                _ph: PhantomData,
+            },
+            MerkleTree::try_from_iter(branch_hashes.into_iter().map(|hs| Ok(hs.finalize())))
+                .unwrap(),
+        )
     }
 
     #[inline(always)]

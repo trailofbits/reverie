@@ -3,8 +3,9 @@ use super::*;
 use crate::algebra::Packable;
 use crate::algebra::{Domain, RingModule, Sharing};
 use crate::consts::*;
-use crate::crypto::TreePRF;
+use crate::crypto::{Hash, TreePRF};
 use crate::fs::*;
+use crate::preprocessing::pack_branches;
 use crate::preprocessing::prover::PreprocessingExecution;
 use crate::preprocessing::PreprocessingOutput;
 use crate::util::*;
@@ -14,8 +15,6 @@ use std::sync::Arc;
 
 use async_channel::{Receiver, SendError, Sender};
 use async_std::task;
-
-use blake3::Hash;
 
 use bincode;
 
@@ -193,14 +192,20 @@ impl<D: Domain> StreamingProver<D> {
         PI: Iterator<Item = Instruction<D::Scalar>>,
         WI: Iterator<Item = D::Scalar>,
     >(
-        preprocessing: PreprocessingOutput<D>,
+        preprocessing: PreprocessingOutput<D>, // output of pre-processing
+        branches: &[&[D::Scalar]],             // ordered list of branches
+        branch_i: usize,                       // branch index
         mut program: PI,
         mut witness: WI,
     ) -> (Proof<D>, Self) {
+        assert!(branches.len() > branch_i);
         assert_eq!(preprocessing.seeds.len(), D::ONLINE_REPETITIONS);
+
+        let mut branches = pack_branches::<D>(branches);
 
         async fn process<D: Domain>(
             root: [u8; KEY_SIZE],
+            branches: Arc<Vec<Vec<D::Batch>>>,
             outputs: Sender<()>,
             inputs: Receiver<(
                 Arc<Vec<Instruction<D::Scalar>>>, // next slice of program
