@@ -17,7 +17,7 @@ use blake3;
 
 use std::fmt;
 
-pub use merkle::MerkleTree;
+pub use merkle::{MerkleProof, MerkleTree};
 pub use ring::RingHasher;
 pub use tree::TreePRF;
 
@@ -33,6 +33,18 @@ pub struct Hasher(blake3::Hasher);
 pub struct Hash(blake3::Hash);
 
 pub struct PRG(ChaCha12Rng);
+
+pub fn kdf(context: &str, key_material: &[u8]) -> [u8; KEY_SIZE] {
+    let mut output = [0u8; KEY_SIZE];
+    blake3::derive_key(context, key_material, &mut output);
+    output
+}
+
+pub fn hash(material: &[u8]) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(material);
+    hasher.finalize()
+}
 
 impl AsRef<[u8]> for Hash {
     fn as_ref(&self) -> &[u8] {

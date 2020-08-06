@@ -26,3 +26,13 @@ pub const LABEL_SCOPE_AGGREGATE_COMMIT: &'static [u8] = "aggregate_commit".as_by
 
 // Number of instructions executed in a single batch
 pub const BATCH_SIZE: usize = 10_000_000;
+
+pub const CONTEXT_RNG_BEAVER: &'static str = "beaver_seed";
+
+pub const CONTEXT_RNG_INPUT_MASK: &'static str = "input_mask_seed";
+
+pub const CONTEXT_RNG_BRANCH_MASK: &'static str = "branch_mask_seed";
+
+pub const CONTEXT_RNG_BRANCH_PERMUTE: &'static str = "branch_permute_seed";
+
+pub const CONTEXT_RNG_CORRECTION: &'static str = "correction_seed";

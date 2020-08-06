@@ -9,6 +9,7 @@ pub use vec::VecMap;
 pub use writer::*;
 
 use std::mem;
+use std::ops::{Deref, DerefMut};
 
 pub const fn log2(x: usize) -> usize {
     (mem::size_of::<usize>() * 8) - (x.leading_zeros() as usize) - 1

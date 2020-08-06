@@ -1,6 +1,7 @@
 mod constants;
+pub mod preprocessing;
 pub mod prover;
-pub mod verifier;
+// pub mod verifier;
 
 use crate::algebra::*;
 use crate::consts::*;
@@ -20,6 +21,81 @@ use rand::seq::SliceRandom;
 
 use serde::{Deserialize, Serialize};
 
+struct SharesGenerator<D: Domain> {
+    pub input: ShareGenerator<D>,
+    pub branch: ShareGenerator<D>,
+    pub beaver: ShareGenerator<D>,
+}
+
+impl<D: Domain> SharesGenerator<D> {
+    fn new(player_seeds: &[[u8; KEY_SIZE]]) -> Self {
+        let input_prgs: Vec<PRG> = player_seeds
+            .iter()
+            .map(|seed| PRG::new(kdf(CONTEXT_RNG_INPUT_MASK, seed)))
+            .collect();
+
+        let branch_prgs: Vec<PRG> = player_seeds
+            .iter()
+            .map(|seed| PRG::new(kdf(CONTEXT_RNG_INPUT_MASK, seed)))
+            .collect();
+
+        let beaver_prgs: Vec<PRG> = player_seeds
+            .iter()
+            .map(|seed| PRG::new(kdf(CONTEXT_RNG_BEAVER, seed)))
+            .collect();
+
+        Self {
+            input: ShareGenerator::new(input_prgs),
+            branch: ShareGenerator::new(branch_prgs),
+            beaver: ShareGenerator::new(beaver_prgs),
+        }
+    }
+}
+
+struct ShareGenerator<D: Domain> {
+    batches: Vec<D::Batch>,
+    shares: Vec<D::Sharing>,
+    next: usize,
+    prgs: Vec<PRG>,
+}
+
+impl<D: Domain> ShareGenerator<D> {
+    pub fn new(prgs: Vec<PRG>) -> Self {
+        debug_assert_eq!(prgs.len(), D::PLAYERS);
+        ShareGenerator {
+            batches: vec![D::Batch::ZERO; D::PLAYERS],
+            shares: vec![D::Sharing::ZERO; D::Batch::DIMENSION],
+            next: D::Batch::DIMENSION,
+            prgs,
+        }
+    }
+
+    pub fn next(&mut self) -> D::Sharing {
+        if self.next >= self.shares.len() {
+            for i in 0..D::PLAYERS {
+                self.batches[i] = D::Batch::gen(&mut self.prgs[i]);
+            }
+            D::convert(&mut self.shares[..], &self.batches);
+            self.next = 0;
+        }
+        let elem = self.shares[self.next];
+        self.next += 1;
+        elem
+    }
+
+    pub fn batches(&self) -> &[D::Batch] {
+        &self.batches[..]
+    }
+
+    pub fn is_empty(&self) -> bool {
+        return self.next == D::Batch::DIMENSION;
+    }
+
+    pub fn empty(&mut self) {
+        self.next = D::Batch::DIMENSION;
+    }
+}
+
 struct Player {
     input: PRG,
     beaver: PRG,
@@ -27,11 +103,11 @@ struct Player {
 }
 
 impl Player {
-    fn new(view: &View) -> Self {
+    fn new(seed: &[u8; KEY_SIZE]) -> Self {
         Player {
-            beaver: view.prg(LABEL_RNG_BEAVER),
-            input: view.prg(LABEL_RNG_INPUT),
-            branch: view.prg(LABEL_RNG_BRANCH),
+            input: PRG::new(kdf(CONTEXT_RNG_INPUT_MASK, seed)),
+            beaver: PRG::new(kdf(CONTEXT_RNG_BEAVER, seed)),
+            branch: PRG::new(kdf(CONTEXT_RNG_BRANCH_MASK, seed)),
         }
     }
 }
@@ -71,7 +147,7 @@ pub struct Proof<D: Domain> {
 /// For this reason PreprocessingOutput does not implement Copy/Clone
 /// and the online phase takes ownership of the struct, nor does it expose any fields.
 pub struct PreprocessingOutput<D: Domain> {
-    pub(crate) seeds: Vec<[u8; KEY_SIZE]>,
+    pub(crate) hidden: Vec<(Vec<Hash>, [u8; KEY_SIZE])>,
     _ph: PhantomData<D>,
 }
 
@@ -83,7 +159,8 @@ pub struct Output<D: Domain> {
 pub fn pack_branches<D: Domain>(branches: &[&[D::Scalar]]) -> Vec<Vec<D::Batch>> {
     let mut batches: Vec<Vec<D::Batch>> = Vec::with_capacity(branches.len());
     for branch in branches {
-        let res: Vec<D::Batch> = Vec::with_capacity(branches[0].len() / D::Batch::DIMENSION + 1);
+        let mut res: Vec<D::Batch> =
+            Vec::with_capacity(branches[0].len() / D::Batch::DIMENSION + 1);
         for chunk in branch.chunks(D::Batch::DIMENSION) {
             res.push(if chunk.len() < D::Batch::DIMENSION {
                 // copy and pad with zero elements
@@ -105,51 +182,36 @@ impl<D: Domain> Proof<D> {
         seeds: &[[u8; KEY_SIZE]],
         branches: &[&[D::Scalar]],
         mut program: PI,
-    ) -> Vec<Hash> {
+    ) -> Vec<Vec<Hash>> {
         assert!(
             branches.len() > 0,
-            "even when the branch feature is not used, the branch is simply a constant"
+            "even when the branch feature is not used, the branch should still be provided and should be a singleton list with an empty element"
         );
-
-        // pack branch scalars into batches for efficiency
-        let branches = Arc::new(pack_branches::<D>(branches));
 
         async fn process<D: Domain>(
             root: [u8; KEY_SIZE],
             branches: Arc<Vec<Vec<D::Batch>>>,
             outputs: Sender<()>,
             inputs: Receiver<Arc<Vec<Instruction<D::Scalar>>>>,
-        ) -> Result<Hash, SendError<()>> {
-            // expand repetition seed into per-player seeds
-            let mut seeds: Vec<[u8; KEY_SIZE]> = vec![[0u8; KEY_SIZE]; D::PLAYERS];
-            TreePRF::expand_full(&mut seeds, root);
-
-            // create keyed views for every player
-            let mut views: Vec<View> = seeds.iter().map(|seed| View::new_keyed(seed)).collect();
-
-            // randomly permute the branches
-            let mut prg = PRG::new(root);
-            let mut perm: Vec<&[D::Batch]> = branches.iter().map(|v| &v[..]).collect();
-            perm.shuffle(&mut prg);
-
-            // preprocessing
-            let (mut preprocessing, tree): (prover::PreprocessingExecution<D>, _) =
-                prover::PreprocessingExecution::new(&views, &perm[..], false);
+        ) -> Result<Vec<Hash>, SendError<()>> {
+            let mut preprocessing: preprocessing::PreprocessingExecution<D> =
+                preprocessing::PreprocessingExecution::new(root, &branches[..]);
 
             loop {
                 match inputs.recv().await {
                     Ok(program) => {
-                        preprocessing
-                            .prove(&program[..], &mut views[0].scope(LABEL_SCOPE_CORRECTION));
+                        preprocessing.prove(&program[..]);
                         outputs.send(()).await?;
                     }
                     Err(_) => {
-                        // return a hash of all the committed views
-                        return Ok(union_views(views.iter()));
+                        return Ok(preprocessing.done());
                     }
                 }
             }
         }
+
+        // pack branch scalars into batches for efficiency
+        let branches = Arc::new(pack_branches::<D>(branches));
 
         // create async parallel task for every repetition
         let mut tasks = Vec::with_capacity(D::PREPROCESSING_REPETITIONS);
@@ -188,7 +250,7 @@ impl<D: Domain> Proof<D> {
         inputs.clear();
 
         // collect final commitments
-        let mut hashes: Vec<Hash> = Vec::with_capacity(D::PREPROCESSING_REPETITIONS);
+        let mut hashes: Vec<Vec<Hash>> = Vec::with_capacity(D::PREPROCESSING_REPETITIONS);
         for t in tasks.into_iter() {
             hashes.push(t.await.unwrap());
         }
@@ -226,7 +288,24 @@ impl<D: Domain> Proof<D> {
             .map(|v| v.unwrap())
             .collect();
 
-        let opened_hashes = Self::preprocess(&opened_roots[..], branches, program).await;
+        let opened_commitments = Self::preprocess(&opened_roots[..], branches, program).await;
+
+        // aggregate the player commitments into a single commitment to the entire execution
+        let opened_hashes: Vec<Hash> = opened_commitments
+            .iter()
+            .map(|player_commitments| {
+                let mut hasher = Hasher::new();
+                for commitment in player_commitments {
+                    hasher.update(commitment.as_bytes());
+                }
+                hasher.finalize()
+            })
+            .collect();
+
+        debug_assert_eq!(
+            opened_hashes.len(),
+            D::PREPROCESSING_REPETITIONS - D::ONLINE_REPETITIONS
+        );
 
         // interleave the proved hashes with the recomputed ones
         let mut hashes = Vec::with_capacity(D::PREPROCESSING_REPETITIONS);
@@ -241,6 +320,8 @@ impl<D: Domain> Proof<D> {
                 }
             }
         }
+
+        debug_assert_eq!(hashes.len(), D::PREPROCESSING_REPETITIONS);
 
         // feed to the Random-Oracle
         let mut challenge_prg = {
@@ -282,15 +363,29 @@ impl<D: Domain> Proof<D> {
         TreePRF::expand_full(&mut roots, global);
 
         // block and wait for hashes to compute
-        let hashes = task::block_on(Self::preprocess(&roots[..], branches, program));
+        let commitments = task::block_on(Self::preprocess(&roots[..], branches, program));
+
+        // aggregate the player commitments into a single commitment to the entire execution
+        let hashes: Vec<Hash> = commitments
+            .iter()
+            .map(|player_commitments| {
+                let mut hasher = Hasher::new();
+                for commitment in player_commitments {
+                    hasher.update(commitment.as_bytes());
+                }
+                hasher.finalize()
+            })
+            .collect();
 
         // send the pre-processing commitments to the random oracle, receive challenges
         let mut challenge_prg = {
             let mut oracle: View = View::new();
             let mut scope: Scope = oracle.scope(LABEL_SCOPE_AGGREGATE_COMMIT);
+
             for hash in hashes.iter() {
-                scope.join(hash);
+                scope.update(hash.as_bytes());
             }
+
             mem::drop(scope);
             oracle.prg(LABEL_RNG_OPEN_PREPROCESSING)
         };
@@ -313,20 +408,28 @@ impl<D: Domain> Proof<D> {
         // extract pre-processing key material for the hidden views
         // (returned to the prover for use in the online phase)
         let mut hidden_seeds: Vec<[u8; KEY_SIZE]> = Vec::with_capacity(D::ONLINE_REPETITIONS);
+        let mut hidden_hashes: Vec<Hash> = Vec::with_capacity(D::ONLINE_REPETITIONS);
+        let mut hidden_commitments: Vec<Vec<Hash>> = Vec::with_capacity(D::ONLINE_REPETITIONS);
+
         for i in hidden.iter().cloned() {
+            hidden_hashes.push(hashes[i].clone());
             hidden_seeds.push(roots[i]);
+            hidden_commitments.push(commitments[i]);
         }
 
         (
             // proof (used by the verifier)
             Proof {
-                hidden: hidden.iter().cloned().map(|i| hashes[i].clone()).collect(),
+                hidden: hidden_hashes.clone(),
                 random: tree,
                 _ph: PhantomData,
             },
             // randomness used to re-executed the hidden views (used by the prover)
             PreprocessingOutput {
-                seeds: hidden_seeds,
+                hidden: hidden_commitments
+                    .into_iter()
+                    .zip(hidden_seeds.into_iter())
+                    .collect(),
                 _ph: PhantomData,
             },
         )

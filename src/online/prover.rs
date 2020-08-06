@@ -3,7 +3,7 @@ use super::*;
 use crate::algebra::Packable;
 use crate::algebra::{Domain, RingModule, Sharing};
 use crate::consts::*;
-use crate::crypto::{Hash, TreePRF};
+use crate::crypto::{Hash, Hasher, TreePRF};
 use crate::fs::*;
 use crate::preprocessing::pack_branches;
 use crate::preprocessing::prover::PreprocessingExecution;
@@ -62,6 +62,7 @@ fn count_inputs<D: Domain>(program: &[Instruction<D::Scalar>]) -> usize {
 }
 
 pub struct StreamingProver<D: Domain> {
+    branch: Arc<Vec<D::Scalar>>,
     preprocessing: PreprocessingOutput<D>,
     omitted: Vec<usize>,
 }
@@ -109,25 +110,28 @@ impl<D: Domain, W: Writer<D::Batch>> Drop for BatchExtractor<D, W> {
     }
 }
 
-struct Prover<D: Domain> {
+struct Prover<D: Domain, I: Iterator<Item = D::Scalar>> {
     wires: VecMap<D::Scalar>,
+    branch: I,
 }
 
-impl<D: Domain> Prover<D> {
-    fn new() -> Self {
+impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
+    fn new(branch: I) -> Self {
         Prover {
             wires: VecMap::new(),
+            branch,
         }
     }
 
     // execute the next chunk of program
-    fn run<WW: Writer<D::Scalar>, BW: Writer<D::Sharing>>(
+    fn run<WW: Writer<D::Scalar>, BW: Writer<D::Sharing>, BrW: Writer<D::Scalar>>(
         &mut self,
         program: &[Instruction<D::Scalar>],
         witness: &[D::Scalar], // witness for input gates from next chunk of program
         preprocessing_masks: &[D::Sharing],
         preprocessing_ab_gamma: &[D::Sharing],
         masked_witness: &mut WW,
+        masked_branch: &mut BrW,
         broadcast: &mut BW,
     ) {
         let mut witness = witness.iter().cloned();
@@ -141,6 +145,12 @@ impl<D: Domain> Prover<D> {
                     let wire = witness.next().unwrap() + D::Sharing::reconstruct(&mask);
                     self.wires.set(dst, wire);
                     masked_witness.write(wire);
+                }
+                Instruction::Branch(dst) => {
+                    let mask: D::Sharing = masks.next().unwrap();
+                    let wire = self.branch.next().unwrap() + D::Sharing::reconstruct(&mask);
+                    self.wires.set(dst, wire);
+                    masked_branch.write(wire);
                 }
                 Instruction::AddConst(dst, src, c) => {
                     let a_w = self.wires.get(src);
@@ -193,35 +203,37 @@ impl<D: Domain> StreamingProver<D> {
         WI: Iterator<Item = D::Scalar>,
     >(
         preprocessing: PreprocessingOutput<D>, // output of pre-processing
-        branches: &[&[D::Scalar]],             // ordered list of branches
-        branch_i: usize,                       // branch index
+        branch: &[D::Scalar],
         mut program: PI,
         mut witness: WI,
     ) -> (Proof<D>, Self) {
-        assert!(branches.len() > branch_i);
-        assert_eq!(preprocessing.seeds.len(), D::ONLINE_REPETITIONS);
-
-        let mut branches = pack_branches::<D>(branches);
+        assert_eq!(preprocessing.hidden.len(), D::ONLINE_REPETITIONS);
 
         async fn process<D: Domain>(
             root: [u8; KEY_SIZE],
-            branches: Arc<Vec<Vec<D::Batch>>>,
+            branch: Arc<Vec<D::Scalar>>,
             outputs: Sender<()>,
             inputs: Receiver<(
                 Arc<Vec<Instruction<D::Scalar>>>, // next slice of program
                 Arc<Vec<D::Scalar>>,              // next slice of witness
             )>,
-        ) -> Result<(Hash, Vec<View>), SendError<Vec<u8>>> {
-            let mut seeds = vec![[0u8; KEY_SIZE]; D::PLAYERS];
-            TreePRF::expand_full(&mut seeds, root);
+        ) -> Result<(Vec<D::Scalar>, Hash), SendError<Vec<u8>>> {
+            // online execution
+            let mut online = Prover::<D, _>::new(branch.iter().cloned());
 
-            let mut views: Vec<View> = seeds.iter().map(|seed| View::new_keyed(seed)).collect();
-            let mut preprocessing = PreprocessingExecution::<D>::new(&views[..], true);
+            // public transcript (broadcast channel)
             let mut transcript = RingHasher::new();
-            let mut online = Prover::<D>::new();
 
+            // preprocessing execution
+            let mut preprocessing = PreprocessingExecution::<D>::new(root);
+
+            // masked branch input
+            let mut masked_branch = Vec::with_capacity(branch.len());
+
+            // vectors for values passed between preprocessing and online execution
             let mut masks = Vec::with_capacity(DEFAULT_CAPACITY);
             let mut ab_gamma = Vec::with_capacity(DEFAULT_CAPACITY);
+
             loop {
                 match inputs.recv().await {
                     Ok((program, witness)) => {
@@ -230,7 +242,7 @@ impl<D: Domain> StreamingProver<D> {
                             // prepare pre-processing execution (online mode)
                             preprocessing.process(
                                 &program[..],
-                                &mut views[0].scope(LABEL_SCOPE_CORRECTION),
+                                &mut VoidWriter::new(),
                                 &mut masks,
                                 &mut ab_gamma,
                             );
@@ -241,6 +253,7 @@ impl<D: Domain> StreamingProver<D> {
                                 &witness[..],
                                 &masks[..],
                                 &ab_gamma[..],
+                                &mut masked_branch,
                                 &mut VoidWriter::new(),
                                 &mut transcript,
                             );
@@ -250,20 +263,27 @@ impl<D: Domain> StreamingProver<D> {
                         outputs.send(()).await.unwrap();
                     }
                     Err(_) => {
-                        return Ok((transcript.finalize(), views));
+                        return Ok((masked_branch, transcript.finalize()));
                     }
                 }
             }
         }
 
+        let branch = Arc::new(branch.to_owned());
+
         // create async parallel task for every repetition
         let mut tasks = Vec::with_capacity(D::ONLINE_REPETITIONS);
         let mut inputs = Vec::with_capacity(D::ONLINE_REPETITIONS);
         let mut outputs = Vec::with_capacity(D::ONLINE_REPETITIONS);
-        for root in preprocessing.seeds.iter().cloned() {
+        for (_, root) in preprocessing.hidden.iter() {
             let (send_inputs, recv_inputs) = async_channel::bounded(2);
             let (send_outputs, recv_outputs) = async_channel::bounded(2);
-            tasks.push(task::spawn(process::<D>(root, send_outputs, recv_inputs)));
+            tasks.push(task::spawn(process::<D>(
+                *root,
+                branch.clone(),
+                send_outputs,
+                recv_inputs,
+            )));
             inputs.push(send_inputs);
             outputs.push(recv_outputs);
         }
@@ -294,15 +314,29 @@ impl<D: Domain> StreamingProver<D> {
         // close input writers
         inputs.clear();
 
+        // join pre-processing commitments into single commitments to pre-processing execution
+        let hashes: Vec<Hash> = preprocessing
+            .hidden
+            .iter()
+            .map(|(player_commitments, _)| {
+                let mut hasher = Hasher::new();
+                for commitment in player_commitments {
+                    hasher.update(commitment.as_bytes());
+                }
+                hasher.finalize()
+            })
+            .collect();
+
         // extract which players to omit in every run (Fiat-Shamir)
-        let mut views = Vec::new();
+
         let mut challenge_rng = {
             let mut global: View = View::new();
             let mut scope: Scope = global.scope(LABEL_SCOPE_ONLINE_TRANSCRIPT);
-            for t in tasks.into_iter() {
-                let (public, players) = t.await.unwrap();
-                views.push(players);
-                scope.join(&public);
+            for (pp, t) in hashes.into_iter().zip(tasks.into_iter()) {
+                let (masked_branch, transcript) = t.await.unwrap();
+                // RO((preprocessing, transcript))
+                scope.join(&pp);
+                scope.join(&transcript);
             }
             mem::drop(scope);
             global.prg(LABEL_RNG_OPEN_ONLINE)
@@ -313,29 +347,26 @@ impl<D: Domain> StreamingProver<D> {
 
         debug_assert_eq!(omitted.len(), D::ONLINE_REPETITIONS);
 
-        let runs = omitted
-            .iter()
-            .cloned()
-            .zip(views.iter())
-            .zip(preprocessing.seeds.iter().cloned())
-            .map(|((omit, views), seed)| {
-                let tree = TreePRF::new(D::PLAYERS, seed);
-                Run {
-                    commitment: *views[omit].hash().as_bytes(),
-                    open: tree.puncture(omit),
-                    _ph: PhantomData,
-                }
-            })
-            .collect();
-
-        // rewind the program and input iterators and
-        // return prover ready to stream out the proof
         (
             Proof {
-                runs,
+                // omit player from TreePRF and provide pre-processing commitment
+                runs: omitted
+                    .iter()
+                    .cloned()
+                    .zip(preprocessing.hidden.iter())
+                    .map(|(omit, (player_commitments, seed))| {
+                        let tree = TreePRF::new(D::PLAYERS, *seed);
+                        Run {
+                            commitment: player_commitments[omit].clone(),
+                            open: tree.puncture(omit),
+                            _ph: PhantomData,
+                        }
+                    })
+                    .collect(),
                 _ph: PhantomData,
             },
             StreamingProver {
+                branch,
                 omitted,
                 preprocessing,
             },
@@ -354,6 +385,7 @@ impl<D: Domain> StreamingProver<D> {
         async fn process<D: Domain>(
             root: [u8; KEY_SIZE],
             omitted: usize,
+            branch: Arc<Vec<D::Scalar>>,
             outputs: Sender<Vec<u8>>,
             inputs: Receiver<(
                 Arc<Vec<Instruction<D::Scalar>>>, // next slice of program
@@ -364,8 +396,8 @@ impl<D: Domain> StreamingProver<D> {
             TreePRF::expand_full(&mut seeds, root);
 
             let views: Vec<View> = seeds.iter().map(|seed| View::new_keyed(seed)).collect();
-            let mut preprocessing = PreprocessingExecution::<D>::new(&views[..], true);
-            let mut online = Prover::<D>::new();
+            let mut preprocessing = PreprocessingExecution::<D>::new(root);
+            let mut online = Prover::<D, _>::new(branch.iter().cloned());
 
             // output buffers used during execution
             let mut masks = Vec::with_capacity(DEFAULT_CAPACITY);

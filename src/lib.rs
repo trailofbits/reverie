@@ -18,15 +18,11 @@ mod tests;
 // exposed to enable uses to define programs for the supported rings.
 pub mod algebra;
 
-// simplified API for basic usage
-mod proof;
-pub use proof::{ProofGF2P64, ProofGF2P8};
-
 // pre-processing
 pub mod preprocessing;
 
 // online phase
-pub mod online;
+// pub mod online;
 
 // abstraction for Fiat-Shamir
 mod fs;
@@ -45,6 +41,7 @@ pub enum Instruction<E: RingElement> {
     MulConst(usize, usize, E), // multiplication by constant
     Mul(usize, usize, usize),  // multiplication of two wires
     Add(usize, usize, usize),  // addition of two wires
+    Branch(usize),             // load next branch element
     Input(usize),              // read next field element from input tape
     Output(usize),             // output wire (write wire-value to output tape)
 }

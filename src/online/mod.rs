@@ -1,5 +1,5 @@
 pub mod prover;
-pub mod verifier;
+// pub mod verifier;
 
 /*
 #[cfg(test)]
@@ -17,7 +17,7 @@ use std::marker::PhantomData;
 use serde::{Deserialize, Serialize};
 
 pub use prover::StreamingProver;
-pub use verifier::StreamingVerifier;
+// pub use verifier::StreamingVerifier;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Chunk {
@@ -28,7 +28,7 @@ pub struct Chunk {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Run<D: Domain> {
-    commitment: [u8; 32],
+    commitment: Hash,
     open: TreePRF,
     _ph: PhantomData<D>,
 }

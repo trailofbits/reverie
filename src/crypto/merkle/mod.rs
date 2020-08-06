@@ -3,6 +3,8 @@ use super::{Hash, Hasher, HASH_SIZE};
 use blake3;
 
 use merkletree::hash;
+use merkletree::proof;
+
 use merkletree::merkle::{self, Element};
 use merkletree::store::VecStore;
 
@@ -74,3 +76,5 @@ impl hash::Algorithm<Hash> for Hasher {
 }
 
 pub type MerkleTree = merkle::MerkleTree<Hash, Hasher, VecStore<Hash>>;
+
+pub type MerkleProof = proof::Proof<Hash>;
