@@ -7,9 +7,10 @@ use crate::Instruction;
 
 /// Implementation of pre-processing phase used by the prover during online execution
 pub struct PreprocessingExecution<D: Domain> {
+    root: Hash,
+
     // commitments to player random
     commitments: Vec<Hash>,
-    branches: MerkleTree,
 
     // interpreter state
     masks: VecMap<D::Sharing>,
@@ -31,36 +32,42 @@ impl<D: Domain> PreprocessingExecution<D> {
         let mut player_seeds: Vec<[u8; KEY_SIZE]> = vec![[0u8; KEY_SIZE]; D::PLAYERS];
         TreePRF::expand_full(&mut player_seeds, root);
 
+        // mask the branches and compute the root of the Merkle tree
+        let root: Hash = {
+            let perm = branch_permutation(&root, branches.len());
+
+            let mut hashes: Vec<RingHasher<D::Batch>> =
+                (0..branches.len()).map(|_| RingHasher::new()).collect(); // TODO: key
+
+            let mut prgs: Vec<PRG> = player_seeds
+                .iter()
+                .map(|seed| PRG::new(kdf(CONTEXT_RNG_INPUT_MASK, seed)))
+                .collect();
+
+            for j in 0..branches[0].len() {
+                let mut pad = D::Batch::ZERO;
+                for i in 0..D::PLAYERS {
+                    pad = pad + D::Batch::gen(&mut prgs[i]);
+                }
+                for b in 0..branches.len() {
+                    hashes[perm[b]].write(pad + branches[b][j])
+                }
+            }
+
+            MerkleTree::try_from_iter(hashes.into_iter().map(|hs| Ok(hs.finalize())))
+                .unwrap()
+                .root()
+        };
+
         // commit to per-player randomness
         let commitments: Vec<Hash> = player_seeds.iter().map(|seed| hash(seed)).collect();
 
         // create per-player PRG instances
         let mut players: Vec<Player> = player_seeds.iter().map(|seed| Player::new(seed)).collect();
 
-        // randomly permute the branches
-        let mut perm_prg = PRG::new(kdf(CONTEXT_RNG_BRANCH_PERMUTE, &root));
-        let mut perm: Vec<&[D::Batch]> = branches.iter().map(|v| &v[..]).collect();
-        perm.shuffle(&mut perm_prg);
-
-        // mask the branches
-        let mut branch_hashes: Vec<RingHasher<D::Batch>> =
-            (0..D::PLAYERS).map(|_| RingHasher::new()).collect();
-
-        for j in 0..branches[0].len() {
-            let mut pad = D::Batch::ZERO;
-            for i in 0..D::PLAYERS {
-                pad = pad + D::Batch::gen(&mut players[i].branch);
-            }
-            for b in 0..branches.len() {
-                branch_hashes[b].write(pad + branches[b][j])
-            }
-        }
-
         // aggregate branch hashes into Merkle tree and return pre-processor for circuit
-        let tree = MerkleTree::try_from_iter(branch_hashes.into_iter().map(|hs| Ok(hs.finalize())))
-            .unwrap();
-
         PreprocessingExecution {
+            root,
             commitments,
             corrections_prg: player_seeds
                 .iter()
@@ -68,7 +75,6 @@ impl<D: Domain> PreprocessingExecution<D> {
                 .collect(),
             corrections: RingHasher::new(),
             shares: SharesGenerator::new(&player_seeds[..]),
-            branches: tree,
             share_a: Vec::with_capacity(D::Batch::DIMENSION),
             share_b: Vec::with_capacity(D::Batch::DIMENSION),
             masks: VecMap::new(),
@@ -170,17 +176,23 @@ impl<D: Domain> PreprocessingExecution<D> {
         }
     }
 
-    pub fn done(mut self) -> Vec<Hash> {
+    pub fn done(mut self) -> (Hash, Vec<Hash>) {
         // add corrections and Merkle root to player 0 commitment
         self.commitments[0] = {
             let mut comm = Hasher::new();
             comm.update(self.commitments[0].as_bytes());
             comm.update(self.corrections.finalize().as_bytes());
-            comm.update(self.branches.root().as_bytes());
             comm.finalize()
         };
 
+        // merge player commitments with branch tree commitment
+        let mut union = Hasher::new();
+        union.update(self.root.as_bytes());
+        for comm in self.commitments.iter() {
+            union.update(comm.as_bytes());
+        }
+
         // return player commitments
-        self.commitments
+        (union.finalize(), self.commitments)
     }
 }

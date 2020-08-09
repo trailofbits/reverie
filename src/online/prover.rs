@@ -3,7 +3,7 @@ use super::*;
 use crate::algebra::Packable;
 use crate::algebra::{Domain, RingModule, Sharing};
 use crate::consts::*;
-use crate::crypto::{Hash, Hasher, TreePRF};
+use crate::crypto::{join_hashes, Hash, Hasher, TreePRF};
 use crate::fs::*;
 use crate::preprocessing::pack_branches;
 use crate::preprocessing::prover::PreprocessingExecution;
@@ -202,8 +202,8 @@ impl<D: Domain> StreamingProver<D> {
         PI: Iterator<Item = Instruction<D::Scalar>>,
         WI: Iterator<Item = D::Scalar>,
     >(
-        preprocessing: PreprocessingOutput<D>, // output of pre-processing
-        branch: &[D::Scalar],
+        preprocessing: PreprocessingOutput<D>, // output of preprocessing
+        branch_index: usize,                   // branch index (from preprocessing)
         mut program: PI,
         mut witness: WI,
     ) -> (Proof<D>, Self) {
@@ -211,13 +211,15 @@ impl<D: Domain> StreamingProver<D> {
 
         async fn process<D: Domain>(
             root: [u8; KEY_SIZE],
+            branches: Arc<Vec<Vec<D::Batch>>>,
+            branch_index: usize,
             branch: Arc<Vec<D::Scalar>>,
             outputs: Sender<()>,
             inputs: Receiver<(
                 Arc<Vec<Instruction<D::Scalar>>>, // next slice of program
                 Arc<Vec<D::Scalar>>,              // next slice of witness
             )>,
-        ) -> Result<(Vec<D::Scalar>, Hash), SendError<Vec<u8>>> {
+        ) -> Result<(Vec<u8>, MerkleProof, Hash), SendError<Vec<u8>>> {
             // online execution
             let mut online = Prover::<D, _>::new(branch.iter().cloned());
 
@@ -225,7 +227,7 @@ impl<D: Domain> StreamingProver<D> {
             let mut transcript = RingHasher::new();
 
             // preprocessing execution
-            let mut preprocessing = PreprocessingExecution::<D>::new(root);
+            let mut preprocessing = PreprocessingExecution::<D>::new(root, branches.clone());
 
             // masked branch input
             let mut masked_branch = Vec::with_capacity(branch.len());
@@ -263,23 +265,37 @@ impl<D: Domain> StreamingProver<D> {
                         outputs.send(()).await.unwrap();
                     }
                     Err(_) => {
-                        return Ok((masked_branch, transcript.finalize()));
+                        let mut packed: Vec<u8> = Vec::with_capacity(256);
+                        Packable::pack(&mut packed, &masked_branch[..]).unwrap();
+                        let proof = preprocessing.prove_branch(branch_index);
+                        return Ok((packed, proof, transcript.finalize()));
                     }
                 }
             }
         }
 
-        let branch = Arc::new(branch.to_owned());
+        // unpack selected branch into scalars again
+        let mut branch_batches = &preprocessing.branches[branch_index][..];
+        let mut branch = vec![D::Scalar::ZERO; branch_batches.len() * D::Batch::DIMENSION];
+        for (i, batch) in branch_batches.iter().enumerate() {
+            <D::Batch as RingModule<D::Scalar>>::unpack(
+                batch,
+                &mut branch[i * D::Batch::DIMENSION..],
+            );
+        }
+        let branch = Arc::new(branch);
 
         // create async parallel task for every repetition
         let mut tasks = Vec::with_capacity(D::ONLINE_REPETITIONS);
         let mut inputs = Vec::with_capacity(D::ONLINE_REPETITIONS);
         let mut outputs = Vec::with_capacity(D::ONLINE_REPETITIONS);
-        for (_, root) in preprocessing.hidden.iter() {
+        for run in preprocessing.hidden.iter() {
             let (send_inputs, recv_inputs) = async_channel::bounded(2);
             let (send_outputs, recv_outputs) = async_channel::bounded(2);
             tasks.push(task::spawn(process::<D>(
-                *root,
+                run.seed,
+                preprocessing.branches.clone(),
+                branch_index,
                 branch.clone(),
                 send_outputs,
                 recv_inputs,
@@ -318,9 +334,9 @@ impl<D: Domain> StreamingProver<D> {
         let hashes: Vec<Hash> = preprocessing
             .hidden
             .iter()
-            .map(|(player_commitments, _)| {
+            .map(|run| {
                 let mut hasher = Hasher::new();
-                for commitment in player_commitments {
+                for commitment in run.commitments.iter() {
                     hasher.update(commitment.as_bytes());
                 }
                 hasher.finalize()
@@ -329,21 +345,30 @@ impl<D: Domain> StreamingProver<D> {
 
         // extract which players to omit in every run (Fiat-Shamir)
 
-        let mut challenge_rng = {
-            let mut global: View = View::new();
-            let mut scope: Scope = global.scope(LABEL_SCOPE_ONLINE_TRANSCRIPT);
-            for (pp, t) in hashes.into_iter().zip(tasks.into_iter()) {
-                let (masked_branch, transcript) = t.await.unwrap();
-                // RO((preprocessing, transcript))
-                scope.join(&pp);
-                scope.join(&transcript);
-            }
-            mem::drop(scope);
-            global.prg(LABEL_RNG_OPEN_ONLINE)
-        };
+        let mut global: View = View::new();
+        let mut scope: Scope = global.scope(LABEL_SCOPE_ONLINE_TRANSCRIPT);
 
-        let omitted: Vec<usize> =
-            random_vector(&mut challenge_rng, D::PLAYERS, D::ONLINE_REPETITIONS);
+        let hashes = hashes.into_iter();
+        let hidden = preprocessing.hidden.iter();
+
+        let mut masked_branches = Vec::with_capacity(D::ONLINE_REPETITIONS);
+
+        for (pp, t) in preprocessing.hidden.iter().zip(tasks.into_iter()) {
+            let (masked, proof, transcript) = t.await.unwrap();
+            masked_branches.push((masked, proof));
+
+            // RO((preprocessing, transcript))
+            scope.join(&pp.union);
+            scope.join(&transcript);
+        }
+
+        mem::drop(scope);
+
+        let omitted: Vec<usize> = random_vector(
+            &mut global.prg(LABEL_RNG_OPEN_ONLINE),
+            D::PLAYERS,
+            D::ONLINE_REPETITIONS,
+        );
 
         debug_assert_eq!(omitted.len(), D::ONLINE_REPETITIONS);
 
@@ -354,10 +379,13 @@ impl<D: Domain> StreamingProver<D> {
                     .iter()
                     .cloned()
                     .zip(preprocessing.hidden.iter())
-                    .map(|(omit, (player_commitments, seed))| {
-                        let tree = TreePRF::new(D::PLAYERS, *seed);
+                    .zip(masked_branches.into_iter())
+                    .map(|((omit, run), (branch, proof))| {
+                        let tree = TreePRF::new(D::PLAYERS, run.seed);
                         Run {
-                            commitment: player_commitments[omit].clone(),
+                            proof: (proof.path().to_owned(), proof.lemma().to_owned()),
+                            branch,
+                            commitment: run.commitments[omit].clone(),
                             open: tree.puncture(omit),
                             _ph: PhantomData,
                         }
@@ -373,6 +401,7 @@ impl<D: Domain> StreamingProver<D> {
         )
     }
 
+    /*
     pub async fn stream<
         PI: Iterator<Item = Instruction<D::Scalar>>,
         WI: Iterator<Item = D::Scalar>,
@@ -507,4 +536,5 @@ impl<D: Domain> StreamingProver<D> {
         }
         Ok(())
     }
+    */
 }

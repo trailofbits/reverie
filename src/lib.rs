@@ -22,7 +22,7 @@ pub mod algebra;
 pub mod preprocessing;
 
 // online phase
-// pub mod online;
+pub mod online;
 
 // abstraction for Fiat-Shamir
 mod fs;

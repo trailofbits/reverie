@@ -2,6 +2,14 @@ use std::collections::HashSet;
 
 use rand::RngCore;
 
+use rand::seq::SliceRandom;
+
+pub fn random_permutation<R: RngCore>(rng: &mut R, len: usize) -> Vec<usize> {
+    let mut perm: Vec<usize> = (0..len).collect();
+    perm.shuffle(rng);
+    perm
+}
+
 #[inline(always)]
 pub fn random_usize<R: RngCore>(rng: &mut R, m: usize) -> usize {
     // generate a 128-bit integer (to minimize statistical bias)
@@ -35,7 +43,7 @@ pub fn random_subset<R: RngCore>(rng: &mut R, m: usize, len: usize) -> Vec<usize
         }
     }
 
-    // ensure a canonical ordering (for comparisons)
-    samples.sort();
+    // ensure a canonical ordering (smallest to largest)
+    samples.sort_unstable();
     samples
 }
