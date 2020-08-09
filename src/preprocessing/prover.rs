@@ -9,7 +9,6 @@ pub struct PreprocessingExecution<D: Domain> {
     // branch opening state
     root: [u8; KEY_SIZE],
     player_seeds: Vec<[u8; KEY_SIZE]>,
-    branches: Arc<Vec<Vec<D::Batch>>>,
 
     // interpreter state
     masks: VecMap<D::Sharing>,
@@ -27,13 +26,18 @@ pub struct PreprocessingExecution<D: Domain> {
 }
 
 impl<D: Domain> PreprocessingExecution<D> {
-    pub fn prove_branch(&self, index: usize) -> MerkleProof {
-        // compute commitments to all the masked branches
-        let mut hashes: Vec<RingHasher<D::Batch>> = (0..self.branches.len())
-            .map(|_| RingHasher::new())
-            .collect(); // TODO: key
+    pub fn prove_branch(&self, branches: &[Vec<D::Batch>], index: usize) -> MerkleProof {
+        let perm: Vec<usize> = branch_permutation(&self.root, branches.len());
 
-        let perm: Vec<usize> = branch_permutation(&self.root, self.branches.len());
+        println!("perm: {:?}", &perm);
+
+        let leafs = if branches.len() == 1 {
+            2
+        } else {
+            next_pow2(branches.len())
+        };
+
+        let mut hashes: Vec<RingHasher<D::Batch>> = (0..leafs).map(|_| RingHasher::new()).collect(); // TODO: key
 
         let mut prgs: Vec<PRG> = self
             .player_seeds
@@ -41,24 +45,29 @@ impl<D: Domain> PreprocessingExecution<D> {
             .map(|seed| PRG::new(kdf(CONTEXT_RNG_INPUT_MASK, seed)))
             .collect();
 
-        for j in 0..self.branches[0].len() {
+        for j in 0..branches[0].len() {
             let mut pad = D::Batch::ZERO;
             for i in 0..D::PLAYERS {
                 pad = pad + D::Batch::gen(&mut prgs[i]);
             }
-            for b in 0..self.branches.len() {
-                hashes[perm[b]].write(pad + self.branches[b][j]);
+            for b in 0..branches.len() {
+                hashes[perm[b]].write(pad + branches[b][j]);
             }
         }
 
-        // create an opening proof for the permuted branch index
-        let tree =
-            MerkleTree::try_from_iter(hashes.into_iter().map(|hs| Ok(hs.finalize()))).unwrap();
+        let hashes: Vec<Hash> = hashes.into_iter().map(|hs| hs.finalize()).collect();
+        let tree = MerkleTree::new(&hashes[..]);
+        let proof = tree.prove(perm[index]);
 
-        tree.gen_proof(perm[index]).unwrap()
+        debug_assert_eq!(
+            proof.verify(hashes[perm[index]].clone()),
+            tree.root().clone()
+        );
+
+        proof
     }
 
-    pub fn new(root: [u8; KEY_SIZE], branches: Arc<Vec<Vec<D::Batch>>>) -> Self {
+    pub fn new(root: [u8; KEY_SIZE]) -> Self {
         // expand repetition seed into per-player seeds
         let mut player_seeds: Vec<[u8; KEY_SIZE]> = vec![[0u8; KEY_SIZE]; D::PLAYERS];
         TreePRF::expand_full(&mut player_seeds, root);
@@ -73,7 +82,6 @@ impl<D: Domain> PreprocessingExecution<D> {
 
         PreprocessingExecution {
             root,
-            branches,
             player_seeds,
             corrections_prg,
             shares,
@@ -225,6 +233,4 @@ impl<D: Domain> PreprocessingExecution<D> {
             self.generate(ab_gamma, corrections, &mut batch_a, &mut batch_b);
         }
     }
-
-    pub fn done() {}
 }

@@ -18,6 +18,8 @@ use async_std::task;
 
 use bincode;
 
+use typenum::*;
+
 const DEFAULT_CAPACITY: usize = BATCH_SIZE;
 
 async fn feed<
@@ -227,7 +229,7 @@ impl<D: Domain> StreamingProver<D> {
             let mut transcript = RingHasher::new();
 
             // preprocessing execution
-            let mut preprocessing = PreprocessingExecution::<D>::new(root, branches.clone());
+            let mut preprocessing = PreprocessingExecution::<D>::new(root);
 
             // masked branch input
             let mut masked_branch = Vec::with_capacity(branch.len());
@@ -267,7 +269,7 @@ impl<D: Domain> StreamingProver<D> {
                     Err(_) => {
                         let mut packed: Vec<u8> = Vec::with_capacity(256);
                         Packable::pack(&mut packed, &masked_branch[..]).unwrap();
-                        let proof = preprocessing.prove_branch(branch_index);
+                        let proof = preprocessing.prove_branch(&*branches, branch_index);
                         return Ok((packed, proof, transcript.finalize()));
                     }
                 }
@@ -275,7 +277,7 @@ impl<D: Domain> StreamingProver<D> {
         }
 
         // unpack selected branch into scalars again
-        let mut branch_batches = &preprocessing.branches[branch_index][..];
+        let branch_batches = &preprocessing.branches[branch_index][..];
         let mut branch = vec![D::Scalar::ZERO; branch_batches.len() * D::Batch::DIMENSION];
         for (i, batch) in branch_batches.iter().enumerate() {
             <D::Batch as RingModule<D::Scalar>>::unpack(
@@ -383,7 +385,7 @@ impl<D: Domain> StreamingProver<D> {
                     .map(|((omit, run), (branch, proof))| {
                         let tree = TreePRF::new(D::PLAYERS, run.seed);
                         Run {
-                            proof: (proof.path().to_owned(), proof.lemma().to_owned()),
+                            proof,
                             branch,
                             commitment: run.commitments[omit].clone(),
                             open: tree.puncture(omit),
@@ -401,7 +403,6 @@ impl<D: Domain> StreamingProver<D> {
         )
     }
 
-    /*
     pub async fn stream<
         PI: Iterator<Item = Instruction<D::Scalar>>,
         WI: Iterator<Item = D::Scalar>,
@@ -424,9 +425,8 @@ impl<D: Domain> StreamingProver<D> {
             let mut seeds = vec![[0u8; KEY_SIZE]; D::PLAYERS];
             TreePRF::expand_full(&mut seeds, root);
 
-            let views: Vec<View> = seeds.iter().map(|seed| View::new_keyed(seed)).collect();
-            let mut preprocessing = PreprocessingExecution::<D>::new(root);
             let mut online = Prover::<D, _>::new(branch.iter().cloned());
+            let mut preprocessing = PreprocessingExecution::<D>::new(root);
 
             // output buffers used during execution
             let mut masks = Vec::with_capacity(DEFAULT_CAPACITY);
@@ -468,6 +468,7 @@ impl<D: Domain> StreamingProver<D> {
                                 &masks[..],
                                 &ab_gamma[..],
                                 &mut masked,
+                                &mut VoidWriter::new(),
                                 &mut BatchExtractor::<D, _>::new(omitted, &mut broadcast),
                             );
                         }
@@ -494,12 +495,18 @@ impl<D: Domain> StreamingProver<D> {
         let mut tasks = Vec::with_capacity(D::ONLINE_REPETITIONS);
         let mut inputs = Vec::with_capacity(D::ONLINE_REPETITIONS);
         let mut outputs = Vec::with_capacity(D::ONLINE_REPETITIONS);
-        for (root, omit) in self.preprocessing.seeds.iter().zip(self.omitted.iter()) {
+        for (run, omit) in self
+            .preprocessing
+            .hidden
+            .iter()
+            .zip(self.omitted.iter().cloned())
+        {
             let (sender_inputs, reader_inputs) = async_channel::bounded(3);
             let (sender_outputs, reader_outputs) = async_channel::bounded(3);
             tasks.push(task::spawn(process::<D>(
-                *root,
-                *omit,
+                run.seed,
+                omit,
+                self.branch.clone(),
                 sender_outputs,
                 reader_inputs,
             )));
@@ -536,5 +543,4 @@ impl<D: Domain> StreamingProver<D> {
         }
         Ok(())
     }
-    */
 }

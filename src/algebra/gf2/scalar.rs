@@ -22,8 +22,12 @@ impl Packable for BitScalar {
         }
 
         // pad with zero bits
-        pac = pac << (8 - rem);
-        dst.write_all(&[pac])
+        if rem > 0 {
+            pac = pac << (8 - rem);
+            dst.write_all(&[pac])
+        } else {
+            Ok(())
+        }
     }
 
     fn unpack<W: Writer<BitScalar>>(mut dst: W, bytes: &[u8]) -> Result<(), ()> {

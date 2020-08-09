@@ -36,8 +36,14 @@ impl<D: Domain> PreprocessingExecution<D> {
         let root: Hash = {
             let perm = branch_permutation(&root, branches.len());
 
+            let leafs = if branches.len() == 1 {
+                2
+            } else {
+                next_pow2(branches.len())
+            };
+
             let mut hashes: Vec<RingHasher<D::Batch>> =
-                (0..branches.len()).map(|_| RingHasher::new()).collect(); // TODO: key
+                (0..leafs).map(|_| RingHasher::new()).collect(); // TODO: key
 
             let mut prgs: Vec<PRG> = player_seeds
                 .iter()
@@ -50,20 +56,19 @@ impl<D: Domain> PreprocessingExecution<D> {
                     pad = pad + D::Batch::gen(&mut prgs[i]);
                 }
                 for b in 0..branches.len() {
-                    hashes[perm[b]].write(pad + branches[b][j])
+                    hashes[perm[b]].write(pad + branches[b][j]) // notice the permutation
                 }
             }
 
-            MerkleTree::try_from_iter(hashes.into_iter().map(|hs| Ok(hs.finalize())))
-                .unwrap()
-                .root()
+            let hashes: Vec<Hash> = hashes.into_iter().map(|hs| hs.finalize()).collect();
+            MerkleTree::new(&hashes[..]).root().clone()
         };
 
         // commit to per-player randomness
         let commitments: Vec<Hash> = player_seeds.iter().map(|seed| hash(seed)).collect();
 
         // create per-player PRG instances
-        let mut players: Vec<Player> = player_seeds.iter().map(|seed| Player::new(seed)).collect();
+        let players: Vec<Player> = player_seeds.iter().map(|seed| Player::new(seed)).collect();
 
         // aggregate branch hashes into Merkle tree and return pre-processor for circuit
         PreprocessingExecution {

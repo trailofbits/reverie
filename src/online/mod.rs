@@ -1,5 +1,5 @@
 pub mod prover;
-// pub mod verifier;
+pub mod verifier;
 
 /*
 #[cfg(test)]
@@ -17,9 +17,9 @@ use std::marker::PhantomData;
 use serde::{Deserialize, Serialize};
 
 pub use prover::StreamingProver;
-// pub use verifier::StreamingVerifier;
+pub use verifier::StreamingVerifier;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Chunk {
     corrections: Vec<u8>,
     broadcast: Vec<u8>,
@@ -28,10 +28,10 @@ pub struct Chunk {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Run<D: Domain> {
-    open: TreePRF,                  // randomness for opened players
-    proof: (Vec<usize>, Vec<Hash>), // merkle proof for masked branch
-    branch: Vec<u8>,                // masked branch (packed)
-    commitment: Hash,               // commitment for hidden preprocessing player
+    open: TreePRF,      // randomness for opened players
+    proof: MerkleProof, // merkle proof for masked branch
+    branch: Vec<u8>,    // masked branch (packed)
+    commitment: Hash,   // commitment for hidden preprocessing player
     _ph: PhantomData<D>,
 }
 
@@ -85,6 +85,55 @@ mod tests {
     use crate::preprocessing::PreprocessingOutput;
 
     /*
+    #[test]
+    fn test_streaming() {
+        let mut rng = rand::thread_rng();
+
+        let program: Vec<Instruction<BitScalar>> = vec![
+            Instruction::Input(0),
+            Instruction::Input(1),
+            Instruction::Input(2),
+            Instruction::Input(3),
+            Instruction::Add(5, 0, 1), // 1
+            Instruction::Mul(4, 5, 2), // 1
+            Instruction::Output(4),
+            Instruction::Output(5),
+        ];
+
+        let inputs: Vec<BitScalar> = vec![
+            BitScalar::ONE,
+            BitScalar::ZERO,
+            BitScalar::ONE,
+            BitScalar::ZERO,
+        ];
+
+        let seed: [u8; KEY_SIZE] = [1u8; KEY_SIZE];
+        let branch: Vec<BitScalar> = vec![];
+        let branches: Vec<&[BitScalar]> = vec![&branch];
+        let (proof, output) =
+            preprocessing::Proof::<GF2P8>::new(seed, &branches[..], program.iter().cloned());
+
+        let prover = task::block_on(StreamingProver::new(
+            output,
+            0,
+            program.iter().cloned(),
+            inputs.iter().cloned(),
+        ));
+
+        prover.stream()
+
+
+        pub async fn stream<
+            PI: Iterator<Item = Instruction<D::Scalar>>,
+            WI: Iterator<Item = D::Scalar>,
+        >(
+            self,
+            dst: Sender<Vec<u8>>,
+            mut program: PI,
+            mut witness: WI,
+        ) -> Result<(), SendError<Vec<u8>>> {
+    }
+
     fn test_proof<D: Domain, const N: usize, const NT: usize, const R: usize>(
         program: &[Instruction<D::Scalar>],
         inputs: &[D::Scalar],
@@ -112,27 +161,5 @@ mod tests {
         task::block_on(v.verify(recv)).unwrap();
     }
 
-    #[test]
-    fn test_streaming() {
-        let program: Vec<Instruction<BitScalar>> = vec![
-            Instruction::Input(0),
-            Instruction::Input(1),
-            Instruction::Input(2),
-            Instruction::Input(3),
-            Instruction::Add(5, 0, 1), // 1
-            Instruction::Mul(4, 5, 2), // 1
-            Instruction::Output(4),
-            Instruction::Output(5),
-        ];
-
-        let inputs: Vec<BitScalar> = vec![
-            BitScalar::ONE,
-            BitScalar::ZERO,
-            BitScalar::ONE,
-            BitScalar::ZERO,
-        ];
-
-        test_proof::<GF2P8, 8, 8, 1>(&program[..], &inputs[..]);
-    }
     */
 }

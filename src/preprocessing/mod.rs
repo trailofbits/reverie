@@ -1,7 +1,7 @@
 mod constants;
 pub mod preprocessing;
 pub mod prover;
-// pub mod verifier;
+pub mod verifier;
 
 use crate::algebra::*;
 use crate::consts::*;
@@ -17,11 +17,9 @@ use std::sync::Arc;
 use async_channel::{Receiver, SendError, Sender};
 use async_std::task;
 
-use rand::seq::SliceRandom;
-
 use serde::{Deserialize, Serialize};
 
-struct SharesGenerator<D: Domain> {
+pub struct SharesGenerator<D: Domain> {
     pub input: ShareGenerator<D>,
     pub branch: ShareGenerator<D>,
     pub beaver: ShareGenerator<D>,
@@ -35,7 +33,7 @@ pub fn branch_permutation(seed: &[u8; KEY_SIZE], branches: usize) -> Vec<usize> 
 }
 
 impl<D: Domain> SharesGenerator<D> {
-    fn new(player_seeds: &[[u8; KEY_SIZE]]) -> Self {
+    pub fn new(player_seeds: &[[u8; KEY_SIZE]]) -> Self {
         let input_prgs: Vec<PRG> = player_seeds
             .iter()
             .map(|seed| PRG::new(kdf(CONTEXT_RNG_INPUT_MASK, seed)))
@@ -59,7 +57,7 @@ impl<D: Domain> SharesGenerator<D> {
     }
 }
 
-struct ShareGenerator<D: Domain> {
+pub struct ShareGenerator<D: Domain> {
     batches: Vec<D::Batch>,
     shares: Vec<D::Sharing>,
     next: usize,
@@ -169,23 +167,26 @@ pub struct Output<D: Domain> {
     _ph: PhantomData<D>,
 }
 
+pub fn pack_branch<D: Domain>(branch: &[D::Scalar]) -> Vec<D::Batch> {
+    let mut res: Vec<D::Batch> = Vec::with_capacity(branch.len() / D::Batch::DIMENSION + 1);
+    for chunk in branch.chunks(D::Batch::DIMENSION) {
+        res.push(if chunk.len() < D::Batch::DIMENSION {
+            // copy and pad with zero elements
+            let mut batch = vec![D::Scalar::ZERO; D::Batch::DIMENSION];
+            batch[..chunk.len()].copy_from_slice(chunk);
+            <D::Batch as RingModule<D::Scalar>>::pack(&batch[..])
+        } else {
+            // zero copy
+            <D::Batch as RingModule<D::Scalar>>::pack(chunk)
+        })
+    }
+    res
+}
+
 pub fn pack_branches<D: Domain>(branches: &[&[D::Scalar]]) -> Vec<Vec<D::Batch>> {
     let mut batches: Vec<Vec<D::Batch>> = Vec::with_capacity(branches.len());
     for branch in branches {
-        let mut res: Vec<D::Batch> =
-            Vec::with_capacity(branches[0].len() / D::Batch::DIMENSION + 1);
-        for chunk in branch.chunks(D::Batch::DIMENSION) {
-            res.push(if chunk.len() < D::Batch::DIMENSION {
-                // copy and pad with zero elements
-                let mut batch = vec![D::Scalar::ZERO; D::Batch::DIMENSION];
-                batch[..chunk.len()].copy_from_slice(chunk);
-                <D::Batch as RingModule<D::Scalar>>::pack(&batch[..])
-            } else {
-                // zero copy
-                <D::Batch as RingModule<D::Scalar>>::pack(chunk)
-            })
-        }
-        batches.push(res);
+        batches.push(pack_branch::<D>(branch));
     }
     batches
 }

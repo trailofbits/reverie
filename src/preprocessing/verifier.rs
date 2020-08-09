@@ -1,33 +1,94 @@
 use super::*;
 
+use crate::crypto::PRG;
+use crate::util::Writer;
 use crate::Instruction;
 
 /// Implementation of pre-processing phase used by the prover during online execution
 pub struct PreprocessingExecution<D: Domain> {
+    commitments: Vec<Hash>,
+    corrections: RingHasher<D::Batch>,
+
     // interpreter state
-    masks: VecMap<D::Sharing>, //
-    omitted: usize,            // omitted player
-    players: Vec<Player>,
+    omitted: usize,
+    masks: VecMap<D::Sharing>,
 
-    // input mask state
-    next_input: usize,
-    share_input: Vec<D::Sharing>,
+    // sharings
+    shares: SharesGenerator<D>,
 
-    // multiplication state
-    share_g: Vec<D::Sharing>,
+    // scratch space
+    scratch: Vec<D::Batch>,
+
+    // Beaver multiplication state
+    corrections_prg: Vec<PRG>,
     share_a: Vec<D::Sharing>, // beta sharings (from input)
     share_b: Vec<D::Sharing>, // alpha sharings (from input)
 }
 
-impl<'a, D: Domain> PreprocessingExecution<D> {
-    pub fn new(views: &[View], omitted: usize) -> Self {
-        debug_assert!(omitted < D::PLAYERS);
+impl<D: Domain> PreprocessingExecution<D> {
+    pub fn omitted(&self) -> usize {
+        self.omitted
+    }
+
+    pub fn commitment(mut self, branch_root: &Hash, omitted_commitment: &Hash) -> Hash {
+        self.commitments[0] = {
+            let mut hash = Hasher::new();
+            hash.update(self.commitments[0].as_bytes());
+            hash.update(self.corrections.finalize().as_bytes());
+            hash.finalize()
+        };
+        let mut hasher = Hasher::new();
+        hasher.update(branch_root.as_bytes());
+        for i in 0..D::PLAYERS {
+            hasher.update(
+                if i == self.omitted {
+                    &omitted_commitment
+                } else {
+                    &self.commitments[i]
+                }
+                .as_bytes(),
+            );
+        }
+        hasher.finalize()
+    }
+
+    pub fn new(tree: &TreePRF) -> Self {
+        // expand repetition seed into per-player seeds
+        let mut player_seeds: Vec<Option<[u8; KEY_SIZE]>> = vec![None; D::PLAYERS];
+        tree.expand(&mut player_seeds);
+
+        // find omitted player
+        let mut omitted: usize = 0;
+        for (i, seed) in player_seeds.iter().enumerate() {
+            if seed.is_none() {
+                omitted = i;
+            }
+        }
+
+        // replace omitted player with dummy key
+        let player_seeds: Vec<[u8; KEY_SIZE]> = player_seeds
+            .into_iter()
+            .map(|seed| seed.unwrap_or([0u8; KEY_SIZE]))
+            .collect();
+
+        // commit to per-player randomness
+        let commitments: Vec<Hash> = player_seeds.iter().map(|seed| hash(seed)).collect();
+
+        // aggregate branch hashes into Merkle tree and return pre-processor for circuit
+        let corrections_prg = player_seeds
+            .iter()
+            .map(|seed| PRG::new(kdf(CONTEXT_RNG_CORRECTION, seed)))
+            .collect();
+
+        let shares = SharesGenerator::new(&player_seeds[..]);
+
         PreprocessingExecution {
-            next_input: D::Batch::DIMENSION,
-            share_input: vec![D::Sharing::ZERO; D::Batch::DIMENSION],
-            players: views.iter().map(Player::new).collect(),
             omitted,
-            share_g: vec![D::Sharing::ZERO; D::Batch::DIMENSION],
+            corrections: RingHasher::new(),
+            commitments,
+            corrections_prg,
+            shares,
+            scratch: vec![D::Batch::ZERO; D::PLAYERS],
             share_a: Vec::with_capacity(D::Batch::DIMENSION),
             share_b: Vec::with_capacity(D::Batch::DIMENSION),
             masks: VecMap::new(),
@@ -39,85 +100,83 @@ impl<'a, D: Domain> PreprocessingExecution<D> {
         &mut self,
         ab_gamma: &mut Vec<D::Sharing>,
         corrections: &mut I,
-        batch_g: &[D::Batch],
         batch_a: &mut [D::Batch],
         batch_b: &mut [D::Batch],
-        batch_c: &mut [D::Batch],
-        batch_gab: &mut [D::Batch],
     ) -> Option<()> {
+        debug_assert!(self.shares.beaver.is_empty());
+        debug_assert_eq!(self.share_a.len(), D::Batch::DIMENSION);
+        debug_assert_eq!(self.share_b.len(), D::Batch::DIMENSION);
+
         // transpose sharings into per player batches
         D::convert_inv(&mut batch_a[..], &self.share_a[..]);
         D::convert_inv(&mut batch_b[..], &self.share_b[..]);
         self.share_a.clear();
         self.share_b.clear();
 
+        // reconstruct 3 batches of shares (D::Batch::DIMENSION multiplications in parallel)
+        let mut a = D::Batch::ZERO;
+        let mut b = D::Batch::ZERO;
+        let mut c = D::Batch::ZERO;
+
         // compute random c sharing and reconstruct a,b sharings
         for i in 0..D::PLAYERS {
             if i != self.omitted {
-                // create sharing of product of masks
-                batch_c[i] = D::Batch::gen(&mut self.players[i].beaver);
+                self.scratch[i] =
+                    self.shares.beaver.batches()[i] + D::Batch::gen(&mut self.corrections_prg[i]);
                 if i == 0 {
-                    // correct shares for player 0 (correction bits)
-                    batch_c[0] = batch_c[0] + corrections.next()?;
+                    let corr = corrections.next()?;
+                    self.scratch[i] = self.scratch[i] + corr;
+                    self.corrections.update(corr);
                 }
-
-                // mask with gamma sharings
-                batch_gab[i] = batch_c[i] + batch_g[i];
             }
         }
+
+        debug_assert_eq!(self.scratch[self.omitted], D::Batch::ZERO);
 
         // transpose into shares
         let start = ab_gamma.len();
         ab_gamma.resize(start + D::Batch::DIMENSION, D::Sharing::ZERO);
-        D::convert(&mut ab_gamma[start..], &batch_gab);
+        D::convert(&mut ab_gamma[start..], &self.scratch);
         Some(())
     }
 
+    #[inline(always)]
     pub fn process(
         &mut self,
         program: &[Instruction<D::Scalar>], // program slice
-        corrections: &[D::Batch],           // player 0 corrections (if needed)
+        corrections: &[D::Batch],           // player 0 corrections
         masks: &mut Vec<D::Sharing>,        // resulting sharings consumed by online phase
         ab_gamma: &mut Vec<D::Sharing>,     // a * b + \gamma sharings for online phase
     ) -> Option<()> {
-        debug_assert_eq!(self.share_a.len(), 0);
-        debug_assert_eq!(self.share_b.len(), 0);
-
         let mut corrections = corrections.iter().cloned();
 
-        let mut batch_g = vec![D::Batch::ZERO; D::PLAYERS];
+        // invariant: multiplication batch empty at the start
+        debug_assert_eq!(self.share_a.len(), 0);
+        debug_assert_eq!(self.share_b.len(), 0);
+        debug_assert!(self.shares.beaver.is_empty());
+
+        // look forward in program until executed enough multiplications for next batch
         let mut batch_a = vec![D::Batch::ZERO; D::PLAYERS];
         let mut batch_b = vec![D::Batch::ZERO; D::PLAYERS];
-        let mut batch_c = vec![D::Batch::ZERO; D::PLAYERS];
-        let mut batch_m = vec![D::Batch::ZERO; D::PLAYERS];
-        let mut batch_gab = vec![D::Batch::ZERO; D::PLAYERS];
 
-        // execute pre-processing for program slice
         for step in program {
             debug_assert_eq!(self.share_a.len(), self.share_b.len());
-            debug_assert_eq!(self.share_g.len(), D::Batch::DIMENSION);
-            debug_assert_eq!(self.share_input.len(), D::Batch::DIMENSION);
-            debug_assert_eq!(batch_g[self.omitted], D::Batch::ZERO);
             debug_assert!(self.share_a.len() < D::Batch::DIMENSION);
             debug_assert!(self.share_a.len() < D::Batch::DIMENSION);
             match *step {
+                Instruction::Branch(dst) => {
+                    // check if need for new batch of branch masks
+                    let mask = self.shares.branch.next();
+
+                    // assign the next unused branch share to the destination wire
+                    self.masks.set(dst, mask);
+                }
                 Instruction::Input(dst) => {
                     // check if need for new batch of input masks
-                    if self.next_input == D::Batch::DIMENSION {
-                        for j in 0..D::PLAYERS {
-                            if j != self.omitted {
-                                batch_m[j] = D::Batch::gen(&mut self.players[j].input);
-                            }
-                        }
-                        debug_assert_eq!(batch_m[self.omitted], D::Batch::ZERO);
-                        D::convert(&mut self.share_input[..], &batch_m);
-                        self.next_input = 0;
-                    }
+                    let mask = self.shares.input.next();
 
                     // assign the next unused input share to the destination wire
-                    let mask = self.share_input[self.next_input];
                     self.masks.set(dst, mask);
-                    self.next_input += 1;
                 }
                 Instruction::AddConst(dst, src, _c) => {
                     // noop in pre-processing
@@ -131,74 +190,42 @@ impl<'a, D: Domain> PreprocessingExecution<D> {
                     self.masks.set(dst, sw.action(c));
                 }
                 Instruction::Add(dst, src1, src2) => {
-                    // resolve inputs
-                    let sw1 = self.masks.get(src1);
-                    let sw2 = self.masks.get(src2);
-
-                    // compute the sum and set output wire
-                    self.masks.set(dst, sw1 + sw2);
+                    self.masks
+                        .set(dst, self.masks.get(src1) + self.masks.get(src2));
                 }
                 Instruction::Mul(dst, src1, src2) => {
-                    let next_idx = self.share_a.len();
-                    if next_idx == 0 {
-                        for j in 0..D::PLAYERS {
-                            if j != self.omitted {
-                                batch_g[j] = D::Batch::gen(&mut self.players[j].beaver);
-                            }
-                        }
-                        debug_assert_eq!(batch_g[self.omitted], D::Batch::ZERO);
-                        D::convert(&mut self.share_g[..], &batch_g);
-                    }
-
-                    // push the masks to the Beaver stack
+                    // push the input masks to the stack
                     let mask_a = self.masks.get(src1);
                     let mask_b = self.masks.get(src2);
-                    let mask_g = self.share_g[next_idx];
-
-                    // add input masks to the next multiplication batch
                     self.share_a.push(mask_a);
                     self.share_b.push(mask_b);
 
                     // assign mask to output
-                    self.masks.set(dst, mask_g);
+                    // (NOTE: can be done before the correction bits are computed, allowing batching regardless of circuit topology)
+                    self.masks.set(dst, self.shares.beaver.next());
 
-                    // return input masks to online phase
-                    masks.push(mask_a);
-                    masks.push(mask_b);
+                    // return the mask to online phase for Beaver multiplication
+                    masks.write(mask_a);
+                    masks.write(mask_b);
 
-                    // if the batch is full, stop.
+                    // if the batch is full, generate next batch of ab_gamma shares
                     if self.share_a.len() == D::Batch::DIMENSION {
-                        self.generate(
-                            ab_gamma,
-                            &mut corrections,
-                            &batch_g,
-                            &mut batch_a,
-                            &mut batch_b,
-                            &mut batch_c,
-                            &mut batch_gab,
-                        )?;
+                        self.generate(ab_gamma, &mut corrections, &mut batch_a, &mut batch_b)?;
                     }
                 }
                 Instruction::Output(src) => {
-                    // return to online phase for reconstruction of masked wire
-                    masks.push(self.masks.get(src));
+                    // return to online phase for reconstruction
+                    masks.write(self.masks.get(src));
                 }
             }
         }
 
-        // pad with dummy values and compute last batch
+        // pad final multiplication batch if needed
         if self.share_a.len() > 0 {
             self.share_a.resize(D::Batch::DIMENSION, D::Sharing::ZERO);
             self.share_b.resize(D::Batch::DIMENSION, D::Sharing::ZERO);
-            self.generate(
-                ab_gamma,
-                &mut corrections,
-                &batch_g,
-                &mut batch_a,
-                &mut batch_b,
-                &mut batch_c,
-                &mut batch_gab,
-            )
+            self.shares.beaver.empty();
+            self.generate(ab_gamma, &mut corrections, &mut batch_a, &mut batch_b)
         } else {
             Some(())
         }

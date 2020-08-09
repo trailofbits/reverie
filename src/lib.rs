@@ -33,6 +33,8 @@ mod crypto;
 // internal constants
 mod consts;
 
+mod proof;
+
 use crate::algebra::RingElement;
 
 #[derive(Copy, Clone, Debug)]
