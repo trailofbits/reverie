@@ -143,6 +143,11 @@ impl RingModule<BitScalar> for BitBatch {
     }
 }
 
+#[test]
+fn test_packing() {
+    
+}
+
 impl Serializable for BitBatch {
     fn serialize<W: io::Write>(&self, w: &mut W) -> io::Result<()> {
         w.write_all(&self.0)

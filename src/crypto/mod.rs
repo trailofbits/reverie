@@ -17,7 +17,7 @@ use blake3;
 
 use std::fmt;
 
-pub use merkle::{MerkleProof, MerkleSet};
+pub use merkle::{MerkleSet, MerkleSetProof};
 pub use ring::RingHasher;
 pub use tree::TreePRF;
 
@@ -26,13 +26,25 @@ pub const KEY_SIZE: usize = 32;
 
 pub const HASH_SIZE: usize = 32;
 
-#[derive(Default, Clone, Debug)]
+#[derive(Default, Clone)]
 pub struct Hasher(blake3::Hasher);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Hash(blake3::Hash);
 
+impl fmt::Display for Hash {
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_fmt(format_args!("{:?}", self.0))
+    }
+}
+
 pub struct PRG(ChaCha12Rng);
+
+pub fn commit(key: &[u8; KEY_SIZE], value: &[u8]) -> Hash {
+    let mut hasher = blake3::Hasher::new_keyed(key);
+    hasher.update(value);
+    Hash(hasher.finalize())
+}
 
 pub fn join_hashes(hashes: &[Hash]) -> Hash {
     let mut hasher = Hasher::new();

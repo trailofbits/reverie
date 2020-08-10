@@ -130,7 +130,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>> + Clone> StreamingVe
                 }
 
                 // recompute the Merkle root from the leaf and proof
-                (run.proof.verify(hasher.finalize()), scalars.into_iter())
+                (run.proof.verify(&hasher.finalize()), scalars.into_iter())
             };
 
             loop {

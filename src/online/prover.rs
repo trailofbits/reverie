@@ -222,7 +222,7 @@ impl<D: Domain> StreamingProver<D> {
                 Arc<Vec<Instruction<D::Scalar>>>, // next slice of program
                 Arc<Vec<D::Scalar>>,              // next slice of witness
             )>,
-        ) -> Result<(Vec<u8>, MerkleProof, Hash), SendError<Vec<u8>>> {
+        ) -> Result<(Vec<u8>, MerkleSetProof, Hash), SendError<Vec<u8>>> {
             // online execution
             let mut online = Prover::<D, _>::new(branch.iter().cloned());
 

@@ -30,7 +30,7 @@ impl<D: Domain> PreprocessingExecution<D> {
         &self,
         branches: &[Vec<D::Batch>],
         index: usize,
-    ) -> (Vec<D::Batch>, MerkleProof) {
+    ) -> (Vec<D::Batch>, MerkleSetProof) {
         let mut prgs: Vec<PRG> = self
             .player_seeds
             .iter()
@@ -58,7 +58,7 @@ impl<D: Domain> PreprocessingExecution<D> {
         let set = MerkleSet::new(kdf(CONTEXT_RNG_BRANCH_PERMUTE, &self.root), &hashes[..]);
         let proof = set.prove(index);
 
-        debug_assert_eq!(proof.verify(hashes[index].clone()), set.root().clone());
+        debug_assert_eq!(proof.verify(&hashes[index]), set.root().clone());
 
         (branch, proof)
     }
