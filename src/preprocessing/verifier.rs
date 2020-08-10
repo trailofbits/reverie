@@ -31,12 +31,15 @@ impl<D: Domain> PreprocessingExecution<D> {
     }
 
     pub fn commitment(mut self, branch_root: &Hash, omitted_commitment: &Hash) -> Hash {
+        // add corrections to player0
         self.commitments[0] = {
             let mut hash = Hasher::new();
             hash.update(self.commitments[0].as_bytes());
             hash.update(self.corrections.finalize().as_bytes());
             hash.finalize()
         };
+
+        //
         let mut hasher = Hasher::new();
         hasher.update(branch_root.as_bytes());
         for i in 0..D::PLAYERS {
@@ -112,11 +115,6 @@ impl<D: Domain> PreprocessingExecution<D> {
         D::convert_inv(&mut batch_b[..], &self.share_b[..]);
         self.share_a.clear();
         self.share_b.clear();
-
-        // reconstruct 3 batches of shares (D::Batch::DIMENSION multiplications in parallel)
-        let mut a = D::Batch::ZERO;
-        let mut b = D::Batch::ZERO;
-        let mut c = D::Batch::ZERO;
 
         // compute random c sharing and reconstruct a,b sharings
         for i in 0..D::PLAYERS {

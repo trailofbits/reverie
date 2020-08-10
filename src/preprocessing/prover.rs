@@ -26,24 +26,21 @@ pub struct PreprocessingExecution<D: Domain> {
 }
 
 impl<D: Domain> PreprocessingExecution<D> {
-    pub fn prove_branch(&self, branches: &[Vec<D::Batch>], index: usize) -> MerkleProof {
-        let perm: Vec<usize> = branch_permutation(&self.root, branches.len());
-
-        println!("perm: {:?}", &perm);
-
-        let leafs = if branches.len() == 1 {
-            2
-        } else {
-            next_pow2(branches.len())
-        };
-
-        let mut hashes: Vec<RingHasher<D::Batch>> = (0..leafs).map(|_| RingHasher::new()).collect(); // TODO: key
-
+    pub fn prove_branch(
+        &self,
+        branches: &[Vec<D::Batch>],
+        index: usize,
+    ) -> (Vec<D::Batch>, MerkleProof) {
         let mut prgs: Vec<PRG> = self
             .player_seeds
             .iter()
-            .map(|seed| PRG::new(kdf(CONTEXT_RNG_INPUT_MASK, seed)))
+            .map(|seed| PRG::new(kdf(CONTEXT_RNG_BRANCH_MASK, seed)))
             .collect();
+
+        let mut hashes: Vec<RingHasher<D::Batch>> =
+            (0..branches.len()).map(|_| RingHasher::new()).collect();
+
+        let mut branch = Vec::with_capacity(branches[index].len());
 
         for j in 0..branches[0].len() {
             let mut pad = D::Batch::ZERO;
@@ -51,20 +48,19 @@ impl<D: Domain> PreprocessingExecution<D> {
                 pad = pad + D::Batch::gen(&mut prgs[i]);
             }
             for b in 0..branches.len() {
-                hashes[perm[b]].write(pad + branches[b][j]);
+                debug_assert_eq!(branches[b].len(), branches[0].len());
+                hashes[b].write(pad + branches[b][j]);
             }
+            branch.push(pad + branches[index][j])
         }
 
         let hashes: Vec<Hash> = hashes.into_iter().map(|hs| hs.finalize()).collect();
-        let tree = MerkleTree::new(&hashes[..]);
-        let proof = tree.prove(perm[index]);
+        let set = MerkleSet::new(kdf(CONTEXT_RNG_BRANCH_PERMUTE, &self.root), &hashes[..]);
+        let proof = set.prove(index);
 
-        debug_assert_eq!(
-            proof.verify(hashes[perm[index]].clone()),
-            tree.root().clone()
-        );
+        debug_assert_eq!(proof.verify(hashes[index].clone()), set.root().clone());
 
-        proof
+        (branch, proof)
     }
 
     pub fn new(root: [u8; KEY_SIZE]) -> Self {

@@ -1,8 +1,7 @@
 use super::*;
 
-use crate::consts::{LABEL_RNG_BEAVER, LABEL_RNG_BRANCH, LABEL_RNG_INPUT};
 use crate::crypto::PRG;
-use crate::util::{VoidWriter, Writer};
+use crate::util::Writer;
 use crate::Instruction;
 
 /// Implementation of pre-processing phase used by the prover during online execution
@@ -34,20 +33,12 @@ impl<D: Domain> PreprocessingExecution<D> {
 
         // mask the branches and compute the root of the Merkle tree
         let root: Hash = {
-            let perm = branch_permutation(&root, branches.len());
-
-            let leafs = if branches.len() == 1 {
-                2
-            } else {
-                next_pow2(branches.len())
-            };
-
             let mut hashes: Vec<RingHasher<D::Batch>> =
-                (0..leafs).map(|_| RingHasher::new()).collect(); // TODO: key
+                (0..branches.len()).map(|_| RingHasher::new()).collect();
 
             let mut prgs: Vec<PRG> = player_seeds
                 .iter()
-                .map(|seed| PRG::new(kdf(CONTEXT_RNG_INPUT_MASK, seed)))
+                .map(|seed| PRG::new(kdf(CONTEXT_RNG_BRANCH_MASK, seed)))
                 .collect();
 
             for j in 0..branches[0].len() {
@@ -56,12 +47,14 @@ impl<D: Domain> PreprocessingExecution<D> {
                     pad = pad + D::Batch::gen(&mut prgs[i]);
                 }
                 for b in 0..branches.len() {
-                    hashes[perm[b]].write(pad + branches[b][j]) // notice the permutation
+                    hashes[b].write(pad + branches[b][j]) // notice the permutation
                 }
             }
 
             let hashes: Vec<Hash> = hashes.into_iter().map(|hs| hs.finalize()).collect();
-            MerkleTree::new(&hashes[..]).root().clone()
+            MerkleSet::new(kdf(CONTEXT_RNG_BRANCH_PERMUTE, &root), &hashes[..])
+                .root()
+                .clone()
         };
 
         // commit to per-player randomness

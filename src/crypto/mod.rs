@@ -17,7 +17,7 @@ use blake3;
 
 use std::fmt;
 
-pub use merkle::{MerkleProof, MerkleTree};
+pub use merkle::{MerkleProof, MerkleSet};
 pub use ring::RingHasher;
 pub use tree::TreePRF;
 

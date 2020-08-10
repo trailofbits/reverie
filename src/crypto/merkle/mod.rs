@@ -1,24 +1,72 @@
 use super::{Hash, Hasher, HASH_SIZE};
-
-use blake3;
+use crate::crypto::{KEY_SIZE, PRG};
 
 use std::cmp::Ordering;
 use std::hash::Hasher as StdHasher;
-
 use std::sync::Arc;
 
+use rand::prelude::SliceRandom;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Debug, Clone)]
 pub enum MerkleTree {
     Leaf(Hash),
-    Internal(usize, Hash, Box<MerkleTree>, Box<MerkleTree>),
+    Internal(usize, Hash, Arc<MerkleTree>, Arc<MerkleTree>),
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct MerkleProof {
     path: u32, // only supports up to 2^32 leafs
     leafs: Vec<Hash>,
+}
+
+/// A cryptographic accumulator which additionally hides the unopened elements
+#[derive(Debug, Clone)]
+pub struct MerkleSet {
+    perm: Vec<usize>, // permutation of input elements
+    tree: MerkleTree,
+}
+
+impl MerkleSet {
+    pub fn new(seed: [u8; KEY_SIZE], elems: &[Hash]) -> MerkleSet {
+        // generate a pseudorandom permutation
+        let mut rng = PRG::new(seed);
+        let mut perm: Vec<usize> = (0..elems.len()).collect();
+        perm.shuffle(&mut rng);
+
+        // permute the elements
+        let mut elems_perm: Vec<Hash> = vec![Hash::default(); elems.len()];
+        for i in 0..elems.len() {
+            elems_perm[perm[i]] = elems[i].clone();
+        }
+
+        // compute Merkle tree over permuted elements
+        MerkleSet {
+            perm,
+            tree: MerkleTree::new(&elems_perm[..]),
+        }
+    }
+
+    pub fn prove(&self, index: usize) -> MerkleProof {
+        self.tree.prove(self.perm[index])
+    }
+
+    pub fn root(&self) -> &Hash {
+        self.tree.root()
+    }
+}
+
+mod tests {
+    use super::*;
+    use crate::crypto::hash;
+
+    #[test]
+    fn test_merkle_set() {
+        let elems: Vec<Hash> = vec![hash(&[]), hash(&[1]), hash(&[2])];
+        let set: MerkleSet = MerkleSet::new([1u8; KEY_SIZE], &elems[..]);
+        let proof: MerkleProof = set.prove(1);
+        assert_eq!(set.root().clone(), proof.verify(elems[1].clone()));
+    }
 }
 
 fn merkle_internal(left: &Hash, right: &Hash) -> Hash {
@@ -60,8 +108,8 @@ impl MerkleTree {
         } else {
             // recursively construct subtrees
             let mid = elems.len() / 2;
-            let left = Box::new(MerkleTree::new(&elems[..mid]));
-            let right = Box::new(MerkleTree::new(&elems[mid..]));
+            let left = Arc::new(MerkleTree::new(&elems[..mid]));
+            let right = Arc::new(MerkleTree::new(&elems[mid..]));
 
             // compute root
             MerkleTree::Internal(

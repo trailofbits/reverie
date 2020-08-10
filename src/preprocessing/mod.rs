@@ -41,7 +41,7 @@ impl<D: Domain> SharesGenerator<D> {
 
         let branch_prgs: Vec<PRG> = player_seeds
             .iter()
-            .map(|seed| PRG::new(kdf(CONTEXT_RNG_INPUT_MASK, seed)))
+            .map(|seed| PRG::new(kdf(CONTEXT_RNG_BRANCH_MASK, seed)))
             .collect();
 
         let beaver_prgs: Vec<PRG> = player_seeds

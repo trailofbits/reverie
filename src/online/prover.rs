@@ -126,14 +126,13 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
     }
 
     // execute the next chunk of program
-    fn run<WW: Writer<D::Scalar>, BW: Writer<D::Sharing>, BrW: Writer<D::Scalar>>(
+    fn run<WW: Writer<D::Scalar>, BW: Writer<D::Sharing>>(
         &mut self,
         program: &[Instruction<D::Scalar>],
         witness: &[D::Scalar], // witness for input gates from next chunk of program
         preprocessing_masks: &[D::Sharing],
         preprocessing_ab_gamma: &[D::Sharing],
         masked_witness: &mut WW,
-        masked_branch: &mut BrW,
         broadcast: &mut BW,
     ) {
         let mut witness = witness.iter().cloned();
@@ -152,7 +151,6 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
                     let mask: D::Sharing = masks.next().unwrap();
                     let wire = self.branch.next().unwrap() + D::Sharing::reconstruct(&mask);
                     self.wires.set(dst, wire);
-                    masked_branch.write(wire);
                 }
                 Instruction::AddConst(dst, src, c) => {
                     let a_w = self.wires.get(src);
@@ -191,6 +189,9 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
                 }
             }
         }
+
+        debug_assert!(witness.next().is_none());
+        debug_assert!(masks.next().is_none());
     }
 }
 
@@ -231,9 +232,6 @@ impl<D: Domain> StreamingProver<D> {
             // preprocessing execution
             let mut preprocessing = PreprocessingExecution::<D>::new(root);
 
-            // masked branch input
-            let mut masked_branch = Vec::with_capacity(branch.len());
-
             // vectors for values passed between preprocessing and online execution
             let mut masks = Vec::with_capacity(DEFAULT_CAPACITY);
             let mut ab_gamma = Vec::with_capacity(DEFAULT_CAPACITY);
@@ -257,7 +255,6 @@ impl<D: Domain> StreamingProver<D> {
                                 &witness[..],
                                 &masks[..],
                                 &ab_gamma[..],
-                                &mut masked_branch,
                                 &mut VoidWriter::new(),
                                 &mut transcript,
                             );
@@ -268,8 +265,8 @@ impl<D: Domain> StreamingProver<D> {
                     }
                     Err(_) => {
                         let mut packed: Vec<u8> = Vec::with_capacity(256);
-                        Packable::pack(&mut packed, &masked_branch[..]).unwrap();
-                        let proof = preprocessing.prove_branch(&*branches, branch_index);
+                        let (branch, proof) = preprocessing.prove_branch(&*branches, branch_index);
+                        Packable::pack(&mut packed, &branch[..]).unwrap();
                         return Ok((packed, proof, transcript.finalize()));
                     }
                 }
@@ -468,7 +465,6 @@ impl<D: Domain> StreamingProver<D> {
                                 &masks[..],
                                 &ab_gamma[..],
                                 &mut masked,
-                                &mut VoidWriter::new(),
                                 &mut BatchExtractor::<D, _>::new(omitted, &mut broadcast),
                             );
                         }

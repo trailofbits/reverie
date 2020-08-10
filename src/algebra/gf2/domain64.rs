@@ -17,7 +17,7 @@ impl Domain for GF2P64 {
     #[inline(always)]
     fn convert(dst: &mut [Self::Sharing], src: &[Self::Batch]) {
         // do a single bounds check up front
-        assert_eq!(src.len(), 64);
+        assert_eq!(src.len(), Self::PLAYERS);
 
         // not supported on other platforms currently
         #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]

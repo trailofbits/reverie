@@ -1,14 +1,5 @@
 /// Labels used in the Fiat-Shamir and "in-head" executions for domain-separation.
 
-// RNG label for beaver triples
-pub const LABEL_RNG_BEAVER: &'static [u8] = "beaver_rng".as_bytes();
-
-// RNG label for beaver triples
-pub const LABEL_RNG_INPUT: &'static [u8] = "input_rng".as_bytes();
-
-// RNG label for branch information
-pub const LABEL_RNG_BRANCH: &'static [u8] = "branch_rng".as_bytes();
-
 // RNG label for openings
 pub const LABEL_RNG_OPEN_PREPROCESSING: &'static [u8] = "open_preprocessing".as_bytes();
 

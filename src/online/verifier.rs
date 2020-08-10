@@ -4,9 +4,7 @@ use super::*;
 
 use crate::algebra::{Domain, Packable, RingElement, RingModule, Sharing};
 use crate::consts::*;
-use crate::crypto::Hasher;
-use crate::fs::{Scope, View, ViewRNG};
-use crate::preprocessing::pack_branch;
+use crate::fs::{Scope, View};
 use crate::preprocessing::verifier::PreprocessingExecution;
 use crate::util::*;
 
@@ -14,8 +12,6 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use async_channel::{Receiver, Sender};
-use rand::RngCore;
-use typenum::U2;
 
 use async_std::task;
 
@@ -113,25 +109,29 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>> + Clone> StreamingVe
             let mut ab_gamma: Vec<D::Sharing> = Vec::with_capacity(DEFAULT_CAPACITY);
             let mut broadcast: Vec<D::Batch> = Vec::with_capacity(DEFAULT_CAPACITY);
             let mut corrections: Vec<D::Batch> = Vec::with_capacity(DEFAULT_CAPACITY);
-            let mut masked_branch: Vec<D::Scalar> = Vec::with_capacity(run.branch.len());
             let mut masked_witness: Vec<D::Scalar> = Vec::with_capacity(DEFAULT_CAPACITY);
 
             // check branch proof
-            Packable::unpack(&mut masked_branch, &run.branch[..]).ok()?;
-            let root = {
+            let (root, mut branch) = {
+                // unpack bytes
+                let mut branch: Vec<D::Batch> = Vec::with_capacity(DEFAULT_CAPACITY);
+                Packable::unpack(&mut branch, &run.branch[..]).ok()?;
+
                 // hash the branch
-                let packed = pack_branch::<D>(&masked_branch[..]);
+                let mut scalars: Vec<D::Scalar> =
+                    vec![D::Scalar::ZERO; branch.len() * D::Batch::DIMENSION];
                 let mut hasher = RingHasher::new();
-                for elem in packed.into_iter() {
-                    println!("elem: {:?}", elem);
+                for (i, elem) in branch.into_iter().enumerate() {
+                    <D::Batch as RingModule<D::Scalar>>::unpack(
+                        &elem,
+                        &mut scalars[i * D::Batch::DIMENSION..],
+                    );
                     hasher.update(elem)
                 }
 
                 // recompute the Merkle root from the leaf and proof
-                run.proof.verify(hasher.finalize())
+                (run.proof.verify(hasher.finalize()), scalars.into_iter())
             };
-
-            println!("process");
 
             loop {
                 match inputs.recv().await {
@@ -185,7 +185,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>> + Clone> StreamingVe
                                         wires.set(dst, witness.next()?);
                                     }
                                     Instruction::Branch(dst) => {
-                                        wires.set(dst, witness.next()?);
+                                        wires.set(dst, branch.next()?);
                                     }
                                     Instruction::AddConst(dst, src, c) => {
                                         let a_w = wires.get(src);
@@ -226,7 +226,6 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>> + Clone> StreamingVe
                                     Instruction::Output(src) => {
                                         let recon: D::Sharing =
                                             masks.next().unwrap() + broadcast.next()?;
-
                                         transcript.write(recon);
                                         output.write(wires.get(src) + recon.reconstruct());
                                         if masks.len() == 0 {
@@ -235,6 +234,8 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>> + Clone> StreamingVe
                                     }
                                 }
                             }
+
+                            debug_assert!(masks.next().is_none());
                         }
 
                         outputs.send(()).await.unwrap();
