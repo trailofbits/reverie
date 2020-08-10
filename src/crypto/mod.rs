@@ -29,10 +29,10 @@ pub const HASH_SIZE: usize = 32;
 #[derive(Default, Clone)]
 pub struct Hasher(blake3::Hasher);
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Hash(blake3::Hash);
 
-impl fmt::Display for Hash {
+impl fmt::Debug for Hash {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         formatter.write_fmt(format_args!("{:?}", self.0))
     }

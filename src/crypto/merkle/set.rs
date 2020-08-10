@@ -13,6 +13,11 @@ pub struct MerkleSetProof {
 }
 
 /// A cryptographic accumulator which additionally hides the unopened elements
+///
+/// A MerkleSet is a randomized MerkleTree which ameliorates the Merkle tree,
+/// by committing to every leaf and permuting the leafs randomly.
+///
+/// This provides hiding of the unopened leafs.
 #[derive(Debug, Clone)]
 pub struct MerkleSet {
     rand: Vec<[u8; KEY_SIZE]>,
