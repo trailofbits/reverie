@@ -26,7 +26,7 @@ pub const KEY_SIZE: usize = 32;
 
 pub const HASH_SIZE: usize = 32;
 
-#[derive(Default, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct Hasher(blake3::Hasher);
 
 #[derive(Clone, PartialEq, Eq)]
@@ -38,6 +38,7 @@ impl fmt::Debug for Hash {
     }
 }
 
+#[derive(Debug)]
 pub struct PRG(ChaCha12Rng);
 
 pub fn commit(key: &[u8; KEY_SIZE], value: &[u8]) -> Hash {

@@ -13,6 +13,7 @@ use crate::util::Writer;
 mod ring;
 
 pub mod gf2;
+pub mod gf2_vec;
 
 pub use ring::{RingElement, RingModule};
 
