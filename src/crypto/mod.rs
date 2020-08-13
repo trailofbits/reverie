@@ -9,7 +9,7 @@ use crate::util::*;
 use rand_chacha::ChaCha12Rng;
 use rand_core::{self, RngCore, SeedableRng};
 
-use serde::de::{Deserializer, Error, SeqAccess, Unexpected, Visitor};
+use serde::de::{Deserializer, SeqAccess, Visitor};
 use serde::ser::{SerializeTuple, Serializer};
 use serde::{Deserialize, Serialize};
 

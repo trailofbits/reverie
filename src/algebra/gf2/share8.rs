@@ -6,6 +6,8 @@ use std::fmt;
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub struct BitSharing8(pub(super) u8);
 
+impl LocalOperation for BitSharing8 {}
+
 impl fmt::Debug for BitSharing8 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_fmt(format_args!("<{:08b}> [{}]", self.0, self.reconstruct().0))
@@ -50,28 +52,13 @@ impl RingModule<BitScalar> for BitSharing8 {
         BitSharing8(s.0 * self.0)
     }
 
-    fn pack(vs: &[BitScalar]) -> Self {
-        BitSharing8(
-            (vs[0].0 << 7)
-                | (vs[1].0 << 6)
-                | (vs[2].0 << 5)
-                | (vs[3].0 << 4)
-                | (vs[4].0 << 3)
-                | (vs[5].0 << 2)
-                | (vs[6].0 << 1)
-                | vs[7].0,
-        )
+    fn get(&self, i: usize) -> BitScalar {
+        BitScalar((self.0 >> i) & 1)
     }
 
-    fn unpack(&self, vs: &mut [BitScalar]) {
-        vs[7] = BitScalar(self.0 & 1);
-        vs[6] = BitScalar((self.0 >> 1) & 1);
-        vs[5] = BitScalar((self.0 >> 2) & 1);
-        vs[4] = BitScalar((self.0 >> 3) & 1);
-        vs[3] = BitScalar((self.0 >> 4) & 1);
-        vs[2] = BitScalar((self.0 >> 5) & 1);
-        vs[1] = BitScalar((self.0 >> 6) & 1);
-        vs[0] = BitScalar((self.0 >> 7) & 1);
+    fn set(&mut self, i: usize, s: BitScalar) {
+        self.0 &= !(1 << i);
+        self.0 |= s.0 << i;
     }
 }
 

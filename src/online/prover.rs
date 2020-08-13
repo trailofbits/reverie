@@ -1,7 +1,7 @@
 use super::*;
 
 use crate::algebra::Packable;
-use crate::algebra::{Domain, RingModule, Sharing};
+use crate::algebra::{Domain, LocalOperation, RingModule, Sharing};
 use crate::consts::*;
 use crate::crypto::{join_hashes, Hash, Hasher, TreePRF};
 use crate::fs::*;
@@ -141,6 +141,9 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
 
         for step in program {
             match *step {
+                Instruction::LocalOp(dst, src) => {
+                    self.wires.set(dst, self.wires.get(src).operation());
+                }
                 Instruction::Input(dst) => {
                     let mask: D::Sharing = masks.next().unwrap();
                     let wire = witness.next().unwrap() + D::Sharing::reconstruct(&mask);
@@ -266,7 +269,7 @@ impl<D: Domain> StreamingProver<D> {
                     Err(_) => {
                         let mut packed: Vec<u8> = Vec::with_capacity(256);
                         let (branch, proof) = preprocessing.prove_branch(&*branches, branch_index);
-                        Packable::pack(&mut packed, &branch[..]).unwrap();
+                        Packable::pack(&mut packed, branch.iter()).unwrap();
                         return Ok((packed, proof, transcript.finalize()));
                     }
                 }
@@ -474,9 +477,9 @@ impl<D: Domain> StreamingProver<D> {
                         chunk.witness.clear();
                         chunk.broadcast.clear();
                         chunk.corrections.clear();
-                        Packable::pack(&mut chunk.witness, &masked[..]).unwrap();
-                        Packable::pack(&mut chunk.broadcast, &broadcast[..]).unwrap();
-                        Packable::pack(&mut chunk.corrections, &corrections[..]).unwrap();
+                        Packable::pack(&mut chunk.witness, masked.iter()).unwrap();
+                        Packable::pack(&mut chunk.broadcast, broadcast.iter()).unwrap();
+                        Packable::pack(&mut chunk.corrections, corrections.iter()).unwrap();
                         outputs
                             .send(bincode::serialize(&chunk).unwrap())
                             .await

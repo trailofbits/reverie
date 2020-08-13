@@ -1,6 +1,8 @@
+mod map;
 mod switch;
 mod void;
 
+pub use map::*;
 pub use switch::*;
 pub use void::*;
 

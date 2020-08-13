@@ -1,18 +1,25 @@
 use super::*;
 
+use crate::util::Writer;
+
 use std::fmt;
 use std::io::Write;
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub struct BitScalar(pub(super) u8);
 
+impl LocalOperation for BitScalar {}
+
 impl Packable for BitScalar {
     type Error = ();
 
-    fn pack<W: Write>(mut dst: W, bits: &[BitScalar]) -> io::Result<()> {
+    fn pack<'a, W: io::Write, I: Iterator<Item = &'a BitScalar>>(
+        mut dst: W,
+        elems: I,
+    ) -> io::Result<()> {
         let mut pac = 0u8;
         let mut rem = 0;
-        for bit in bits.iter().cloned() {
+        for bit in elems.cloned() {
             pac = (pac << 1) | bit.0;
             rem += 1;
             if rem == 0 {

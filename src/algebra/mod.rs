@@ -3,12 +3,12 @@ use std::io;
 use std::io::Write;
 use std::ops::{Add, Mul, Sub};
 
+use crate::util::Writer;
+
 use rand::distributions::{Distribution, Standard};
 use rand::{Rng, RngCore};
 
 use serde::{Deserialize, Serialize};
-
-use crate::util::Writer;
 
 mod ring;
 
@@ -25,10 +25,10 @@ pub trait Samplable {
     fn gen<R: RngCore>(rng: &mut R) -> Self;
 }
 
-pub trait Packable: Sized {
+pub trait Packable: Sized + 'static {
     type Error;
 
-    fn pack<W: Write>(dst: W, elems: &[Self]) -> io::Result<()>;
+    fn pack<'a, W: Write, I: Iterator<Item = &'a Self>>(dst: W, elems: I) -> io::Result<()>;
 
     fn unpack<W: Writer<Self>>(dst: W, bytes: &[u8]) -> Result<(), Self::Error>;
 }
@@ -48,8 +48,17 @@ where
 ///
 /// For additive sharings (used here) this corresponds to the sum of the coordinates.
 /// The dimension of the sharing is equal to the number of players in the MPC protocol.
-pub trait Sharing<R: RingElement>: RingModule<R> + Serializable {
+pub trait Sharing<R: RingElement>: RingModule<R> + Serializable + LocalOperation {
     fn reconstruct(&self) -> R;
+}
+
+/// Apply a deterministic operation to the type, default implementation is a noop.
+///
+/// Used for cyclic shifts in the [F]^n domain (vector space over fields)
+pub trait LocalOperation: Sized + Copy {
+    fn operation(&self) -> Self {
+        *self
+    }
 }
 
 /// Represents a ring and player count instance of the protocol
@@ -58,7 +67,7 @@ pub trait Domain: Debug + Copy + Send + Sync + 'static {
     const PREPROCESSING_REPETITIONS: usize;
     const ONLINE_REPETITIONS: usize;
 
-    type Scalar: RingElement + Packable + Sized;
+    type Scalar: LocalOperation + RingElement + Packable + Sized;
 
     /// a batch of ring elements belonging to a single player
     type Batch: RingModule<Self::Scalar> + Samplable + Serializable + Debug + Packable;

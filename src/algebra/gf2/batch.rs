@@ -1,8 +1,9 @@
 use super::*;
 
+use crate::util::Writer;
+
 use serde::{Deserialize, Serialize};
 
-use std::convert::TryInto;
 use std::fmt;
 use std::io;
 
@@ -15,7 +16,10 @@ pub struct BitBatch(pub(super) [u8; BATCH_SIZE_BYTES]);
 impl Packable for BitBatch {
     type Error = ();
 
-    fn pack<W: Write>(mut dst: W, elems: &[Self]) -> io::Result<()> {
+    fn pack<'a, W: io::Write, I: Iterator<Item = &'a BitBatch>>(
+        mut dst: W,
+        elems: I,
+    ) -> io::Result<()> {
         for elem in elems {
             dst.write_all(&elem.0[..])?;
         }
@@ -98,54 +102,17 @@ impl RingModule<BitScalar> for BitBatch {
         Self(res)
     }
 
-    fn pack(vs: &[BitScalar]) -> BitBatch {
-        fn pack(v: &[BitScalar; 8]) -> u8 {
-            v[0].0 << 7
-                | v[1].0 << 6
-                | v[2].0 << 5
-                | v[3].0 << 4
-                | v[4].0 << 3
-                | v[5].0 << 2
-                | v[6].0 << 1
-                | v[7].0
-        }
-        BitBatch([
-            pack(vs[0x00..0x08].try_into().unwrap()),
-            pack(vs[0x08..0x10].try_into().unwrap()),
-            pack(vs[0x10..0x18].try_into().unwrap()),
-            pack(vs[0x18..0x20].try_into().unwrap()),
-            pack(vs[0x20..0x28].try_into().unwrap()),
-            pack(vs[0x28..0x30].try_into().unwrap()),
-            pack(vs[0x30..0x38].try_into().unwrap()),
-            pack(vs[0x38..].try_into().unwrap()),
-        ])
+    fn get(&self, i: usize) -> BitScalar {
+        let off = i % 8;
+        let idx = i / 8;
+        BitScalar(self.0[idx] >> off)
     }
 
-    fn unpack(&self, vs: &mut [BitScalar]) {
-        fn pack(v: &mut [BitScalar], b: u8) {
-            v[7] = BitScalar(b & 1);
-            v[6] = BitScalar((b >> 1) & 1);
-            v[5] = BitScalar((b >> 2) & 1);
-            v[4] = BitScalar((b >> 3) & 1);
-            v[3] = BitScalar((b >> 4) & 1);
-            v[2] = BitScalar((b >> 5) & 1);
-            v[1] = BitScalar((b >> 6) & 1);
-            v[0] = BitScalar((b >> 7) & 1);
-        }
-        pack(&mut vs[0x00..0x08], self.0[0]);
-        pack(&mut vs[0x08..0x10], self.0[1]);
-        pack(&mut vs[0x10..0x18], self.0[2]);
-        pack(&mut vs[0x18..0x20], self.0[3]);
-        pack(&mut vs[0x20..0x28], self.0[4]);
-        pack(&mut vs[0x28..0x30], self.0[5]);
-        pack(&mut vs[0x30..0x38], self.0[6]);
-        pack(&mut vs[0x38..0x40], self.0[7]);
+    fn set(&mut self, i: usize, s: BitScalar) {
+        let off = i % 8;
+        self.0[i] &= !(1 << off);
+        self.0[i] |= s.0 << off;
     }
-}
-
-#[test]
-fn test_packing() {
-    
 }
 
 impl Serializable for BitBatch {

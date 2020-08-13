@@ -4,6 +4,8 @@ use super::*;
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct BitSharing64(pub(super) u64);
 
+impl LocalOperation for BitSharing64 {}
+
 impl Add for BitSharing64 {
     type Output = Self;
 
@@ -42,12 +44,13 @@ impl RingModule<BitScalar> for BitSharing64 {
         BitSharing64(if s.0 == 0 { 0 } else { self.0 })
     }
 
-    fn pack(vs: &[BitScalar]) -> Self {
-        unimplemented!()
+    fn get(&self, i: usize) -> BitScalar {
+        BitScalar(((self.0 >> i) & 1) as u8)
     }
 
-    fn unpack(&self, vs: &mut [BitScalar]) {
-        unimplemented!()
+    fn set(&mut self, i: usize, s: BitScalar) {
+        self.0 &= !(1 << i);
+        self.0 |= (s.0 as u64) << i;
     }
 
     /*

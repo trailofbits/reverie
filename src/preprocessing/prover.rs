@@ -159,6 +159,9 @@ impl<D: Domain> PreprocessingExecution<D> {
             debug_assert!(self.share_a.len() < D::Batch::DIMENSION);
             debug_assert!(self.share_a.len() < D::Batch::DIMENSION);
             match *step {
+                Instruction::LocalOp(dst, src) => {
+                    self.masks.set(dst, self.masks.get(src).operation());
+                }
                 Instruction::Branch(dst) => {
                     // check if need for new batch of branch masks
                     let mask = self.shares.branch.next();

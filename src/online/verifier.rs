@@ -2,7 +2,7 @@ use crate::util::Writer;
 
 use super::*;
 
-use crate::algebra::{Domain, Packable, RingElement, RingModule, Sharing};
+use crate::algebra::{Domain, LocalOperation, Packable, RingElement, RingModule, Sharing};
 use crate::consts::*;
 use crate::fs::{Scope, View};
 use crate::preprocessing::verifier::PreprocessingExecution;
@@ -181,6 +181,10 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>> + Clone> StreamingVe
 
                             for step in program.iter().cloned() {
                                 match step {
+                                    Instruction::LocalOp(dst, src) => {
+                                        let w: D::Scalar = wires.get(src);
+                                        wires.set(dst, w.operation());
+                                    }
                                     Instruction::Input(dst) => {
                                         wires.set(dst, witness.next()?);
                                     }

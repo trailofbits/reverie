@@ -129,6 +129,9 @@ impl<D: Domain> PreprocessingExecution<D> {
             debug_assert_eq!(self.share_a.len(), self.share_b.len());
 
             match *step {
+                Instruction::LocalOp(dst, src) => {
+                    self.masks.set(dst, self.masks.get(src).operation());
+                }
                 Instruction::Input(dst) => {
                     self.masks.set(dst, self.shares.input.next());
                 }

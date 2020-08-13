@@ -41,6 +41,7 @@ use crate::algebra::RingElement;
 pub enum Instruction<E: RingElement> {
     AddConst(usize, usize, E), // addition of constant
     MulConst(usize, usize, E), // multiplication by constant
+    LocalOp(usize, usize),     // apply domain-specific local operation
     Mul(usize, usize, usize),  // multiplication of two wires
     Add(usize, usize, usize),  // addition of two wires
     Branch(usize),             // load next branch element
