@@ -103,15 +103,16 @@ impl RingModule<BitScalar> for BitBatch {
     }
 
     fn get(&self, i: usize) -> BitScalar {
-        let off = i % 8;
+        let off = 7 - i % 8;
         let idx = i / 8;
-        BitScalar(self.0[idx] >> off)
+        BitScalar((self.0[idx] >> off) & 1)
     }
 
     fn set(&mut self, i: usize, s: BitScalar) {
-        let off = i % 8;
-        self.0[i] &= !(1 << off);
-        self.0[i] |= s.0 << off;
+        let off = 7 - i % 8;
+        let idx = i / 8;
+        self.0[idx] &= !(1 << off);
+        self.0[idx] |= s.0 << off;
     }
 }
 

@@ -118,14 +118,12 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>> + Clone> StreamingVe
                 Packable::unpack(&mut branch, &run.branch[..]).ok()?;
 
                 // hash the branch
-                let mut scalars: Vec<D::Scalar> =
-                    vec![D::Scalar::ZERO; branch.len() * D::Batch::DIMENSION];
                 let mut hasher = RingHasher::new();
-                for (i, elem) in branch.into_iter().enumerate() {
-                    <D::Batch as RingModule<D::Scalar>>::unpack(
-                        &elem,
-                        &mut scalars[i * D::Batch::DIMENSION..],
-                    );
+                let mut scalars = Vec::with_capacity(branch.len() * D::Batch::DIMENSION);
+                for elem in branch.into_iter() {
+                    for j in 0..D::Batch::DIMENSION {
+                        scalars.push(elem.get(j))
+                    }
                     hasher.update(elem)
                 }
 

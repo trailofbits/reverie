@@ -53,10 +53,14 @@ impl RingModule<BitScalar> for BitSharing8 {
     }
 
     fn get(&self, i: usize) -> BitScalar {
+        debug_assert!(i < 8);
+        let i = 7 - i;
         BitScalar((self.0 >> i) & 1)
     }
 
     fn set(&mut self, i: usize, s: BitScalar) {
+        debug_assert!(i < 8);
+        let i = 7 - i;
         self.0 &= !(1 << i);
         self.0 |= s.0 << i;
     }

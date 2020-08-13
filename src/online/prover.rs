@@ -278,12 +278,11 @@ impl<D: Domain> StreamingProver<D> {
 
         // unpack selected branch into scalars again
         let branch_batches = &preprocessing.branches[branch_index][..];
-        let mut branch = vec![D::Scalar::ZERO; branch_batches.len() * D::Batch::DIMENSION];
-        for (i, batch) in branch_batches.iter().enumerate() {
-            <D::Batch as RingModule<D::Scalar>>::unpack(
-                batch,
-                &mut branch[i * D::Batch::DIMENSION..],
-            );
+        let mut branch = Vec::with_capacity(branch_batches.len() * D::Batch::DIMENSION);
+        for batch in branch_batches.iter() {
+            for j in 0..D::Batch::DIMENSION {
+                branch.push(batch.get(j))
+            }
         }
         let branch = Arc::new(branch);
 

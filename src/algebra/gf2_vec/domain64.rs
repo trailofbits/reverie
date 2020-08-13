@@ -18,15 +18,15 @@ impl Domain for GF8_64_64 {
     /// Conversion for this domain is trivial
     fn convert(dst: &mut [Self::Sharing], src: &[Self::Batch]) {
         debug_assert_eq!(src.len(), Self::PLAYERS);
-        let mut sharing: &mut Self::Sharing = &mut dst[0];
+        let sharing: &mut Self::Sharing = &mut dst[0];
         for i in 0..Self::PLAYERS {
             sharing.0[i] = src[i];
         }
     }
 
-    ///
+    /// Conversion for this domain is trivial
     fn convert_inv(dst: &mut [Self::Batch], src: &[Self::Sharing]) {
-        let mut sharing: &Self::Sharing = &src[0];
+        let sharing: &Self::Sharing = &src[0];
         for i in 0..Self::PLAYERS {
             dst[i] = sharing.0[i];
         }

@@ -170,15 +170,11 @@ pub struct Output<D: Domain> {
 pub fn pack_branch<D: Domain>(branch: &[D::Scalar]) -> Vec<D::Batch> {
     let mut res: Vec<D::Batch> = Vec::with_capacity(branch.len() / D::Batch::DIMENSION + 1);
     for chunk in branch.chunks(D::Batch::DIMENSION) {
-        res.push(if chunk.len() < D::Batch::DIMENSION {
-            // copy and pad with zero elements
-            let mut batch = vec![D::Scalar::ZERO; D::Batch::DIMENSION];
-            batch[..chunk.len()].copy_from_slice(chunk);
-            <D::Batch as RingModule<D::Scalar>>::pack(&batch[..])
-        } else {
-            // zero copy
-            <D::Batch as RingModule<D::Scalar>>::pack(chunk)
-        })
+        let mut batch = D::Batch::ZERO;
+        for (i, s) in chunk.iter().cloned().enumerate() {
+            batch.set(i, s);
+        }
+        res.push(batch)
     }
     res
 }
