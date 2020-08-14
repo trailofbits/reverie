@@ -1,7 +1,9 @@
-use super::*;
+use super::util::PartialSharesGenerator;
 
-use crate::crypto::PRG;
-use crate::util::Writer;
+use crate::algebra::{Domain, LocalOperation, RingElement, RingModule, Samplable};
+use crate::consts::CONTEXT_RNG_CORRECTION;
+use crate::crypto::{hash, kdf, Hash, Hasher, RingHasher, TreePRF, KEY_SIZE, PRG};
+use crate::util::{VecMap, Writer};
 use crate::Instruction;
 
 /// Implementation of pre-processing phase used by the prover during online execution
@@ -14,7 +16,7 @@ pub struct PreprocessingExecution<D: Domain> {
     masks: VecMap<D::Sharing>,
 
     // sharings
-    shares: SharesGenerator<D>,
+    shares: PartialSharesGenerator<D>,
 
     // scratch space
     scratch: Vec<D::Batch>,
@@ -83,7 +85,7 @@ impl<D: Domain> PreprocessingExecution<D> {
             .map(|seed| PRG::new(kdf(CONTEXT_RNG_CORRECTION, seed)))
             .collect();
 
-        let shares = SharesGenerator::new(&player_seeds[..]);
+        let shares = PartialSharesGenerator::new(&player_seeds[..], omitted);
 
         PreprocessingExecution {
             omitted,

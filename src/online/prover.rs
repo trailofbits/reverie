@@ -3,9 +3,8 @@ use super::*;
 use crate::algebra::Packable;
 use crate::algebra::{Domain, LocalOperation, RingModule, Sharing};
 use crate::consts::*;
-use crate::crypto::{join_hashes, Hash, Hasher, TreePRF};
+use crate::crypto::{Hash, Hasher, TreePRF};
 use crate::fs::*;
-use crate::preprocessing::pack_branches;
 use crate::preprocessing::prover::PreprocessingExecution;
 use crate::preprocessing::PreprocessingOutput;
 use crate::util::*;
@@ -17,8 +16,6 @@ use async_channel::{Receiver, SendError, Sender};
 use async_std::task;
 
 use bincode;
-
-use typenum::*;
 
 const DEFAULT_CAPACITY: usize = BATCH_SIZE;
 
@@ -113,6 +110,9 @@ impl<D: Domain, W: Writer<D::Batch>> Drop for BatchExtractor<D, W> {
 }
 
 struct Prover<D: Domain, I: Iterator<Item = D::Scalar>> {
+    #[cfg(test)]
+    #[cfg(debug_assertions)]
+    plain: VecMap<D::Scalar>,
     wires: VecMap<D::Scalar>,
     branch: I,
 }
@@ -120,6 +120,9 @@ struct Prover<D: Domain, I: Iterator<Item = D::Scalar>> {
 impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
     fn new(branch: I) -> Self {
         Prover {
+            #[cfg(test)]
+            #[cfg(debug_assertions)]
+            plain: VecMap::new(),
             wires: VecMap::new(),
             branch,
         }
@@ -145,28 +148,60 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
                     self.wires.set(dst, self.wires.get(src).operation());
                 }
                 Instruction::Input(dst) => {
+                    let value: D::Scalar = witness.next().unwrap();
                     let mask: D::Sharing = masks.next().unwrap();
-                    let wire = witness.next().unwrap() + D::Sharing::reconstruct(&mask);
+                    let wire = value + D::Sharing::reconstruct(&mask);
                     self.wires.set(dst, wire);
                     masked_witness.write(wire);
+
+                    // evaluate the circuit in plain for testing
+                    #[cfg(test)]
+                    #[cfg(debug_assertions)]
+                    {
+                        self.plain.set(dst, value);
+                    }
                 }
                 Instruction::Branch(dst) => {
+                    let value: D::Scalar = self.branch.next().unwrap();
                     let mask: D::Sharing = masks.next().unwrap();
-                    let wire = self.branch.next().unwrap() + D::Sharing::reconstruct(&mask);
+                    let wire = value + D::Sharing::reconstruct(&mask);
                     self.wires.set(dst, wire);
+
+                    // evaluate the circuit in plain for testing
+                    #[cfg(test)]
+                    #[cfg(debug_assertions)]
+                    {
+                        self.plain.set(dst, value);
+                    }
                 }
                 Instruction::AddConst(dst, src, c) => {
                     let a_w = self.wires.get(src);
                     self.wires.set(dst, a_w + c);
+
+                    // evaluate the circuit in plain for testing
+                    #[cfg(test)]
+                    #[cfg(debug_assertions)]
+                    self.plain.set(dst, self.plain.get(src) + c);
                 }
                 Instruction::MulConst(dst, src, c) => {
                     let sw = self.wires.get(src);
                     self.wires.set(dst, sw * c);
+
+                    // evaluate the circuit in plain for testing
+                    #[cfg(test)]
+                    #[cfg(debug_assertions)]
+                    self.plain.set(dst, self.plain.get(src) * c);
                 }
                 Instruction::Add(dst, src1, src2) => {
                     let a_w = self.wires.get(src1);
                     let b_w = self.wires.get(src2);
                     self.wires.set(dst, a_w + b_w);
+
+                    // evaluate the circuit in plain for testing
+                    #[cfg(test)]
+                    #[cfg(debug_assertions)]
+                    self.plain
+                        .set(dst, self.plain.get(src1) + self.plain.get(src1));
                 }
                 Instruction::Mul(dst, src1, src2) => {
                     // calculate reconstruction shares for every player
@@ -185,10 +220,24 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
 
                     // reconstruct and correct share
                     self.wires.set(dst, c_w);
+
+                    // evaluate the circuit in plain for testing
+                    #[cfg(test)]
+                    #[cfg(debug_assertions)]
+                    self.plain
+                        .set(dst, self.plain.get(src1) * self.plain.get(src1));
                 }
                 Instruction::Output(_src) => {
                     let recon: D::Sharing = masks.next().unwrap();
                     broadcast.write(recon);
+
+                    // check result correctly reconstructed
+                    #[cfg(test)]
+                    #[cfg(debug_assertions)]
+                    {
+                        let value: D::Scalar = self.plain.get(_src);
+                        assert_eq!(self.wires.get(_src) + recon.reconstruct(), value);
+                    }
                 }
             }
         }

@@ -212,13 +212,13 @@ mod tests {
         let program: Vec<Instruction<BitScalar>> = vec![
             Instruction::Branch(0),
             Instruction::Input(1),
-            Instruction::Add(2, 0, 1),
+            Instruction::Mul(2, 0, 1),
             Instruction::Output(2),
         ];
         let branches: Vec<Vec<BitScalar>> = vec![vec![BitScalar::ONE], vec![BitScalar::ZERO]];
         let witness: Vec<BitScalar> = vec![BitScalar::ONE];
         let branch_index: usize = 0;
-        let proof = ProofGF2P64::new(program.clone(), branches.clone(), witness, branch_index);
+        let proof = ProofGF2P8::new(program.clone(), branches.clone(), witness, branch_index);
 
         let output = proof.verify(program, branches).unwrap();
         println!("{:?}", output);

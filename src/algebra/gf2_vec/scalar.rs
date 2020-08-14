@@ -11,6 +11,12 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Scalar(pub(super) Batch);
 
+impl Scalar {
+    pub fn new(v: u64) -> Scalar {
+        Scalar(Batch(v))
+    }
+}
+
 impl Packable for Scalar {
     type Error = ();
 

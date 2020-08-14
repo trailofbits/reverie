@@ -209,30 +209,23 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>> + Clone> StreamingVe
                                         let a_m: D::Sharing = masks.next().unwrap();
                                         let b_m: D::Sharing = masks.next().unwrap();
                                         let ab_gamma: D::Sharing = ab_gamma.next().unwrap();
-                                        let recon = a_m.action(b_w)
-                                                    + b_m.action(a_w)
-                                                    + ab_gamma // partial a * b + \gamma
-                                                    + broadcast.next()?; // share of omitted player
-                                                                         // reconstruct
-
+                                        let omit_msg: D::Sharing = broadcast.next()?;
+                                        let recon =
+                                            a_m.action(b_w) + b_m.action(a_w) + ab_gamma + omit_msg;
                                         transcript.write(recon);
+
                                         // corrected wire
                                         let c_w = recon.reconstruct() + a_w * b_w;
+
                                         // reconstruct and correct share
                                         wires.set(dst, c_w);
-                                        // check if call into pre-processing needed
-                                        if masks.len() == 0 {
-                                            break;
-                                        }
                                     }
                                     Instruction::Output(src) => {
                                         let recon: D::Sharing =
                                             masks.next().unwrap() + broadcast.next()?;
                                         transcript.write(recon);
+
                                         output.write(wires.get(src) + recon.reconstruct());
-                                        if masks.len() == 0 {
-                                            break;
-                                        }
                                     }
                                 }
                             }

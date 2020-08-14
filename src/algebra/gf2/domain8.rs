@@ -85,7 +85,7 @@ impl Domain for GF2P8 {
     #[inline(always)]
     fn convert(dst: &mut [Self::Sharing], src: &[Self::Batch]) {
         // do a single bounds check up front
-        assert_eq!(src.len(), 8);
+        assert_eq!(src.len(), Self::PLAYERS);
         assert!(dst.len() >= Self::Batch::DIMENSION);
 
         // x86 / x86_64 SSE, MMX impl.

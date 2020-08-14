@@ -1,4 +1,5 @@
-mod constants;
+mod util;
+
 pub mod preprocessing;
 pub mod prover;
 pub mod verifier;
@@ -18,104 +19,6 @@ use async_channel::{Receiver, SendError, Sender};
 use async_std::task;
 
 use serde::{Deserialize, Serialize};
-
-pub struct SharesGenerator<D: Domain> {
-    pub input: ShareGenerator<D>,
-    pub branch: ShareGenerator<D>,
-    pub beaver: ShareGenerator<D>,
-}
-
-pub fn branch_permutation(seed: &[u8; KEY_SIZE], branches: usize) -> Vec<usize> {
-    random_permutation(
-        &mut PRG::new(kdf(CONTEXT_RNG_BRANCH_PERMUTE, seed)),
-        branches,
-    )
-}
-
-impl<D: Domain> SharesGenerator<D> {
-    pub fn new(player_seeds: &[[u8; KEY_SIZE]]) -> Self {
-        let input_prgs: Vec<PRG> = player_seeds
-            .iter()
-            .map(|seed| PRG::new(kdf(CONTEXT_RNG_INPUT_MASK, seed)))
-            .collect();
-
-        let branch_prgs: Vec<PRG> = player_seeds
-            .iter()
-            .map(|seed| PRG::new(kdf(CONTEXT_RNG_BRANCH_MASK, seed)))
-            .collect();
-
-        let beaver_prgs: Vec<PRG> = player_seeds
-            .iter()
-            .map(|seed| PRG::new(kdf(CONTEXT_RNG_BEAVER, seed)))
-            .collect();
-
-        Self {
-            input: ShareGenerator::new(input_prgs),
-            branch: ShareGenerator::new(branch_prgs),
-            beaver: ShareGenerator::new(beaver_prgs),
-        }
-    }
-}
-
-pub struct ShareGenerator<D: Domain> {
-    batches: Vec<D::Batch>,
-    shares: Vec<D::Sharing>,
-    next: usize,
-    prgs: Vec<PRG>,
-}
-
-impl<D: Domain> ShareGenerator<D> {
-    pub fn new(prgs: Vec<PRG>) -> Self {
-        debug_assert_eq!(prgs.len(), D::PLAYERS);
-        ShareGenerator {
-            batches: vec![D::Batch::ZERO; D::PLAYERS],
-            shares: vec![D::Sharing::ZERO; D::Batch::DIMENSION],
-            next: D::Batch::DIMENSION,
-            prgs,
-        }
-    }
-
-    pub fn next(&mut self) -> D::Sharing {
-        if self.next >= self.shares.len() {
-            for i in 0..D::PLAYERS {
-                self.batches[i] = D::Batch::gen(&mut self.prgs[i]);
-            }
-            D::convert(&mut self.shares[..], &self.batches);
-            self.next = 0;
-        }
-        let elem = self.shares[self.next];
-        self.next += 1;
-        elem
-    }
-
-    pub fn batches(&self) -> &[D::Batch] {
-        &self.batches[..]
-    }
-
-    pub fn is_empty(&self) -> bool {
-        return self.next == D::Batch::DIMENSION;
-    }
-
-    pub fn empty(&mut self) {
-        self.next = D::Batch::DIMENSION;
-    }
-}
-
-struct Player {
-    input: PRG,
-    beaver: PRG,
-    branch: PRG,
-}
-
-impl Player {
-    fn new(seed: &[u8; KEY_SIZE]) -> Self {
-        Player {
-            input: PRG::new(kdf(CONTEXT_RNG_INPUT_MASK, seed)),
-            beaver: PRG::new(kdf(CONTEXT_RNG_BEAVER, seed)),
-            branch: PRG::new(kdf(CONTEXT_RNG_BRANCH_MASK, seed)),
-        }
-    }
-}
 
 async fn feed<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>>(
     senders: &mut [Sender<Arc<Vec<Instruction<D::Scalar>>>>],

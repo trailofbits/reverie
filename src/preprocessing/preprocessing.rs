@@ -1,8 +1,12 @@
-use super::*;
+use super::util::SharesGenerator;
 
-use crate::crypto::PRG;
-use crate::util::Writer;
+use crate::algebra::{Domain, LocalOperation, RingElement, RingModule, Samplable};
+use crate::consts::{CONTEXT_RNG_BRANCH_MASK, CONTEXT_RNG_BRANCH_PERMUTE, CONTEXT_RNG_CORRECTION};
+use crate::crypto::{hash, kdf, Hash, Hasher, MerkleSet, RingHasher, TreePRF, KEY_SIZE, PRG};
+use crate::util::{VecMap, Writer};
 use crate::Instruction;
+
+use std::marker::PhantomData;
 
 /// Implementation of pre-processing phase used by the prover during online execution
 pub struct PreprocessingExecution<D: Domain> {
@@ -59,9 +63,6 @@ impl<D: Domain> PreprocessingExecution<D> {
 
         // commit to per-player randomness
         let commitments: Vec<Hash> = player_seeds.iter().map(|seed| hash(seed)).collect();
-
-        // create per-player PRG instances
-        let players: Vec<Player> = player_seeds.iter().map(|seed| Player::new(seed)).collect();
 
         // aggregate branch hashes into Merkle tree and return pre-processor for circuit
         PreprocessingExecution {

@@ -1,7 +1,9 @@
-use super::*;
+use super::util::SharesGenerator;
 
-use crate::crypto::PRG;
-use crate::util::Writer;
+use crate::algebra::{Domain, LocalOperation, RingElement, RingModule, Samplable};
+use crate::consts::{CONTEXT_RNG_BRANCH_MASK, CONTEXT_RNG_BRANCH_PERMUTE, CONTEXT_RNG_CORRECTION};
+use crate::crypto::{kdf, Hash, MerkleSet, MerkleSetProof, RingHasher, TreePRF, KEY_SIZE, PRG};
+use crate::util::{VecMap, Writer};
 use crate::Instruction;
 
 /// Implementation of pre-processing phase used by the prover during online execution
@@ -129,12 +131,25 @@ impl<D: Domain> PreprocessingExecution<D> {
         // correct ab_gamma (in parallel)
         self.scratch[0] = self.scratch[0] + delta;
 
+        // check that ab_gamma is a sharing of a * b + \gamma
+        #[cfg(test)]
+        {
+            let mut gamma = D::Batch::ZERO;
+            let mut ab_gamma_recons = D::Batch::ZERO;
+            for i in 0..D::PLAYERS {
+                gamma = gamma + self.shares.beaver.batches()[i];
+                ab_gamma_recons = ab_gamma_recons + self.scratch[i];
+            }
+            assert_eq!(a * b + gamma, ab_gamma_recons);
+        }
+
         // transpose into shares
         let start = ab_gamma.len();
         ab_gamma.resize(start + D::Batch::DIMENSION, D::Sharing::ZERO);
         D::convert(&mut ab_gamma[start..], &self.scratch[..]);
         debug_assert_eq!(self.share_a.len(), 0);
         debug_assert_eq!(self.share_b.len(), 0);
+        debug_assert_eq!(ab_gamma.len() % D::Batch::DIMENSION, 0);
     }
 
     #[inline(always)]
