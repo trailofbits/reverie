@@ -3,7 +3,6 @@ use super::*;
 use crate::util::Writer;
 
 use std::fmt;
-use std::io::Write;
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub struct BitScalar(pub(super) u8);

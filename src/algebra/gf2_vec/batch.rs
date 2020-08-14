@@ -84,18 +84,20 @@ impl RingElement for Batch {
 impl RingModule<Scalar> for Batch {
     const DIMENSION: usize = 1;
 
-    // action of the scalar ring upon the module:
-    // s * (r_1, r_2, ..., r_dimension) = (s * r_1, s * r_2, ..., s * r_dimension)
+    #[inline(always)]
     fn action(&self, s: Scalar) -> Self {
         Batch(self.0 * s.0.0)
     }
 
+    #[inline(always)]
     fn set(&mut self, i: usize, s: Scalar) {
         debug_assert_eq!(i, 0);
         *self = s.0;
     }
 
+    #[inline(always)]
     fn get(&self, i: usize) -> Scalar {
+        debug_assert_eq!(i, 0);
         Scalar(*self)
     }
 }

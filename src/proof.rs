@@ -204,9 +204,102 @@ impl<D: Domain> Proof<D> {
     }
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
-    use crate::algebra::gf2::BitScalar;
+    use crate::algebra::gf2::*;
+    use crate::tests::*;
+
+    use rand::thread_rng;
+    use rand::Rng;
+
+    #[derive(Debug, Clone)]
+    struct TestVector<D: Domain> {
+        input: Vec<D::Scalar>,
+        program: Vec<Instruction<D::Scalar>>,
+        branches: Vec<Vec<D::Scalar>>,
+        branch_index: usize,
+    }
+
+    fn random_instance<D: Domain>() -> (
+        Vec<Instruction<D::Scalar>>, // program
+        Vec<D::Scalar>,              // input
+        Vec<Vec<D::Scalar>>,         // branches
+        usize,                       // branch
+        Vec<D::Scalar>,              // result
+    ) {
+        let mut rng = thread_rng();
+        let length = rng.gen::<usize>() % 1024;
+        let memory = rng.gen::<usize>() % 2048;
+
+        let length = 10;
+        let memory = 32;
+
+        let (num_inputs, num_branch, program) = random_program::<D, _>(&mut rng, length, memory);
+        let input = random_scalars::<D, _>(&mut rng, num_inputs);
+        let num_branches = 1 + rng.gen::<usize>() % 32;
+
+        let mut branches: Vec<Vec<D::Scalar>> = Vec::with_capacity(num_branches);
+        for _ in 0..num_branches {
+            branches.push(random_scalars::<D, _>(&mut rng, num_branch));
+        }
+
+        let branch_index = rng.gen::<usize>() % num_branches;
+
+        let output = evaluate_program::<D>(&program[..], &input[..], &branches[branch_index][..]);
+
+        (program, input, branches, branch_index, output)
+    }
+
+    #[test]
+    fn test_random_proof_gf2p8_regression() {
+        let test_vectors: Vec<TestVector<GF2P8>> = vec![TestVector {
+            program: vec![
+                Instruction::Input(0),
+                Instruction::Add(25, 0, 0),
+                Instruction::Branch(22),
+                Instruction::Add(28, 25, 0),
+                Instruction::Add(22, 28, 28),
+                Instruction::Input(22),
+                Instruction::Branch(11),
+                Instruction::Output(28),
+            ],
+            input: vec![BitScalar::ONE, BitScalar::ZERO],
+            branches: vec![vec![BitScalar::ONE, BitScalar::ONE]],
+            branch_index: 0,
+        }];
+
+        for test in test_vectors.iter() {
+            let output = evaluate_program::<GF2P8>(
+                &test.program[..],
+                &test.input[..],
+                &test.branches[test.branch_index][..],
+            );
+            let proof = ProofGF2P8::new(
+                test.program.clone(),
+                test.branches.clone(),
+                test.input.clone(),
+                test.branch_index,
+            );
+            let verifier_output = proof
+                .verify(test.program.clone(), test.branches.clone())
+                .unwrap();
+            assert_eq!(verifier_output, output);
+        }
+    }
+
+    #[test]
+    fn test_random_proof_gf2p8() {
+        for _ in 0..50 {
+            let (program, input, branches, branch_index, output) = random_instance::<GF2P8>();
+
+            println!("{:?}", program);
+            let proof = ProofGF2P8::new(program.clone(), branches.clone(), input, branch_index);
+            let verifier_output = proof.verify(program, branches).unwrap();
+            assert_eq!(verifier_output, output);
+        }
+    }
+
     #[test]
     fn test_proof() {
         let program: Vec<Instruction<BitScalar>> = vec![

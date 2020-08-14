@@ -157,9 +157,7 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
                     // evaluate the circuit in plain for testing
                     #[cfg(test)]
                     #[cfg(debug_assertions)]
-                    {
-                        self.plain.set(dst, value);
-                    }
+                    self.plain.set(dst, value);
                 }
                 Instruction::Branch(dst) => {
                     let value: D::Scalar = self.branch.next().unwrap();
@@ -170,9 +168,7 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
                     // evaluate the circuit in plain for testing
                     #[cfg(test)]
                     #[cfg(debug_assertions)]
-                    {
-                        self.plain.set(dst, value);
-                    }
+                    self.plain.set(dst, value);
                 }
                 Instruction::AddConst(dst, src, c) => {
                     let a_w = self.wires.get(src);
@@ -190,7 +186,10 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
                     // evaluate the circuit in plain for testing
                     #[cfg(test)]
                     #[cfg(debug_assertions)]
-                    self.plain.set(dst, self.plain.get(src) * c);
+                    {
+                        let value = self.plain.get(src) * c;
+                        self.plain.set(dst, value);
+                    }
                 }
                 Instruction::Add(dst, src1, src2) => {
                     let a_w = self.wires.get(src1);
@@ -200,8 +199,10 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
                     // evaluate the circuit in plain for testing
                     #[cfg(test)]
                     #[cfg(debug_assertions)]
-                    self.plain
-                        .set(dst, self.plain.get(src1) + self.plain.get(src1));
+                    {
+                        let value = self.plain.get(src1) + self.plain.get(src2);
+                        self.plain.set(dst, value);
+                    }
                 }
                 Instruction::Mul(dst, src1, src2) => {
                     // calculate reconstruction shares for every player
@@ -224,8 +225,10 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
                     // evaluate the circuit in plain for testing
                     #[cfg(test)]
                     #[cfg(debug_assertions)]
-                    self.plain
-                        .set(dst, self.plain.get(src1) * self.plain.get(src1));
+                    {
+                        let value = self.plain.get(src1) * self.plain.get(src2);
+                        self.plain.set(dst, value);
+                    }
                 }
                 Instruction::Output(_src) => {
                     let recon: D::Sharing = masks.next().unwrap();

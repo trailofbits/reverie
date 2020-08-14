@@ -2,11 +2,10 @@ use crate::algebra::*;
 use crate::util::VecMap;
 use crate::Instruction;
 
-use rand::seq::SliceRandom;
 use rand::Rng;
 use rand::RngCore;
 
-pub fn random_scalar<D: Domain, R: RngCore>(rng: &mut R) -> <D::Sharing as RingModule>::Scalar {
+pub fn random_scalar<D: Domain, R: RngCore>(rng: &mut R) -> D::Scalar {
     let mut share = vec![D::Sharing::ZERO; D::Batch::DIMENSION];
     let mut batch = vec![D::Batch::ZERO; D::Sharing::DIMENSION];
     batch[0] = D::Batch::gen(rng);
@@ -14,10 +13,7 @@ pub fn random_scalar<D: Domain, R: RngCore>(rng: &mut R) -> <D::Sharing as RingM
     share[0].get(0)
 }
 
-pub fn random_input<D: Domain, R: RngCore>(
-    rng: &mut R,
-    length: usize,
-) -> Vec<<D::Sharing as RingModule>::Scalar> {
+pub fn random_scalars<D: Domain, R: RngCore>(rng: &mut R, length: usize) -> Vec<D::Scalar> {
     let mut input = Vec::with_capacity(length);
     for _ in 0..length {
         input.push(random_scalar::<D, _>(rng))
@@ -27,14 +23,24 @@ pub fn random_input<D: Domain, R: RngCore>(
 
 // Evaluates a program (in the clear)
 pub fn evaluate_program<D: Domain>(
-    program: &[Instruction<<D::Sharing as RingModule>::Scalar>],
-    inputs: &[<D::Sharing as RingModule>::Scalar],
-) -> Vec<<D::Sharing as RingModule>::Scalar> {
-    let mut wires = VecMap::from(inputs.to_owned());
+    program: &[Instruction<D::Scalar>],
+    inputs: &[D::Scalar],
+    branch: &[D::Scalar],
+) -> Vec<D::Scalar> {
+    let mut wires = VecMap::new();
     let mut output = Vec::new();
+    let mut inputs = inputs.iter().cloned();
+    let mut branch = branch.iter().cloned();
 
     for step in program {
         match *step {
+            Instruction::Input(dst) => {
+                wires.set(dst, inputs.next().unwrap());
+            }
+            Instruction::Branch(dst) => {
+                wires.set(dst, branch.next().unwrap());
+            }
+            Instruction::LocalOp(_dst, _src) => unimplemented!(),
             Instruction::Add(dst, src1, src2) => {
                 wires.set(dst, wires.get(src1) + wires.get(src2));
             }
@@ -59,54 +65,56 @@ pub fn evaluate_program<D: Domain>(
 // Generates a random program for property based test
 pub fn random_program<D: Domain, R: RngCore>(
     rng: &mut R,
-    inputs: usize,
     length: usize,
-    output: bool,
-) -> Vec<Instruction<<D::Sharing as RingModule>::Scalar>> {
-    let mut program: Vec<Instruction<<D::Sharing as RingModule>::Scalar>> = Vec::new();
-    let mut unassigned: Vec<usize> = (inputs..inputs + length).collect();
-    let mut assigned: Vec<usize> = (0..inputs).collect();
+    memory: usize,
+) -> (usize, usize, Vec<Instruction<D::Scalar>>) {
+    let mut program: Vec<Instruction<D::Scalar>> = Vec::new();
+    let mut assigned: Vec<usize> = vec![0];
+    let mut num_inputs: usize = 1;
+    let mut num_branch: usize = 0;
 
-    // we assign wires in random order
-    unassigned.shuffle(rng);
-    assert_eq!(unassigned.len(), length);
+    program.push(Instruction::Input(0));
 
     while program.len() < length {
-        let choice = rng.gen::<usize>() % 5;
-
-        // random source indexes
+        // random source and destination indexes
+        let dst: usize = rng.gen::<usize>() % memory;
         let src1: usize = assigned[rng.gen::<usize>() % assigned.len()];
         let src2: usize = assigned[rng.gen::<usize>() % assigned.len()];
 
-        match choice {
+        // pick random instruction
+        match rng.gen::<usize>() % 7 {
             0 => {
-                let dst = unassigned.pop().unwrap();
+                program.push(Instruction::Input(dst));
+                assigned.push(dst);
+                num_inputs += 1;
+            }
+            1 => {
+                program.push(Instruction::Branch(dst));
+                assigned.push(dst);
+                num_branch += 1;
+            }
+            2 => {
                 program.push(Instruction::Add(dst, src1, src2));
                 assigned.push(dst);
             }
-            1 => {
-                let dst = unassigned.pop().unwrap();
+            3 => {
                 program.push(Instruction::Mul(dst, src1, src2));
                 assigned.push(dst);
             }
-            2 => {
-                let dst = unassigned.pop().unwrap();
+            4 => {
                 program.push(Instruction::AddConst(dst, src1, random_scalar::<D, _>(rng)));
                 assigned.push(dst);
             }
-            3 => {
-                let dst = unassigned.pop().unwrap();
+            5 => {
                 program.push(Instruction::MulConst(dst, src1, random_scalar::<D, _>(rng)));
                 assigned.push(dst);
             }
-            4 => {
-                if output {
-                    program.push(Instruction::Output(src1));
-                }
+            6 => {
+                program.push(Instruction::Output(src1));
             }
             _ => unreachable!(),
         }
     }
 
-    program
+    (num_inputs, num_branch, program)
 }

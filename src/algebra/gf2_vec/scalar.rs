@@ -17,21 +17,21 @@ impl Scalar {
     }
 }
 
+/// Packing of scalars for this domain is simply the packing of batches.
 impl Packable for Scalar {
     type Error = ();
 
-    fn pack<'a, W: io::Write, I: Iterator<Item = &'a Scalar>>(
-        mut dst: W,
-        elems: I,
-    ) -> io::Result<()> {
+    fn pack<'a, W: io::Write, I: Iterator<Item = &'a Scalar>>(dst: W, elems: I) -> io::Result<()> {
         Batch::pack(dst, elems.map(|v| &v.0))
     }
 
-    fn unpack<W: Writer<Scalar>>(mut dst: W, bytes: &[u8]) -> Result<(), ()> {
+    fn unpack<W: Writer<Scalar>>(dst: W, bytes: &[u8]) -> Result<(), ()> {
         Batch::unpack(MapWriter::new(|batch| Scalar(batch), dst), bytes)
     }
 }
 
+/// The local operation for this domain is cyclic left rotation of the vector.
+/// This enables the computation of any function between any pair of elements.
 impl LocalOperation for Scalar {
     fn operation(&self) -> Scalar {
         Scalar(self.0.rotate())

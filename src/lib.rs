@@ -9,10 +9,8 @@ extern crate test;
 #[macro_use]
 mod util;
 
-/*
 #[cfg(test)]
 mod tests;
-*/
 
 // traits and implementations of the underlying ring
 // exposed to enable uses to define programs for the supported rings.
