@@ -4,9 +4,9 @@ use super::share64::Sharing64;
 use super::Domain;
 
 #[derive(Debug, Copy, Clone)]
-struct GF8_64_64();
+pub struct GF2P64_64();
 
-impl Domain for GF8_64_64 {
+impl Domain for GF2P64_64 {
     const PLAYERS: usize = 64;
     const PREPROCESSING_REPETITIONS: usize = 631;
     const ONLINE_REPETITIONS: usize = 23;

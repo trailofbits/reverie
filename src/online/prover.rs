@@ -112,7 +112,7 @@ impl<D: Domain, W: Writer<D::Batch>> Drop for BatchExtractor<D, W> {
 struct Prover<D: Domain, I: Iterator<Item = D::Scalar>> {
     #[cfg(test)]
     #[cfg(debug_assertions)]
-    plain: VecMap<D::Scalar>,
+    plain: VecMap<Option<D::Scalar>>,
     wires: VecMap<D::Scalar>,
     branch: I,
 }
@@ -146,6 +146,14 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
             match *step {
                 Instruction::LocalOp(dst, src) => {
                     self.wires.set(dst, self.wires.get(src).operation());
+
+                    // evaluate the circuit in plain for testing
+                    #[cfg(test)]
+                    #[cfg(debug_assertions)]
+                    {
+                        let correct = self.plain.get(src).unwrap().operation();
+                        self.plain.set(dst, Some(correct));
+                    }
                 }
                 Instruction::Input(dst) => {
                     let value: D::Scalar = witness.next().unwrap();
@@ -154,10 +162,23 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
                     self.wires.set(dst, wire);
                     masked_witness.write(wire);
 
+                    #[cfg(feature = "trace")]
+                    {
+                        println!(
+                            "prover-input    : Input({}) ; wire = {:?}, mask = {:?}, value = {:?}",
+                            dst, wire, mask, value
+                        );
+                    }
+
                     // evaluate the circuit in plain for testing
                     #[cfg(test)]
                     #[cfg(debug_assertions)]
-                    self.plain.set(dst, value);
+                    {
+                        assert_eq!(self.wires.get(dst) + mask.reconstruct(), value);
+                        #[cfg(feature = "trace")]
+                        println!("  mask = {:?}, value = {:?}", mask, value);
+                        self.plain.set(dst, Some(value));
+                    }
                 }
                 Instruction::Branch(dst) => {
                     let value: D::Scalar = self.branch.next().unwrap();
@@ -165,30 +186,88 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
                     let wire = value + D::Sharing::reconstruct(&mask);
                     self.wires.set(dst, wire);
 
-                    // evaluate the circuit in plain for testing
-                    #[cfg(test)]
-                    #[cfg(debug_assertions)]
-                    self.plain.set(dst, value);
-                }
-                Instruction::AddConst(dst, src, c) => {
-                    let a_w = self.wires.get(src);
-                    self.wires.set(dst, a_w + c);
-
-                    // evaluate the circuit in plain for testing
-                    #[cfg(test)]
-                    #[cfg(debug_assertions)]
-                    self.plain.set(dst, self.plain.get(src) + c);
-                }
-                Instruction::MulConst(dst, src, c) => {
-                    let sw = self.wires.get(src);
-                    self.wires.set(dst, sw * c);
+                    #[cfg(feature = "trace")]
+                    {
+                        println!(
+                            "prover-branch   : Branch({}) ; wire = {:?}, mask = {:?}, value = {:?}",
+                            dst, wire, mask, value
+                        );
+                    }
 
                     // evaluate the circuit in plain for testing
                     #[cfg(test)]
                     #[cfg(debug_assertions)]
                     {
-                        let value = self.plain.get(src) * c;
-                        self.plain.set(dst, value);
+                        assert_eq!(self.wires.get(dst) + mask.reconstruct(), value);
+                        #[cfg(feature = "trace")]
+                        println!("  mask = {:?}, value = {:?}", mask, value);
+                        self.plain.set(dst, Some(value));
+                    }
+                }
+                Instruction::AddConst(dst, src, c) => {
+                    let a_w = self.wires.get(src);
+                    self.wires.set(dst, a_w + c);
+
+                    #[cfg(feature = "trace")]
+                    {
+                        println!(
+                            "prover-addconst : AddConst({}, {}, {:?}) ; wire = {:?}",
+                            dst,
+                            src,
+                            c,
+                            self.wires.get(dst),
+                        );
+                    }
+
+                    // evaluate the circuit in plain for testing
+                    #[cfg(test)]
+                    #[cfg(debug_assertions)]
+                    {
+                        // calculate the real result
+                        let correct = self.plain.get(src).unwrap() + c;
+                        self.plain.set(dst, Some(correct));
+
+                        // reconstruct masked wire and check computation
+                        #[cfg(feature = "debug_eval")]
+                        {
+                            let mask = masks.next().unwrap();
+                            #[cfg(feature = "trace")]
+                            println!("  mask = {:?}, value = {:?}", mask, correct);
+                            assert_eq!(correct, mask.reconstruct() + self.wires.get(dst));
+                        }
+                    }
+                }
+                Instruction::MulConst(dst, src, c) => {
+                    let sw = self.wires.get(src);
+                    self.wires.set(dst, sw * c);
+
+                    #[cfg(feature = "trace")]
+                    {
+                        println!(
+                            "prover-mulconst : MulConst({}, {}, {:?}) ; wire = {:?}",
+                            dst,
+                            src,
+                            c,
+                            self.wires.get(dst),
+                        );
+                    }
+
+                    // evaluate the circuit in plain for testing
+                    #[cfg(test)]
+                    #[cfg(debug_assertions)]
+                    {
+                        // calculate the real result
+                        let correct = self.plain.get(src).unwrap() * c;
+                        self.plain.set(dst, Some(correct));
+
+                        // reconstruct masked wire and check computation
+                        #[cfg(feature = "debug_eval")]
+                        {
+                            let mask = masks.next().unwrap();
+                            #[cfg(feature = "trace")]
+                            println!("  mask = {:?}, value = {:?}", mask, correct);
+                            assert_eq!(correct, mask.reconstruct() + self.wires.get(dst));
+                        }
                     }
                 }
                 Instruction::Add(dst, src1, src2) => {
@@ -196,12 +275,32 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
                     let b_w = self.wires.get(src2);
                     self.wires.set(dst, a_w + b_w);
 
+                    #[cfg(feature = "trace")]
+                    {
+                        println!(
+                            "prover-add      : Add({}, {}, {}) ; wire = {:?}",
+                            dst,
+                            src1,
+                            src2,
+                            self.wires.get(dst),
+                        );
+                    }
+
                     // evaluate the circuit in plain for testing
                     #[cfg(test)]
                     #[cfg(debug_assertions)]
                     {
-                        let value = self.plain.get(src1) + self.plain.get(src2);
-                        self.plain.set(dst, value);
+                        let correct = self.plain.get(src1).unwrap() + self.plain.get(src2).unwrap();
+                        self.plain.set(dst, Some(correct));
+
+                        // reconstruct masked wire and check computation
+                        #[cfg(feature = "debug_eval")]
+                        {
+                            let mask = masks.next().unwrap();
+                            #[cfg(feature = "trace")]
+                            println!("  mask = {:?}, value = {:?}", mask, correct);
+                            assert_eq!(correct, mask.reconstruct() + self.wires.get(dst));
+                        }
                     }
                 }
                 Instruction::Mul(dst, src1, src2) => {
@@ -222,29 +321,65 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
                     // reconstruct and correct share
                     self.wires.set(dst, c_w);
 
+                    #[cfg(feature = "trace")]
+                    {
+                        println!(
+                            "prover-mul      : Mul({}, {}, {}) ; wire = {:?}",
+                            dst,
+                            src1,
+                            src2,
+                            self.wires.get(dst),
+                        );
+                    }
+
                     // evaluate the circuit in plain for testing
                     #[cfg(test)]
                     #[cfg(debug_assertions)]
                     {
-                        let value = self.plain.get(src1) * self.plain.get(src2);
-                        self.plain.set(dst, value);
+                        let correct = self.plain.get(src1).unwrap() * self.plain.get(src2).unwrap();
+                        self.plain.set(dst, Some(correct));
+
+                        // reconstruct masked wire and check computation
+                        #[cfg(feature = "debug_eval")]
+                        {
+                            let mask = masks.next().unwrap();
+                            #[cfg(feature = "trace")]
+                            println!("  mask = {:?}, value = {:?}", mask, correct);
+                            assert_eq!(correct, mask.reconstruct() + self.wires.get(dst));
+                        }
                     }
                 }
                 Instruction::Output(_src) => {
                     let recon: D::Sharing = masks.next().unwrap();
                     broadcast.write(recon);
 
+                    #[cfg(feature = "trace")]
+                    {
+                        println!(
+                            "prover-output   : Output({}) ; recon = {:?}, wire = {:?}",
+                            _src,
+                            recon,
+                            self.wires.get(_src),
+                        );
+                    }
+
                     // check result correctly reconstructed
                     #[cfg(test)]
                     #[cfg(debug_assertions)]
                     {
-                        let value: D::Scalar = self.plain.get(_src);
-                        assert_eq!(self.wires.get(_src) + recon.reconstruct(), value);
+                        let value: D::Scalar = self.plain.get(_src).unwrap();
+                        assert_eq!(
+                            self.wires.get(_src) + recon.reconstruct(),
+                            value,
+                            "wire-index: {}, wire-value: {:?} recon: {:?}",
+                            _src,
+                            self.wires.get(_src),
+                            recon
+                        );
                     }
                 }
             }
         }
-
         debug_assert!(witness.next().is_none());
         debug_assert!(masks.next().is_none());
     }
@@ -296,6 +431,10 @@ impl<D: Domain> StreamingProver<D> {
                     Ok((program, witness)) => {
                         // execute the next slice of program
                         {
+                            // reset preprocessing output buffers
+                            masks.clear();
+                            ab_gamma.clear();
+
                             // prepare pre-processing execution (online mode)
                             preprocessing.process(
                                 &program[..],

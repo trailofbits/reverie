@@ -16,25 +16,11 @@ use std::sync::Arc;
 
 const CHANNEL_CAPACITY: usize = 100;
 
-/// Proof system offering 128-bits of classical (non Post Quantum) security.
-/// Proof size is ~ 88 bits / multiplication.
-///
-/// # Example
-///
-/// Proving that you know bits a, b st. a * b = 1
-
 pub type ProofGF2P8 = Proof<gf2::GF2P8>;
 
-/// Proof system offering 128-bits of classical (non Post Quantum) security.
-/// Proof size is ~ 46 bits / multiplication.
-/// The proof generation / verification is roughly 8 times that of ProofGF2P8
-///
-/// # Example
-///
-/// Proving that you know bits a, b st. a * b = 1
-///
-
 pub type ProofGF2P64 = Proof<gf2::GF2P64>;
+
+pub type ProofGF2P64_64 = Proof<gf2_vec::GF2P64_64>;
 
 /// Simplified interface for in-memory proofs
 /// with pre-processing verified simultaneously with online execution.
@@ -208,6 +194,7 @@ impl<D: Domain> Proof<D> {
 mod tests {
     use super::*;
     use crate::algebra::gf2::*;
+    use crate::algebra::gf2_vec::*;
     use crate::tests::*;
 
     use rand::thread_rng;
@@ -229,11 +216,8 @@ mod tests {
         Vec<D::Scalar>,              // result
     ) {
         let mut rng = thread_rng();
-        let length = rng.gen::<usize>() % 1024;
-        let memory = rng.gen::<usize>() % 2048;
-
-        let length = 10;
-        let memory = 32;
+        let length = 1 + rng.gen::<usize>() % 128;
+        let memory = 1 + rng.gen::<usize>() % 64;
 
         let (num_inputs, num_branch, program) = random_program::<D, _>(&mut rng, length, memory);
         let input = random_scalars::<D, _>(&mut rng, num_inputs);
@@ -252,22 +236,346 @@ mod tests {
     }
 
     #[test]
-    fn test_random_proof_gf2p8_regression() {
-        let test_vectors: Vec<TestVector<GF2P8>> = vec![TestVector {
-            program: vec![
-                Instruction::Input(0),
-                Instruction::Add(25, 0, 0),
-                Instruction::Branch(22),
-                Instruction::Add(28, 25, 0),
-                Instruction::Add(22, 28, 28),
-                Instruction::Input(22),
-                Instruction::Branch(11),
-                Instruction::Output(28),
-            ],
-            input: vec![BitScalar::ONE, BitScalar::ZERO],
-            branches: vec![vec![BitScalar::ONE, BitScalar::ONE]],
-            branch_index: 0,
-        }];
+    fn test_proof_gf2p8_regression() {
+        let test_vectors: Vec<TestVector<GF2P8>> = vec![
+            /*
+            TestVector {
+                program: vec![
+                    Instruction::Input(0),
+                    Instruction::Add(25, 0, 0),
+                    Instruction::Branch(22),
+                    Instruction::Add(28, 25, 0),
+                    Instruction::Add(22, 28, 28),
+                    Instruction::Input(22),
+                    Instruction::Branch(11),
+                    Instruction::Output(28),
+                ],
+                input: vec![BitScalar::ONE, BitScalar::ZERO],
+                branches: vec![vec![BitScalar::ONE, BitScalar::ONE]],
+                branch_index: 0,
+            },
+            TestVector {
+                program: vec![
+                    Instruction::Input(0),
+                    Instruction::Input(1),
+                    Instruction::Mul(2, 0, 1),
+                    Instruction::Output(2),
+                ],
+                input: vec![BitScalar::ONE, BitScalar::ONE],
+                branches: vec![vec![]],
+                branch_index: 0,
+            },
+            TestVector {
+                program: vec![
+                    Instruction::Input(0),
+                    Instruction::Input(1),
+                    Instruction::Mul(2, 0, 1),
+                    Instruction::Output(2),
+                ],
+                input: vec![BitScalar::ZERO, BitScalar::ONE],
+                branches: vec![vec![]],
+                branch_index: 0,
+            },
+            */
+            TestVector {
+                program: vec![
+                    Instruction::Input(0),
+                    Instruction::Input(2),
+                    Instruction::Add(6, 2, 2),
+                    Instruction::Mul(2, 6, 6),
+                    Instruction::LocalOp(0, 2),
+                    Instruction::Output(6),
+                    Instruction::Mul(0, 2, 2),
+                    Instruction::AddConst(2, 0, BitScalar::ONE),
+                    Instruction::LocalOp(1, 2),
+                    Instruction::LocalOp(0, 2),
+                    Instruction::LocalOp(0, 0),
+                    Instruction::Branch(1),
+                    Instruction::Input(6),
+                    Instruction::Mul(1, 6, 6),
+                    Instruction::AddConst(2, 2, BitScalar::ZERO),
+                    Instruction::Branch(4),
+                    Instruction::Add(5, 0, 2),
+                    Instruction::Mul(0, 6, 0),
+                    Instruction::Input(2),
+                    Instruction::MulConst(5, 1, BitScalar::ONE),
+                    Instruction::Output(2),
+                ],
+                input: vec![
+                    BitScalar::ONE,
+                    BitScalar::ZERO,
+                    BitScalar::ZERO,
+                    BitScalar::ZERO,
+                ],
+                branches: vec![vec![BitScalar::ZERO, BitScalar::ZERO]],
+                branch_index: 0,
+            },
+            TestVector {
+                program: vec![
+                    Instruction::Input(0),
+                    Instruction::Branch(1),
+                    Instruction::LocalOp(16, 1),
+                    Instruction::AddConst(2, 0, BitScalar::ONE),
+                    Instruction::Output(0),
+                    Instruction::Add(27, 2, 1),
+                    Instruction::AddConst(29, 0, BitScalar::ONE),
+                    Instruction::Input(20),
+                    Instruction::Add(33, 1, 20),
+                    Instruction::Add(17, 27, 1),
+                    Instruction::AddConst(24, 17, BitScalar::ZERO),
+                    Instruction::MulConst(0, 17, BitScalar::ONE),
+                    Instruction::Input(16),
+                    Instruction::Input(21),
+                    Instruction::Input(14),
+                    Instruction::LocalOp(15, 0),
+                    Instruction::Mul(18, 16, 2),
+                    Instruction::Output(0),
+                    Instruction::AddConst(17, 14, BitScalar::ZERO),
+                    Instruction::AddConst(18, 33, BitScalar::ONE),
+                    Instruction::MulConst(9, 21, BitScalar::ZERO),
+                    Instruction::Mul(33, 16, 9),
+                    Instruction::Branch(1),
+                    Instruction::Branch(16),
+                    Instruction::MulConst(23, 20, BitScalar::ONE),
+                    Instruction::Branch(9),
+                    Instruction::Input(20),
+                    Instruction::Output(16),
+                    Instruction::Branch(13),
+                    Instruction::Mul(30, 14, 24),
+                    Instruction::Mul(28, 24, 16),
+                    Instruction::Branch(22),
+                    Instruction::MulConst(32, 27, BitScalar::ONE),
+                    Instruction::Branch(22),
+                    Instruction::Branch(13),
+                    Instruction::Branch(28),
+                    Instruction::Output(9),
+                    Instruction::LocalOp(19, 0),
+                    Instruction::AddConst(6, 28, BitScalar::ZERO),
+                    Instruction::AddConst(27, 17, BitScalar::ZERO),
+                    Instruction::MulConst(13, 22, BitScalar::ZERO),
+                    Instruction::Mul(13, 13, 30),
+                    Instruction::Branch(22),
+                    Instruction::AddConst(33, 6, BitScalar::ONE),
+                    Instruction::Branch(29),
+                    Instruction::Input(17),
+                    Instruction::MulConst(31, 33, BitScalar::ONE),
+                    Instruction::Mul(14, 9, 29),
+                    Instruction::Branch(28),
+                    Instruction::Branch(33),
+                    Instruction::MulConst(34, 24, BitScalar::ZERO),
+                    Instruction::MulConst(12, 27, BitScalar::ONE),
+                    Instruction::Branch(22),
+                    Instruction::Add(12, 29, 20),
+                    Instruction::Branch(26),
+                    Instruction::MulConst(9, 30, BitScalar::ONE),
+                    Instruction::LocalOp(28, 33),
+                    Instruction::Branch(23),
+                    Instruction::Add(5, 14, 28),
+                    Instruction::Mul(24, 23, 0),
+                ],
+                input: vec![
+                    BitScalar::ONE,
+                    BitScalar::ZERO,
+                    BitScalar::ZERO,
+                    BitScalar::ONE,
+                    BitScalar::ZERO,
+                    BitScalar::ONE,
+                    BitScalar::ZERO,
+                ],
+                branches: vec![vec![
+                    BitScalar::ONE,
+                    BitScalar::ZERO,
+                    BitScalar::ONE,
+                    BitScalar::ZERO,
+                    BitScalar::ONE,
+                    BitScalar::ZERO,
+                    BitScalar::ONE,
+                    BitScalar::ONE,
+                    BitScalar::ONE,
+                    BitScalar::ONE,
+                    BitScalar::ONE,
+                    BitScalar::ONE,
+                    BitScalar::ONE,
+                    BitScalar::ONE,
+                    BitScalar::ONE,
+                    BitScalar::ONE,
+                ]],
+                branch_index: 0,
+            },
+            TestVector {
+                program: vec![
+                    Instruction::Input(0),
+                    Instruction::Output(0),
+                    Instruction::MulConst(156, 0, BitScalar::ZERO),
+                    Instruction::Input(85),
+                    Instruction::Branch(161),
+                    Instruction::LocalOp(63, 0),
+                    Instruction::LocalOp(60, 161),
+                    Instruction::AddConst(101, 161, BitScalar::ZERO),
+                    Instruction::Branch(45),
+                    Instruction::Add(58, 156, 156),
+                    Instruction::LocalOp(36, 85),
+                    Instruction::Mul(82, 45, 156),
+                    Instruction::Input(12),
+                    Instruction::AddConst(77, 58, BitScalar::ONE),
+                    Instruction::Input(57),
+                    Instruction::Add(12, 0, 85),
+                    Instruction::MulConst(76, 156, BitScalar::ONE),
+                    Instruction::LocalOp(46, 161),
+                    Instruction::Mul(36, 12, 161),
+                    Instruction::MulConst(58, 58, BitScalar::ZERO),
+                    Instruction::MulConst(150, 0, BitScalar::ONE),
+                    Instruction::Add(65, 58, 76),
+                    Instruction::MulConst(28, 58, BitScalar::ONE),
+                    Instruction::AddConst(21, 45, BitScalar::ONE),
+                    Instruction::MulConst(72, 161, BitScalar::ONE),
+                    Instruction::MulConst(9, 12, BitScalar::ZERO),
+                    Instruction::AddConst(75, 58, BitScalar::ONE),
+                    Instruction::Input(195),
+                    Instruction::Branch(66),
+                    Instruction::Branch(68),
+                    Instruction::LocalOp(82, 85),
+                    Instruction::AddConst(197, 150, BitScalar::ONE),
+                    Instruction::AddConst(71, 21, BitScalar::ONE),
+                    Instruction::AddConst(71, 58, BitScalar::ONE),
+                    Instruction::MulConst(210, 28, BitScalar::ONE),
+                    Instruction::Input(39),
+                    Instruction::Mul(168, 77, 57),
+                    Instruction::Mul(174, 58, 12),
+                    Instruction::AddConst(17, 57, BitScalar::ONE),
+                    Instruction::Output(45),
+                    Instruction::Add(209, 12, 210),
+                    Instruction::Output(12),
+                    Instruction::Mul(93, 82, 195),
+                    Instruction::Mul(195, 71, 150),
+                    Instruction::LocalOp(5, 17),
+                    Instruction::Output(58),
+                    Instruction::LocalOp(13, 174),
+                    Instruction::MulConst(68, 156, BitScalar::ONE),
+                    Instruction::LocalOp(9, 101),
+                    Instruction::Branch(44),
+                    Instruction::LocalOp(54, 195),
+                    Instruction::Input(211),
+                    Instruction::AddConst(28, 58, BitScalar::ZERO),
+                    Instruction::Branch(168),
+                    Instruction::Mul(188, 82, 12),
+                    Instruction::Mul(149, 197, 39),
+                    Instruction::Branch(184),
+                    Instruction::Add(24, 66, 17),
+                    Instruction::Input(191),
+                    Instruction::MulConst(106, 188, BitScalar::ZERO),
+                    Instruction::MulConst(102, 21, BitScalar::ZERO),
+                    Instruction::LocalOp(129, 0),
+                    Instruction::Add(59, 93, 149),
+                    Instruction::Add(170, 150, 58),
+                    Instruction::Mul(68, 58, 75),
+                    Instruction::MulConst(203, 76, BitScalar::ONE),
+                    Instruction::MulConst(111, 76, BitScalar::ONE),
+                    Instruction::MulConst(24, 93, BitScalar::ONE),
+                    Instruction::Mul(73, 209, 68),
+                    Instruction::Mul(174, 39, 174),
+                    Instruction::Branch(186),
+                    Instruction::Branch(133),
+                    Instruction::Add(127, 21, 39),
+                    Instruction::LocalOp(182, 106),
+                    Instruction::AddConst(27, 93, BitScalar::ZERO),
+                    Instruction::AddConst(158, 188, BitScalar::ONE),
+                    Instruction::LocalOp(14, 170),
+                    Instruction::Input(86),
+                    Instruction::Branch(155),
+                    Instruction::Branch(81),
+                    Instruction::Input(94),
+                    Instruction::MulConst(168, 9, BitScalar::ONE),
+                    Instruction::Branch(63),
+                    Instruction::Output(150),
+                    Instruction::Mul(62, 66, 106),
+                    Instruction::Output(71),
+                    Instruction::AddConst(188, 210, BitScalar::ZERO),
+                    Instruction::Mul(19, 59, 170),
+                    Instruction::AddConst(97, 195, BitScalar::ONE),
+                    Instruction::Add(36, 24, 62),
+                    Instruction::Branch(184),
+                    Instruction::Output(63),
+                    Instruction::Branch(145),
+                    Instruction::LocalOp(179, 58),
+                    Instruction::Input(179),
+                    Instruction::Add(212, 75, 57),
+                    Instruction::Add(162, 12, 45),
+                    Instruction::Input(147),
+                    Instruction::Add(149, 62, 174),
+                    Instruction::Output(197),
+                    Instruction::Output(85),
+                    Instruction::Input(164),
+                    Instruction::LocalOp(201, 76),
+                    Instruction::Input(156),
+                    Instruction::Output(161),
+                    Instruction::Input(78),
+                    Instruction::MulConst(1, 156, BitScalar::ZERO),
+                    Instruction::Mul(94, 36, 57),
+                    Instruction::AddConst(14, 168, BitScalar::ZERO),
+                    Instruction::Add(26, 65, 184),
+                    Instruction::Input(11),
+                    Instruction::AddConst(71, 101, BitScalar::ONE),
+                    Instruction::Add(30, 174, 58),
+                    Instruction::AddConst(172, 71, BitScalar::ONE),
+                    Instruction::Add(16, 111, 145),
+                    Instruction::AddConst(73, 155, BitScalar::ZERO),
+                    Instruction::AddConst(144, 97, BitScalar::ONE),
+                    Instruction::MulConst(123, 71, BitScalar::ONE),
+                    Instruction::Input(125),
+                    Instruction::Input(23),
+                    Instruction::Add(200, 179, 209),
+                    Instruction::Add(123, 30, 197),
+                    Instruction::Input(23),
+                    Instruction::Mul(22, 200, 26),
+                    Instruction::Output(123),
+                    Instruction::Output(93),
+                ],
+                input: vec![
+                    BitScalar::ONE,
+                    BitScalar::ZERO,
+                    BitScalar::ONE,
+                    BitScalar::ONE,
+                    BitScalar::ZERO,
+                    //
+                    BitScalar::ZERO,
+                    BitScalar::ZERO,
+                    BitScalar::ZERO,
+                    BitScalar::ONE,
+                    BitScalar::ZERO,
+                    //
+                    BitScalar::ONE,
+                    BitScalar::ZERO,
+                    BitScalar::ONE,
+                    BitScalar::ONE,
+                    BitScalar::ONE,
+                    //
+                    BitScalar::ONE,
+                    BitScalar::ZERO,
+                    BitScalar::ONE,
+                    BitScalar::ZERO,
+                ],
+                branches: vec![vec![
+                    BitScalar::ZERO,
+                    BitScalar::ZERO,
+                    BitScalar::ZERO,
+                    BitScalar::ONE,
+                    BitScalar::ZERO,
+                    //
+                    BitScalar::ONE,
+                    BitScalar::ONE,
+                    BitScalar::ZERO,
+                    BitScalar::ONE,
+                    BitScalar::ZERO,
+                    //
+                    BitScalar::ZERO,
+                    BitScalar::ONE,
+                    BitScalar::ZERO,
+                    BitScalar::ONE,
+                ]],
+                branch_index: 0,
+            },
+        ];
 
         for test in test_vectors.iter() {
             let output = evaluate_program::<GF2P8>(
@@ -288,32 +596,39 @@ mod tests {
         }
     }
 
+    // This test takes a while.
+    // Running the prover in debug build is very slow.
     #[test]
     fn test_random_proof_gf2p8() {
-        for _ in 0..50 {
+        for _ in 0..10 {
             let (program, input, branches, branch_index, output) = random_instance::<GF2P8>();
-
-            println!("{:?}", program);
             let proof = ProofGF2P8::new(program.clone(), branches.clone(), input, branch_index);
             let verifier_output = proof.verify(program, branches).unwrap();
             assert_eq!(verifier_output, output);
         }
     }
 
+    // This test takes a while.
+    // Running the prover in debug build is very slow.
     #[test]
-    fn test_proof() {
-        let program: Vec<Instruction<BitScalar>> = vec![
-            Instruction::Branch(0),
-            Instruction::Input(1),
-            Instruction::Mul(2, 0, 1),
-            Instruction::Output(2),
-        ];
-        let branches: Vec<Vec<BitScalar>> = vec![vec![BitScalar::ONE], vec![BitScalar::ZERO]];
-        let witness: Vec<BitScalar> = vec![BitScalar::ONE];
-        let branch_index: usize = 0;
-        let proof = ProofGF2P8::new(program.clone(), branches.clone(), witness, branch_index);
+    fn test_random_proof_gf2p64() {
+        for _ in 0..10 {
+            let (program, input, branches, branch_index, output) = random_instance::<GF2P64>();
+            let proof = ProofGF2P64::new(program.clone(), branches.clone(), input, branch_index);
+            let verifier_output = proof.verify(program, branches).unwrap();
+            assert_eq!(verifier_output, output);
+        }
+    }
 
-        let output = proof.verify(program, branches).unwrap();
-        println!("{:?}", output);
+    // This test takes a while.
+    // Running the prover in debug build is very slow.
+    #[test]
+    fn test_random_proof_gf2p64_64() {
+        for _ in 0..10 {
+            let (program, input, branches, branch_index, output) = random_instance::<GF2P64_64>();
+            let proof = ProofGF2P64_64::new(program.clone(), branches.clone(), input, branch_index);
+            let verifier_output = proof.verify(program, branches).unwrap();
+            assert_eq!(verifier_output, output);
+        }
     }
 }

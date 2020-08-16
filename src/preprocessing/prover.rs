@@ -200,6 +200,14 @@ impl<D: Domain> PreprocessingExecution<D> {
                 Instruction::AddConst(dst, src, _c) => {
                     // noop in pre-processing
                     self.masks.set(dst, self.masks.get(src));
+
+                    // return mask for debugging
+                    #[cfg(test)]
+                    #[cfg(debug_assertions)]
+                    #[cfg(feature = "debug_eval")]
+                    {
+                        masks.write(self.masks.get(dst));
+                    }
                 }
                 Instruction::MulConst(dst, src, c) => {
                     // resolve input
@@ -207,10 +215,26 @@ impl<D: Domain> PreprocessingExecution<D> {
 
                     // let the single element act on the vector
                     self.masks.set(dst, sw.action(c));
+
+                    // return mask for debugging
+                    #[cfg(test)]
+                    #[cfg(debug_assertions)]
+                    #[cfg(feature = "debug_eval")]
+                    {
+                        masks.write(self.masks.get(dst));
+                    }
                 }
                 Instruction::Add(dst, src1, src2) => {
                     self.masks
                         .set(dst, self.masks.get(src1) + self.masks.get(src2));
+
+                    // return mask for debugging
+                    #[cfg(test)]
+                    #[cfg(debug_assertions)]
+                    #[cfg(feature = "debug_eval")]
+                    {
+                        masks.write(self.masks.get(dst));
+                    }
                 }
                 Instruction::Mul(dst, src1, src2) => {
                     // push the input masks to the stack
@@ -230,6 +254,14 @@ impl<D: Domain> PreprocessingExecution<D> {
                     // if the batch is full, generate next batch of ab_gamma shares
                     if self.share_a.len() == D::Batch::DIMENSION {
                         self.generate(ab_gamma, corrections, &mut batch_a, &mut batch_b);
+                    }
+
+                    // return mask for debugging
+                    #[cfg(test)]
+                    #[cfg(debug_assertions)]
+                    #[cfg(feature = "debug_eval")]
+                    {
+                        masks.write(self.masks.get(dst));
                     }
                 }
                 Instruction::Output(src) => {

@@ -18,17 +18,18 @@ impl Packable for BitScalar {
     ) -> io::Result<()> {
         let mut pac = 0u8;
         let mut rem = 0;
+
         for bit in elems.cloned() {
-            pac = (pac << 1) | bit.0;
+            pac <<= 1;
+            pac |= bit.0;
             rem += 1;
-            if rem == 0 {
+            if rem == 8 {
                 dst.write_all(&[pac])?;
                 rem = 0;
             }
         }
-
-        // pad with zero bits
-        if rem > 0 {
+        if rem != 0 {
+            debug_assert!(rem < 8);
             pac = pac << (8 - rem);
             dst.write_all(&[pac])
         } else {

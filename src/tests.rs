@@ -40,7 +40,9 @@ pub fn evaluate_program<D: Domain>(
             Instruction::Branch(dst) => {
                 wires.set(dst, branch.next().unwrap());
             }
-            Instruction::LocalOp(_dst, _src) => unimplemented!(),
+            Instruction::LocalOp(dst, src) => {
+                wires.set(dst, wires.get(src).operation());
+            }
             Instruction::Add(dst, src1, src2) => {
                 wires.set(dst, wires.get(src1) + wires.get(src2));
             }
@@ -82,7 +84,7 @@ pub fn random_program<D: Domain, R: RngCore>(
         let src2: usize = assigned[rng.gen::<usize>() % assigned.len()];
 
         // pick random instruction
-        match rng.gen::<usize>() % 7 {
+        match rng.gen::<usize>() % 8 {
             0 => {
                 program.push(Instruction::Input(dst));
                 assigned.push(dst);
@@ -112,6 +114,7 @@ pub fn random_program<D: Domain, R: RngCore>(
             6 => {
                 program.push(Instruction::Output(src1));
             }
+            7 => program.push(Instruction::LocalOp(dst, src1)),
             _ => unreachable!(),
         }
     }

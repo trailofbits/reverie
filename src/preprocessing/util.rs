@@ -83,7 +83,8 @@ impl<D: Domain> ShareGenerator<D> {
     }
 
     pub fn next(&mut self) -> D::Sharing {
-        if self.next >= self.shares.len() {
+        if self.next >= D::Batch::DIMENSION {
+            debug_assert_eq!(self.next, self.shares.len());
             for i in 0..D::PLAYERS {
                 self.batches[i] = D::Batch::gen(&mut self.prgs[i]);
             }

@@ -155,9 +155,11 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>> + Clone> StreamingVe
                             corrections_hash.update(elem);
                         }
 
-                        // run (partial) preprocessing on next chunk
+                        // reset preprocessing output buffers
                         masks.clear();
                         ab_gamma.clear();
+
+                        // run (partial) preprocessing on next chunk
                         preprocessing.process(
                             &program[..],
                             &corrections[..],
@@ -182,9 +184,23 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>> + Clone> StreamingVe
                                     Instruction::LocalOp(dst, src) => {
                                         let w: D::Scalar = wires.get(src);
                                         wires.set(dst, w.operation());
+                                        #[cfg(feature = "trace")]
+                                        {
+                                            println!(
+                                                "verifier-perm  : wire = {:?}",
+                                                wires.get(dst)
+                                            );
+                                        }
                                     }
                                     Instruction::Input(dst) => {
                                         wires.set(dst, witness.next()?);
+                                        #[cfg(feature = "trace")]
+                                        {
+                                            println!(
+                                                "verifier-input : wire = {:?}",
+                                                wires.get(dst)
+                                            );
+                                        }
                                     }
                                     Instruction::Branch(dst) => {
                                         wires.set(dst, branch.next()?);
@@ -201,6 +217,13 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>> + Clone> StreamingVe
                                         let a_w = wires.get(src1);
                                         let b_w = wires.get(src2);
                                         wires.set(dst, a_w + b_w);
+                                        #[cfg(feature = "trace")]
+                                        {
+                                            println!(
+                                                "verifier-add   : a_w = {:?}, b_w = {:?}",
+                                                a_w, b_w,
+                                            );
+                                        }
                                     }
                                     Instruction::Mul(dst, src1, src2) => {
                                         // calculate reconstruction shares for every player
