@@ -8,7 +8,7 @@ mod tests;
 
 use crate::algebra::{Domain, RingElement};
 use crate::crypto::{Hash, MerkleSetProof, RingHasher, TreePRF, KEY_SIZE};
-use crate::fs::View;
+
 use crate::preprocessing;
 use crate::Instruction;
 
@@ -68,98 +68,4 @@ impl<D: Domain> Output<D> {
     pub(super) fn unsafe_output(&self) -> &[D::Scalar] {
         &self.result[..]
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    use async_channel::bounded;
-    use async_std::task;
-
-    use rand::thread_rng;
-    use rand_core::RngCore;
-
-    use crate::algebra::gf2::*;
-    use crate::algebra::Domain;
-    use crate::preprocessing::PreprocessingOutput;
-
-    /*
-    #[test]
-    fn test_streaming() {
-        let mut rng = rand::thread_rng();
-
-        let program: Vec<Instruction<BitScalar>> = vec![
-            Instruction::Input(0),
-            Instruction::Input(1),
-            Instruction::Input(2),
-            Instruction::Input(3),
-            Instruction::Add(5, 0, 1), // 1
-            Instruction::Mul(4, 5, 2), // 1
-            Instruction::Output(4),
-            Instruction::Output(5),
-        ];
-
-        let inputs: Vec<BitScalar> = vec![
-            BitScalar::ONE,
-            BitScalar::ZERO,
-            BitScalar::ONE,
-            BitScalar::ZERO,
-        ];
-
-        let seed: [u8; KEY_SIZE] = [1u8; KEY_SIZE];
-        let branch: Vec<BitScalar> = vec![];
-        let branches: Vec<&[BitScalar]> = vec![&branch];
-        let (proof, output) =
-            preprocessing::Proof::<GF2P8>::new(seed, &branches[..], program.iter().cloned());
-
-        let prover = task::block_on(StreamingProver::new(
-            output,
-            0,
-            program.iter().cloned(),
-            inputs.iter().cloned(),
-        ));
-
-        prover.stream()
-
-
-        pub async fn stream<
-            PI: Iterator<Item = Instruction<D::Scalar>>,
-            WI: Iterator<Item = D::Scalar>,
-        >(
-            self,
-            dst: Sender<Vec<u8>>,
-            mut program: PI,
-            mut witness: WI,
-        ) -> Result<(), SendError<Vec<u8>>> {
-    }
-
-    fn test_proof<D: Domain, const N: usize, const NT: usize, const R: usize>(
-        program: &[Instruction<D::Scalar>],
-        inputs: &[D::Scalar],
-    ) {
-        let mut rng = thread_rng();
-        let mut seeds: [[u8; KEY_SIZE]; R] = [[0; KEY_SIZE]; R];
-        for i in 0..R {
-            rng.fill_bytes(&mut seeds[i]);
-        }
-
-        // create a proof of the program execution
-        let (proof, p): (_, prover::StreamingProver<D, _, _, R, N, NT>) =
-            prover::StreamingProver::new(
-                PreprocessingOutput::dummy(),
-                program.iter().cloned(),
-                inputs.iter().cloned(),
-            );
-
-        let (send, recv) = bounded(5);
-
-        task::block_on(p.stream(send)).unwrap();
-
-        let v = verifier::StreamingVerifier::new(program.iter().cloned(), proof);
-
-        task::block_on(v.verify(recv)).unwrap();
-    }
-
-    */
 }

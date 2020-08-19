@@ -23,7 +23,7 @@ pub mod preprocessing;
 pub mod online;
 
 // abstraction for Fiat-Shamir
-mod fs;
+mod oracle;
 
 // puncturable PRF abstractions
 mod crypto;

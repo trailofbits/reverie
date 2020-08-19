@@ -7,7 +7,7 @@ pub mod verifier;
 use crate::algebra::*;
 use crate::consts::*;
 use crate::crypto::*;
-use crate::fs::*;
+use crate::oracle::RandomOracle;
 use crate::util::*;
 use crate::Instruction;
 
@@ -231,13 +231,11 @@ impl<D: Domain> Proof<D> {
 
         // feed to the Random-Oracle
         let mut challenge_prg = {
-            let mut oracle: View = View::new();
-            let mut scope: Scope = oracle.scope(LABEL_SCOPE_AGGREGATE_COMMIT);
+            let mut oracle = RandomOracle::new(CONTEXT_ORACLE_PREPROCESSING, None);
             for hash in hashes.iter() {
-                scope.join(hash);
+                oracle.feed(hash.as_bytes());
             }
-            mem::drop(scope);
-            oracle.prg(LABEL_RNG_OPEN_PREPROCESSING)
+            oracle.query()
         };
 
         // accept if the hidden indexes where computed correctly (Fiat-Shamir transform)
@@ -276,13 +274,11 @@ impl<D: Domain> Proof<D> {
 
         // send the pre-processing commitments to the random oracle, receive challenges
         let mut challenge_prg = {
-            let mut oracle: View = View::new();
-            let mut scope: Scope = oracle.scope(LABEL_SCOPE_AGGREGATE_COMMIT);
+            let mut oracle = RandomOracle::new(CONTEXT_ORACLE_PREPROCESSING, None);
             for (hash, _) in results.iter() {
-                scope.update(hash.as_bytes());
+                oracle.feed(hash.as_bytes());
             }
-            mem::drop(scope);
-            oracle.prg(LABEL_RNG_OPEN_PREPROCESSING)
+            oracle.query()
         };
 
         // interpret the oracle response as a subset of indexes to hide

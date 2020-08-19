@@ -4,7 +4,7 @@ use super::*;
 
 use crate::algebra::{Domain, LocalOperation, Packable, RingElement, RingModule, Sharing};
 use crate::consts::*;
-use crate::fs::{Scope, View};
+use crate::oracle::RandomOracle;
 use crate::preprocessing::verifier::PreprocessingExecution;
 use crate::util::*;
 
@@ -89,7 +89,11 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>> + Clone> StreamingVe
         }
     }
 
-    pub async fn verify(mut self, mut proof: Receiver<Vec<u8>>) -> Option<Output<D>> {
+    pub async fn verify(
+        mut self,
+        bind: Option<&[u8]>,
+        mut proof: Receiver<Vec<u8>>,
+    ) -> Option<Output<D>> {
         async fn process<D: Domain>(
             run: Run<D>,
             outputs: Sender<()>,
@@ -306,12 +310,11 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>> + Clone> StreamingVe
         inputs.clear();
 
         // collect transcript hashes from all executions
-        let mut global: View = View::new();
         let mut result: Vec<D::Scalar> = vec![];
+        let mut oracle = RandomOracle::new(CONTEXT_ORACLE_ONLINE, bind);
         let mut omitted: Vec<usize> = Vec::with_capacity(D::ONLINE_REPETITIONS);
         let mut pp_hashes: Vec<Hash> = Vec::with_capacity(D::ONLINE_REPETITIONS);
         {
-            let mut scope: Scope = global.scope(LABEL_SCOPE_ONLINE_TRANSCRIPT);
             for (i, t) in tasks.into_iter().enumerate() {
                 let (preprocessing, transcript, omit, output) = t.await?;
                 if i == 0 {
@@ -322,18 +325,14 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>> + Clone> StreamingVe
                     }
                 }
                 omitted.push(omit);
-                scope.join(&preprocessing);
-                scope.join(&transcript);
+                oracle.feed(preprocessing.as_bytes());
+                oracle.feed(transcript.as_bytes());
                 pp_hashes.push(preprocessing);
             }
         }
 
         // verify opening indexes
-        let should_omit = random_vector(
-            &mut global.prg(LABEL_RNG_OPEN_ONLINE),
-            D::PLAYERS,
-            D::ONLINE_REPETITIONS,
-        );
+        let should_omit = random_vector(&mut oracle.query(), D::PLAYERS, D::ONLINE_REPETITIONS);
         if &omitted[..] != should_omit {
             return None;
         }

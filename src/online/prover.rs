@@ -4,7 +4,7 @@ use crate::algebra::Packable;
 use crate::algebra::{Domain, LocalOperation, RingModule, Sharing};
 use crate::consts::*;
 use crate::crypto::{Hash, Hasher, TreePRF};
-use crate::fs::*;
+use crate::oracle::RandomOracle;
 use crate::preprocessing::prover::PreprocessingExecution;
 use crate::preprocessing::PreprocessingOutput;
 use crate::util::*;
@@ -395,8 +395,9 @@ impl<D: Domain> StreamingProver<D> {
         PI: Iterator<Item = Instruction<D::Scalar>>,
         WI: Iterator<Item = D::Scalar>,
     >(
+        bind: Option<&[u8]>, // included Fiat-Shamir transform (for signatures)
         preprocessing: PreprocessingOutput<D>, // output of preprocessing
-        branch_index: usize,                   // branch index (from preprocessing)
+        branch_index: usize, // branch index (from preprocessing)
         mut program: PI,
         mut witness: WI,
     ) -> (Proof<D>, Self) {
@@ -536,13 +537,7 @@ impl<D: Domain> StreamingProver<D> {
             .collect();
 
         // extract which players to omit in every run (Fiat-Shamir)
-
-        let mut global: View = View::new();
-        let mut scope: Scope = global.scope(LABEL_SCOPE_ONLINE_TRANSCRIPT);
-
-        let hashes = hashes.into_iter();
-        let hidden = preprocessing.hidden.iter();
-
+        let mut oracle = RandomOracle::new(CONTEXT_ORACLE_ONLINE, bind);
         let mut masked_branches = Vec::with_capacity(D::ONLINE_REPETITIONS);
 
         for (pp, t) in preprocessing.hidden.iter().zip(tasks.into_iter()) {
@@ -550,17 +545,12 @@ impl<D: Domain> StreamingProver<D> {
             masked_branches.push((masked, proof));
 
             // RO((preprocessing, transcript))
-            scope.join(&pp.union);
-            scope.join(&transcript);
+            oracle.feed(pp.union.as_bytes());
+            oracle.feed(transcript.as_bytes());
         }
 
-        mem::drop(scope);
-
-        let omitted: Vec<usize> = random_vector(
-            &mut global.prg(LABEL_RNG_OPEN_ONLINE),
-            D::PLAYERS,
-            D::ONLINE_REPETITIONS,
-        );
+        let omitted: Vec<usize> =
+            random_vector(&mut oracle.query(), D::PLAYERS, D::ONLINE_REPETITIONS);
 
         debug_assert_eq!(omitted.len(), D::ONLINE_REPETITIONS);
 

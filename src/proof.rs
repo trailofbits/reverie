@@ -46,6 +46,7 @@ impl<D: Domain> Proof<D> {
             pp_output: preprocessing::PreprocessingOutput<D>,
         ) -> Option<online::Proof<D>> {
             let (online, prover) = online::StreamingProver::new(
+                None,
                 pp_output,
                 branch_index,
                 program.clone().iter().cloned(),
@@ -104,7 +105,7 @@ impl<D: Domain> Proof<D> {
             recv: Receiver<Vec<u8>>,
         ) -> Option<online::Output<D>> {
             let verifier = online::StreamingVerifier::new(program.iter().cloned(), proof);
-            verifier.verify(recv).await
+            verifier.verify(None, recv).await
         }
 
         async fn preprocessing_verification<D: Domain>(
