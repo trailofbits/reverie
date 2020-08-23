@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 pub struct Scalar(pub(super) Batch);
 
 impl Scalar {
-    pub fn new(v: u64) -> Scalar {
+    pub const fn new(v: u64) -> Scalar {
         Scalar(Batch(v))
     }
 }

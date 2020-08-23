@@ -14,6 +14,8 @@ use serde::{Deserialize, Serialize};
 
 use std::sync::Arc;
 
+use bincode::Serializer;
+
 const CHANNEL_CAPACITY: usize = 100;
 
 pub type ProofGF2P8 = Proof<gf2::GF2P8>;
@@ -31,8 +33,18 @@ pub struct Proof<D: Domain> {
     chunks: Vec<Vec<u8>>,
 }
 
+impl<D: Domain> Proof<D>
+where
+    D: Serialize,
+{
+    pub fn serialize(&self) -> Vec<u8> {
+        bincode::serialize(self).unwrap()
+    }
+}
+
 impl<D: Domain> Proof<D> {
     async fn new_async(
+        bind: Option<Vec<u8>>,
         program: Arc<Vec<Instruction<D::Scalar>>>,
         branches: Arc<Vec<Vec<D::Scalar>>>,
         branch_index: usize,
@@ -40,13 +52,14 @@ impl<D: Domain> Proof<D> {
     ) -> Self {
         async fn online_proof<D: Domain>(
             send: Sender<Vec<u8>>,
+            bind: Option<Vec<u8>>,
             program: Arc<Vec<Instruction<D::Scalar>>>,
             branch_index: usize,
             witness: Arc<Vec<D::Scalar>>,
             pp_output: preprocessing::PreprocessingOutput<D>,
         ) -> Option<online::Proof<D>> {
             let (online, prover) = online::StreamingProver::new(
-                None,
+                bind.as_ref().map(|x| &x[..]),
                 pp_output,
                 branch_index,
                 program.clone().iter().cloned(),
@@ -74,6 +87,7 @@ impl<D: Domain> Proof<D> {
         let (send, recv) = bounded(CHANNEL_CAPACITY);
         let prover_task = task::spawn(online_proof(
             send,
+            bind,
             program.clone(),
             branch_index,
             witness.clone(),
@@ -96,16 +110,18 @@ impl<D: Domain> Proof<D> {
 
     async fn verify_async(
         &self,
+        bind: Option<Vec<u8>>,
         branches: Arc<Vec<Vec<D::Scalar>>>,
         program: Arc<Vec<Instruction<D::Scalar>>>,
     ) -> Option<Vec<D::Scalar>> {
         async fn online_verification<D: Domain>(
+            bind: Option<Vec<u8>>,
             program: Arc<Vec<Instruction<D::Scalar>>>,
             proof: online::Proof<D>,
             recv: Receiver<Vec<u8>>,
         ) -> Option<online::Output<D>> {
             let verifier = online::StreamingVerifier::new(program.iter().cloned(), proof);
-            verifier.verify(None, recv).await
+            verifier.verify(bind.as_ref().map(|x| &x[..]), recv).await
         }
 
         async fn preprocessing_verification<D: Domain>(
@@ -126,7 +142,12 @@ impl<D: Domain> Proof<D> {
 
         // verify the online execution
         let (send, recv) = bounded(CHANNEL_CAPACITY);
-        let task_online = task::spawn(online_verification(program, self.online.clone(), recv));
+        let task_online = task::spawn(online_verification(
+            bind,
+            program,
+            self.online.clone(),
+            recv,
+        ));
 
         // send proof to the online verifier
         for chunk in self.chunks.clone().into_iter() {
@@ -157,12 +178,14 @@ impl<D: Domain> Proof<D> {
     ///
     /// A stand alone proof for both online and preprocessing execution.
     pub fn new(
+        bind: Option<Vec<u8>>,
         program: Vec<Instruction<D::Scalar>>,
         branches: Vec<Vec<D::Scalar>>,
         witness: Vec<D::Scalar>,
         branch_index: usize,
     ) -> Self {
         task::block_on(Self::new_async(
+            bind,
             Arc::new(program),
             Arc::new(branches),
             branch_index,
@@ -184,10 +207,11 @@ impl<D: Domain> Proof<D> {
     /// If the proof is invalid: None.
     pub fn verify(
         &self,
+        bind: Option<Vec<u8>>,
         program: Vec<Instruction<D::Scalar>>,
         branches: Vec<Vec<D::Scalar>>,
     ) -> Option<Vec<D::Scalar>> {
-        task::block_on(self.verify_async(Arc::new(branches), Arc::new(program)))
+        task::block_on(self.verify_async(bind, Arc::new(branches), Arc::new(program)))
     }
 }
 
@@ -585,13 +609,14 @@ mod tests {
                 &test.branches[test.branch_index][..],
             );
             let proof = ProofGF2P8::new(
+                None,
                 test.program.clone(),
                 test.branches.clone(),
                 test.input.clone(),
                 test.branch_index,
             );
             let verifier_output = proof
-                .verify(test.program.clone(), test.branches.clone())
+                .verify(None, test.program.clone(), test.branches.clone())
                 .unwrap();
             assert_eq!(verifier_output, output);
         }
@@ -603,8 +628,9 @@ mod tests {
     fn test_random_proof_gf2p8() {
         for _ in 0..10 {
             let (program, input, branches, branch_index, output) = random_instance::<GF2P8>();
-            let proof = ProofGF2P8::new(program.clone(), branches.clone(), input, branch_index);
-            let verifier_output = proof.verify(program, branches).unwrap();
+            let proof =
+                ProofGF2P8::new(None, program.clone(), branches.clone(), input, branch_index);
+            let verifier_output = proof.verify(None, program, branches).unwrap();
             assert_eq!(verifier_output, output);
         }
     }
@@ -615,8 +641,9 @@ mod tests {
     fn test_random_proof_gf2p64() {
         for _ in 0..10 {
             let (program, input, branches, branch_index, output) = random_instance::<GF2P64>();
-            let proof = ProofGF2P64::new(program.clone(), branches.clone(), input, branch_index);
-            let verifier_output = proof.verify(program, branches).unwrap();
+            let proof =
+                ProofGF2P64::new(None, program.clone(), branches.clone(), input, branch_index);
+            let verifier_output = proof.verify(None, program, branches).unwrap();
             assert_eq!(verifier_output, output);
         }
     }
@@ -627,8 +654,9 @@ mod tests {
     fn test_random_proof_gf2p64_64() {
         for _ in 0..10 {
             let (program, input, branches, branch_index, output) = random_instance::<GF2P64_64>();
-            let proof = ProofGF2P64_64::new(program.clone(), branches.clone(), input, branch_index);
-            let verifier_output = proof.verify(program, branches).unwrap();
+            let proof =
+                ProofGF2P64_64::new(None, program.clone(), branches.clone(), input, branch_index);
+            let verifier_output = proof.verify(None, program, branches).unwrap();
             assert_eq!(verifier_output, output);
         }
     }

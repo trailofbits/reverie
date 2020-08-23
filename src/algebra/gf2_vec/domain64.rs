@@ -3,13 +3,15 @@ use super::scalar::Scalar;
 use super::share64::Sharing64;
 use super::Domain;
 
-#[derive(Debug, Copy, Clone)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub struct GF2P64_64();
 
 impl Domain for GF2P64_64 {
     const PLAYERS: usize = 64;
-    const PREPROCESSING_REPETITIONS: usize = 631;
-    const ONLINE_REPETITIONS: usize = 23;
+    const PREPROCESSING_REPETITIONS: usize = 1662;
+    const ONLINE_REPETITIONS: usize = 44;
 
     type Scalar = Scalar;
     type Batch = Batch;

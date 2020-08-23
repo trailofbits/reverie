@@ -33,6 +33,8 @@ mod consts;
 
 mod proof;
 
+pub use proof::{ProofGF2P64, ProofGF2P64_64, ProofGF2P8};
+
 use crate::algebra::RingElement;
 
 #[derive(Copy, Clone, Debug)]
