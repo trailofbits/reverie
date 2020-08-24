@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use std::sync::Arc;
 
-use bincode::Serializer;
+use bincode;
 
 const CHANNEL_CAPACITY: usize = 100;
 
@@ -39,6 +39,15 @@ where
 {
     pub fn serialize(&self) -> Vec<u8> {
         bincode::serialize(self).unwrap()
+    }
+}
+
+impl<'de, D: Domain> Proof<D>
+where
+    D: Deserialize<'de>,
+{
+    pub fn deserialize(&self, bytes: &'de [u8]) -> Option<Self> {
+        bincode::deserialize(bytes).ok()
     }
 }
 

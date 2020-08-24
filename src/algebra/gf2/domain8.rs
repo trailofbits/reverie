@@ -260,7 +260,7 @@ impl Domain for GF2P8 {
 mod test {
     use super::*;
 
-    use rand::{thread_rng, Rng};
+    use rand::thread_rng;
 
     // test the platform dependent optimized version against the generic implementation
     #[test]

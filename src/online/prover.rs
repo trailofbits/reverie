@@ -3,13 +3,12 @@ use super::*;
 use crate::algebra::Packable;
 use crate::algebra::{Domain, LocalOperation, RingModule, Sharing};
 use crate::consts::*;
-use crate::crypto::{Hash, Hasher, TreePRF};
+use crate::crypto::{Hash, TreePRF};
 use crate::oracle::RandomOracle;
 use crate::preprocessing::prover::PreprocessingExecution;
 use crate::preprocessing::PreprocessingOutput;
 use crate::util::*;
 
-use std::mem;
 use std::sync::Arc;
 
 use async_channel::{Receiver, SendError, Sender};
@@ -522,19 +521,6 @@ impl<D: Domain> StreamingProver<D> {
 
         // close input writers
         inputs.clear();
-
-        // join pre-processing commitments into single commitments to pre-processing execution
-        let hashes: Vec<Hash> = preprocessing
-            .hidden
-            .iter()
-            .map(|run| {
-                let mut hasher = Hasher::new();
-                for commitment in run.commitments.iter() {
-                    hasher.update(commitment.as_bytes());
-                }
-                hasher.finalize()
-            })
-            .collect();
 
         // extract which players to omit in every run (Fiat-Shamir)
         let mut oracle = RandomOracle::new(CONTEXT_ORACLE_ONLINE, bind);

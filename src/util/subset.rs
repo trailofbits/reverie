@@ -1,24 +1,20 @@
 use std::collections::HashSet;
 
+use rand::Rng;
 use rand::RngCore;
 
-use rand::seq::SliceRandom;
-
-pub fn random_permutation<R: RngCore>(rng: &mut R, len: usize) -> Vec<usize> {
-    let mut perm: Vec<usize> = (0..len).collect();
-    perm.shuffle(rng);
-    perm
-}
-
+/// pick a uniformly random usize using rejection sampling
 #[inline(always)]
 pub fn random_usize<R: RngCore>(rng: &mut R, m: usize) -> usize {
-    // generate a 128-bit integer (to minimize statistical bias)
-    let mut le_bytes: [u8; 16] = [0u8; 16];
-    rng.fill_bytes(&mut le_bytes);
-
-    // reduce mod the number of repetitions
-    let n: u128 = u128::from_le_bytes(le_bytes) % (m as u128);
-    n as usize
+    let m: u64 = m as u64;
+    let s: u32 = m.leading_zeros();
+    loop {
+        let n: u64 = u64::from_le_bytes(rng.gen());
+        let n: u64 = n >> s;
+        if n < m {
+            break n as usize;
+        }
+    }
 }
 
 pub fn random_vector<R: RngCore>(rng: &mut R, m: usize, len: usize) -> Vec<usize> {
@@ -30,6 +26,8 @@ pub fn random_vector<R: RngCore>(rng: &mut R, m: usize, len: usize) -> Vec<usize
 }
 
 pub fn random_subset<R: RngCore>(rng: &mut R, m: usize, len: usize) -> Vec<usize> {
+    debug_assert!(m >= len);
+
     let mut members: HashSet<usize> = HashSet::new();
     let mut samples: Vec<usize> = Vec::with_capacity(len);
 
@@ -43,7 +41,7 @@ pub fn random_subset<R: RngCore>(rng: &mut R, m: usize, len: usize) -> Vec<usize
         }
     }
 
-    // ensure a canonical ordering (smallest to largest)
+    // ensure a canonical ordering (smallest to largest) to enable easy comparison
     samples.sort_unstable();
     samples
 }

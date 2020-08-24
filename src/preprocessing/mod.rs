@@ -12,7 +12,6 @@ use crate::util::*;
 use crate::Instruction;
 
 use std::marker::PhantomData;
-use std::mem;
 use std::sync::Arc;
 
 use async_channel::{Receiver, SendError, Sender};

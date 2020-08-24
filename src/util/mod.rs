@@ -10,17 +10,6 @@ pub use writer::*;
 
 use std::mem;
 
-pub const fn next_pow2(mut n: usize) -> usize {
-    n -= 1;
-    n |= n >> 1;
-    n |= n >> 2;
-    n |= n >> 4;
-    n |= n >> 8;
-    n |= n >> 16;
-    n |= n >> 32;
-    n + 1
-}
-
 pub const fn log2(x: usize) -> usize {
     (mem::size_of::<usize>() * 8) - (x.leading_zeros() as usize) - 1
 }

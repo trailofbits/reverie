@@ -47,14 +47,6 @@ pub fn commit(key: &[u8; KEY_SIZE], value: &[u8]) -> Hash {
     Hash(hasher.finalize())
 }
 
-pub fn join_hashes(hashes: &[Hash]) -> Hash {
-    let mut hasher = Hasher::new();
-    for hash in hashes {
-        hasher.update(hash.as_bytes())
-    }
-    hasher.finalize()
-}
-
 pub fn kdf(context: &str, key_material: &[u8]) -> [u8; KEY_SIZE] {
     let mut output = [0u8; KEY_SIZE];
     blake3::derive_key(context, key_material, &mut output);

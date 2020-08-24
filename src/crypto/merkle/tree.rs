@@ -1,4 +1,4 @@
-use super::{Hash, Hasher};
+use crate::crypto::{Hash, Hasher};
 
 use std::sync::Arc;
 

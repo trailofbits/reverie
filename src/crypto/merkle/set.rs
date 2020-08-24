@@ -81,6 +81,7 @@ impl MerkleSet {
     }
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::crypto::{hash, KEY_SIZE};
