@@ -4,7 +4,6 @@ use std::ops::{Add, Mul, Sub};
 /// Represents an associative ring with identity
 pub trait RingElement:
     Copy
-    + Copy
     + Send
     + Sized
     + Sync
