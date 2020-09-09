@@ -394,7 +394,7 @@ impl<D: Domain> StreamingProver<D> {
         PI: Iterator<Item = Instruction<D::Scalar>>,
         WI: Iterator<Item = D::Scalar>,
     >(
-        bind: Option<&[u8]>, // included Fiat-Shamir transform (for signatures)
+        bind: Option<&[u8]>, // included Fiat-Shamir transform (for signatures of knowledge)
         preprocessing: PreprocessingOutput<D>, // output of preprocessing
         branch_index: usize, // branch index (from preprocessing)
         mut program: PI,

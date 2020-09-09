@@ -80,7 +80,7 @@ impl<D: Domain, I: Iterator<Item = D::Batch>> Iterator for ShareIterator<D, I> {
     }
 }
 
-impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>> + Clone> StreamingVerifier<D, PI> {
+impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D, PI> {
     pub fn new(program: PI, proof: Proof<D>) -> Self {
         StreamingVerifier {
             program,

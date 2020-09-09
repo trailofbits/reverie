@@ -46,6 +46,16 @@ pub struct Proof<D: Domain> {
     _ph: PhantomData<D>,
 }
 
+impl<D: Domain> Proof<D> {
+    pub fn serialize(&self) -> Vec<u8> {
+        bincode::serialize(&self).unwrap()
+    }
+
+    pub fn deserialize(encoded: &[u8]) -> Option<Self> {
+        bincode::deserialize(encoded).ok()
+    }
+}
+
 pub struct Run {
     pub(crate) seed: [u8; KEY_SIZE], // root seed
     pub(crate) union: Hash,

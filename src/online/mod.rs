@@ -35,13 +35,28 @@ pub struct Run<D: Domain> {
     _ph: PhantomData<D>,
 }
 
+/// Online execution "proof header"
+///
+/// Holds the (constant sized) state required to initialize the streaming online verifier
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Proof<D: Domain> {
     runs: Vec<Run<D>>,
     _ph: PhantomData<D>,
 }
 
-/// This ensures that the user can only get access to the output
+impl<D: Domain + Serialize> Proof<D> {
+    pub fn serialize(&self) -> Vec<u8> {
+        bincode::serialize(&self).unwrap()
+    }
+}
+
+impl<'de, D: Domain + Deserialize<'de>> Proof<D> {
+    pub fn deserialize(encoded: &'de [u8]) -> Option<Self> {
+        bincode::deserialize(encoded).ok()
+    }
+}
+
+/// This struct ensures that the user can only get access to the output (private field)
 /// by validating the online execution against a correctly validated and matching pre-processing execution.
 ///
 /// Avoiding potential misuse where the user fails to check the pre-processing.
