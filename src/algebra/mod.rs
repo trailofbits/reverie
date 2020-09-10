@@ -153,7 +153,7 @@ fn test_domain<D: Domain>() {
         );
     }
 
-    // check that reconstruction is homomorphic
+    // check that reconstruction is additively homomorphic
     for _ in 0..1000 {
         let sharings_1 = rnd_sharings::<D, _>(&mut rng);
         let sharings_2 = rnd_sharings::<D, _>(&mut rng);
