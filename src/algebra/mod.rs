@@ -12,8 +12,12 @@ use serde::{Deserialize, Serialize};
 
 mod ring;
 
+/// General purpose "bit-by-bit" domain
 pub mod gf2;
+
+/// These two domains are primarily used for bit-slicing LowMC inside the circuit
 pub mod gf2_vec;
+pub mod gf2_vec85;
 
 pub use ring::{RingElement, RingModule};
 
@@ -26,7 +30,7 @@ pub trait Samplable {
 }
 
 pub trait Packable: Sized + 'static {
-    type Error;
+    type Error: Debug;
 
     fn pack<'a, W: Write, I: Iterator<Item = &'a Self>>(dst: W, elems: I) -> io::Result<()>;
 
@@ -112,6 +116,25 @@ fn test_domain<D: Domain>() {
         sharings
     }
 
+    // check serialize of batch
+    for _ in 0..1000 {
+        // generate a random number of random batches
+        let num_batches: usize = 1 + rng.gen::<usize>() % 100;
+        let mut batches: Vec<D::Batch> = Vec::with_capacity(num_batches);
+        for _ in 0..num_batches {
+            batches.push(D::Batch::gen(&mut rng))
+        }
+
+        // serialize into a vector
+        let mut serialized: Vec<u8> = vec![];
+        D::Batch::pack(&mut serialized, batches.iter()).unwrap();
+
+        // deserialize and check equality
+        let mut result: Vec<D::Batch> = vec![];
+        D::Batch::unpack(&mut result, &serialized).unwrap();
+        assert_eq!(batches, result);
+    }
+
     // check that convert_inv is the inverse of convert
     for _ in 0..1000 {
         let batches = rnd_batches::<D, _>(&mut rng);
@@ -151,4 +174,14 @@ fn test_gf2_p8() {
 #[test]
 fn test_gf2_p64() {
     test_domain::<gf2::GF2P64>();
+}
+
+#[test]
+fn test_gf2_p64_64() {
+    test_domain::<gf2_vec::GF2P64_64>();
+}
+
+#[test]
+fn test_gf2_p64_85() {
+    test_domain::<gf2_vec85::GF2P64_85>();
 }
