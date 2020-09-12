@@ -24,6 +24,8 @@ pub type ProofGF2P64 = Proof<gf2::GF2P64>;
 
 pub type ProofGF2P64_64 = Proof<gf2_vec::GF2P64_64>;
 
+pub type ProofGF2P64_85 = Proof<gf2_vec85::GF2P64_85>;
+
 /// Simplified interface for in-memory proofs
 /// with pre-processing verified simultaneously with online execution.
 #[derive(Deserialize, Serialize)]
@@ -228,7 +230,8 @@ impl<D: Domain> Proof<D> {
 mod tests {
     use super::*;
     use crate::algebra::gf2::*;
-    use crate::algebra::gf2_vec::*;
+    use crate::algebra::gf2_vec::GF2P64_64;
+    use crate::algebra::gf2_vec85::GF2P64_85;
     use crate::tests::*;
 
     use rand::thread_rng;
@@ -665,6 +668,19 @@ mod tests {
             let (program, input, branches, branch_index, output) = random_instance::<GF2P64_64>();
             let proof =
                 ProofGF2P64_64::new(None, program.clone(), branches.clone(), input, branch_index);
+            let verifier_output = proof.verify(None, program, branches).unwrap();
+            assert_eq!(verifier_output, output);
+        }
+    }
+
+    // This test takes a while.
+    // Running the prover in debug build is very slow.
+    #[test]
+    fn test_random_proof_gf2p64_85() {
+        for _ in 0..10 {
+            let (program, input, branches, branch_index, output) = random_instance::<GF2P64_85>();
+            let proof =
+                ProofGF2P64_85::new(None, program.clone(), branches.clone(), input, branch_index);
             let verifier_output = proof.verify(None, program, branches).unwrap();
             assert_eq!(verifier_output, output);
         }
