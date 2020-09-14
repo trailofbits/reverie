@@ -1,7 +1,7 @@
 use super::Parser;
 
 use std::fs::File;
-use std::io::{self, prelude::*, BufReader};
+use std::io::{self, prelude::*, BufReader, ErrorKind};
 
 use reverie::algebra::gf2::BitScalar;
 use reverie::Instruction;
@@ -35,7 +35,17 @@ impl Parser<Instruction<BitScalar>> for InsParser {
     fn next(&mut self) -> io::Result<Option<Instruction<BitScalar>>> {
         // read instruction type
         let mut op: [u8; 1] = [0; 1];
-        self.reader.read_exact(&mut op[..])?;
+        match self.reader.read_exact(&mut op[..]) {
+            Ok(()) => (),
+            Err(e) => {
+                if e.kind() == ErrorKind::UnexpectedEof {
+                    // no more instructions
+                    return Ok(None);
+                } else {
+                    return Err(e);
+                }
+            }
+        };
 
         match op[0] {
             CODE_ADD => {

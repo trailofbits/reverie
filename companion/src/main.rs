@@ -25,7 +25,7 @@ use rand::Rng;
 
 use procfs::Meminfo;
 
-const MAX_VEC_SIZE: usize = 10 * 1024 * 1024;
+const MAX_VEC_SIZE: usize = 1024 * 1024 * 1024;
 
 const IN_MEMORY_FILE_SIZE: usize = 1024 * 1024 * 1024;
 
@@ -113,14 +113,19 @@ impl<E, P: Parser<E>> FileStreamer<E, P> {
             while let Some(elem) = parser.next()? {
                 contents.push(elem)
             }
+            println!("done");
             return Ok(FileStreamer::Memory(Arc::new(contents)));
         }
 
-        // larger files streamed in and parsed Just-in-Time
-
+        // larger files streamed in (multiple times) and parsed Just-in-Time
         Ok(FileStreamer::File(file, PhantomData))
     }
 
+    /// Reset the file stream
+    ///
+    /// For in-memory files this is a noop
+    /// For disk based files this seeks to the start and
+    /// re-initializes the (potentially) stateful parser.
     fn rewind(&self) -> io::Result<FileStream<E, P>> {
         match self {
             FileStreamer::File(file, _) => {
