@@ -59,6 +59,10 @@ impl Parser<Instruction<BitScalar>> for InsParser {
                 let src = ins[0].parse().unwrap();
                 Ok(Some(Instruction::Output(src)))
             }
+            "BRANCH" => {
+                let dst = ins[0].parse().unwrap();
+                Ok(Some(Instruction::Branch(dst)))
+            }
             _ => unimplemented!(),
         }
     }

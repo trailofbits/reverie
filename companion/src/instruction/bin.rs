@@ -28,7 +28,7 @@ fn read_index(reader: &mut BufReader<File>) -> io::Result<usize> {
 }
 
 impl Parser<Instruction<BitScalar>> for InsParser {
-    fn new(mut reader: BufReader<File>) -> io::Result<Self> {
+    fn new(reader: BufReader<File>) -> io::Result<Self> {
         Ok(InsParser { reader })
     }
 

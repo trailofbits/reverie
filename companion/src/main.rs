@@ -86,6 +86,18 @@ enum FileStream<E, P: Parser<E>> {
     File(P),
 }
 
+fn load_all<E, P: Parser<E>>(path: &str) -> io::Result<Vec<E>> {
+    let file = File::open(path)?;
+    let meta = file.metadata()?;
+    let reader = BufReader::new(file);
+    let mut contents: Vec<E> = Vec::with_capacity(meta.len() as usize / mem::size_of::<E>());
+    let mut parser = P::new(reader)?;
+    while let Some(elem) = parser.next()? {
+        contents.push(elem)
+    }
+    Ok(contents)
+}
+
 impl<E, P: Parser<E>> FileStreamer<E, P> {
     fn new(path: &str, mem_size: usize) -> io::Result<Self> {
         let file = File::open(path)?;
@@ -139,14 +151,30 @@ impl<E: Clone, P: Parser<E>> Iterator for FileStream<E, P> {
 async fn prove<
     IP: Parser<Instruction<BitScalar>> + Send + 'static,
     WP: Parser<BitScalar> + Send + 'static,
+    BP: Parser<BitScalar> + Send + 'static,
 >(
     proof_path: &str,
     program_path: &str,
     witness_path: &str,
+    branch_paths: Option<Vec<&str>>,
+    branch_index: usize,
 ) -> io::Result<()> {
-    let branches: Vec<&[BitScalar]> = vec![&[]];
-    let branch_index: usize = 0;
+    let branch_vecs: Vec<Vec<BitScalar>> = match branch_paths {
+        None => vec![vec![]],
+        Some(paths) => {
+            let mut branches = Vec::with_capacity(paths.len());
+            for path in paths {
+                branches.push(load_all::<_, BP>(path)?);
+            }
 
+            branches
+        }
+    };
+
+    // collect branch slices
+    let branches: Vec<&[BitScalar]> = branch_vecs.iter().map(|v| &v[..]).collect();
+
+    // load to memory depending on available RAM
     let mem = Meminfo::new().unwrap();
 
     // open and parse program
@@ -196,11 +224,28 @@ async fn prove<
     Ok(())
 }
 
-async fn verify<IP: Parser<Instruction<BitScalar>> + Send + 'static>(
+async fn verify<
+    IP: Parser<Instruction<BitScalar>> + Send + 'static,
+    BP: Parser<BitScalar> + Send + 'static,
+>(
     proof_path: &str,
     program_path: &str,
+    branch_paths: Option<Vec<&str>>,
 ) -> io::Result<Option<Vec<BitScalar>>> {
-    let branches: Vec<&[BitScalar]> = vec![&[]];
+    let branch_vecs: Vec<Vec<BitScalar>> = match branch_paths {
+        None => vec![vec![]],
+        Some(paths) => {
+            let mut branches = Vec::with_capacity(paths.len());
+            for path in paths {
+                branches.push(load_all::<_, BP>(path)?);
+            }
+
+            branches
+        }
+    };
+
+    // collect branch slices
+    let branches: Vec<&[BitScalar]> = branch_vecs.iter().map(|v| &v[..]).collect();
 
     // open and parse program
     let program: FileStreamer<_, IP> = FileStreamer::new(program_path, 0)?;
@@ -252,8 +297,8 @@ async fn verify<IP: Parser<Instruction<BitScalar>> + Send + 'static>(
 
 async fn async_main() -> io::Result<()> {
     let matches = App::new("Reverie Companion")
-        .version("0.1")
-        .author("Mathias H. <mathias@hall-andersen.dk>")
+        .version("0.2")
+        .author("Mathias Hall-Andersen <mathias@hall-andersen.dk>")
         .about("Provides a simple way to use Reverie.")
         .arg(
             Arg::with_name("operation")
@@ -269,6 +314,19 @@ async fn async_main() -> io::Result<()> {
                 .help("The path to the file containing the proof (source or destination)")
                 .empty_values(false)
                 .required(true),
+        )
+        .arg(
+            Arg::with_name("branch-path")
+                .long("branch-path")
+                .help("The path to a file containing branch bits (may occur multiple times)")
+                .empty_values(false)
+                .multiple(true),
+        )
+        .arg(
+            Arg::with_name("branch-index")
+                .long("branch-index")
+                .help("The index/active branch")
+                .empty_values(false),
         )
         .arg(
             Arg::with_name("witness-path")
@@ -293,46 +351,66 @@ async fn async_main() -> io::Result<()> {
         .arg(
             Arg::with_name("program-format")
                 .long("program-format")
-                .help("The format of the program input: only supports \"bristol\"")
+                .help("The format of the program input.")
                 .possible_values(&["bristol", "bin"])
                 .empty_values(false)
                 .required(true),
         )
         .get_matches();
 
+    let branches: Option<Vec<&str>> = matches.values_of("branch-path").map(|vs| vs.collect());
+
     match matches.value_of("operation").unwrap() {
-        "prove" => match matches.value_of("program-format").unwrap() {
-            "bristol" => {
-                prove::<instruction::bristol::InsParser, witness::WitParser>(
+        "prove" => {
+            let branch_index: usize = if branches.is_some() {
+                matches
+                    .value_of("branch-index")
+                    .map(|s| s.parse().unwrap())
+                    .unwrap()
+            } else {
+                0
+            };
+            match matches.value_of("program-format").unwrap() {
+                "bristol" => prove::<
+                    instruction::bristol::InsParser,
+                    witness::WitParser,
+                    witness::WitParser,
+                >(
                     matches.value_of("proof-path").unwrap(),
                     matches.value_of("program-path").unwrap(),
                     matches.value_of("witness-path").unwrap(),
+                    branches,
+                    branch_index,
                 )
-                .await
+                .await,
+                "bin" => {
+                    prove::<instruction::bin::InsParser, witness::WitParser, witness::WitParser>(
+                        matches.value_of("proof-path").unwrap(),
+                        matches.value_of("program-path").unwrap(),
+                        matches.value_of("witness-path").unwrap(),
+                        branches,
+                        branch_index,
+                    )
+                    .await
+                }
+                _ => unreachable!(),
             }
-            "bin" => {
-                prove::<instruction::bin::InsParser, witness::WitParser>(
-                    matches.value_of("proof-path").unwrap(),
-                    matches.value_of("program-path").unwrap(),
-                    matches.value_of("witness-path").unwrap(),
-                )
-                .await
-            }
-            _ => unreachable!(),
-        },
+        }
         "verify" => {
             let res = match matches.value_of("program-format").unwrap() {
                 "bristol" => {
-                    verify::<instruction::bristol::InsParser>(
+                    verify::<instruction::bristol::InsParser, witness::WitParser>(
                         matches.value_of("proof-path").unwrap(),
                         matches.value_of("program-path").unwrap(),
+                        branches,
                     )
                     .await?
                 }
                 "bin" => {
-                    verify::<instruction::bin::InsParser>(
+                    verify::<instruction::bin::InsParser, witness::WitParser>(
                         matches.value_of("proof-path").unwrap(),
                         matches.value_of("program-path").unwrap(),
+                        branches,
                     )
                     .await?
                 }
