@@ -23,6 +23,8 @@ use clap::{App, Arg};
 use rand::rngs::OsRng;
 use rand::Rng;
 
+use rayon::prelude::*;
+
 use procfs::Meminfo;
 
 const MAX_VEC_SIZE: usize = 1024 * 1024 * 1024;
@@ -153,6 +155,25 @@ impl<E: Clone, P: Parser<E>> Iterator for FileStream<E, P> {
     }
 }
 
+fn load_branches<BP: Parser<BitScalar> + Send + 'static>(
+    branch_paths: Option<Vec<&str>>,
+) -> io::Result<Vec<Vec<BitScalar>>> {
+    match branch_paths {
+        None => Ok(vec![vec![]]),
+        Some(paths) => {
+            let loads: Vec<io::Result<Vec<BitScalar>>> = paths
+                .par_iter()
+                .map(|path| load_all::<_, BP>(path))
+                .collect();
+            let mut branches: Vec<Vec<BitScalar>> = Vec::with_capacity(loads.len());
+            for load in loads.into_iter() {
+                branches.push(load?);
+            }
+            Ok(branches)
+        }
+    }
+}
+
 async fn prove<
     IP: Parser<Instruction<BitScalar>> + Send + 'static,
     WP: Parser<BitScalar> + Send + 'static,
@@ -164,17 +185,7 @@ async fn prove<
     branch_paths: Option<Vec<&str>>,
     branch_index: usize,
 ) -> io::Result<()> {
-    let branch_vecs: Vec<Vec<BitScalar>> = match branch_paths {
-        None => vec![vec![]],
-        Some(paths) => {
-            let mut branches = Vec::with_capacity(paths.len());
-            for path in paths {
-                branches.push(load_all::<_, BP>(path)?);
-            }
-
-            branches
-        }
-    };
+    let branch_vecs = load_branches::<BP>(branch_paths)?;
 
     // collect branch slices
     let branches: Vec<&[BitScalar]> = branch_vecs.iter().map(|v| &v[..]).collect();
@@ -237,17 +248,7 @@ async fn verify<
     program_path: &str,
     branch_paths: Option<Vec<&str>>,
 ) -> io::Result<Option<Vec<BitScalar>>> {
-    let branch_vecs: Vec<Vec<BitScalar>> = match branch_paths {
-        None => vec![vec![]],
-        Some(paths) => {
-            let mut branches = Vec::with_capacity(paths.len());
-            for path in paths {
-                branches.push(load_all::<_, BP>(path)?);
-            }
-
-            branches
-        }
-    };
+    let branch_vecs = load_branches::<BP>(branch_paths)?;
 
     // collect branch slices
     let branches: Vec<&[BitScalar]> = branch_vecs.iter().map(|v| &v[..]).collect();

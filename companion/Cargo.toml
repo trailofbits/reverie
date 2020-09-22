@@ -14,3 +14,4 @@ clap = "2.33.1"
 rand = "0.7.3"
 reverie = {path = "../"}
 serde = {version = "1.0", features = ["derive"]}
+rayon = "1.4"
