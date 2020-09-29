@@ -11,7 +11,7 @@ jobs:
       - name: Set nightly toolchain
         uses: actions-rs/toolchain@v1
         with:
-            toolchain: nightly
+            toolchain: nightly-2020-08-01
             override: true
 
       - name: Build

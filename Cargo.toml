@@ -2,6 +2,7 @@
 authors = ["Mathias Hall-Andersen <mathias@hall-andersen.dk>"]
 edition = "2018"
 name = "reverie"
+license = "GPLv3"
 version = "0.2.0"
 
 [dependencies]
