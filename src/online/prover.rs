@@ -553,6 +553,7 @@ impl<D: Domain> StreamingProver<D> {
                         Run {
                             proof,
                             branch,
+                            online: preprocessing.online.prove(run.idx), // add merkle tree proof for the online transcript
                             commitment: run.commitments[omit].clone(),
                             open: tree.puncture(omit),
                             _ph: PhantomData,

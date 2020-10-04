@@ -41,6 +41,7 @@ async fn feed<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>>(
 /// which dictates the subset of executions to open.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Proof<D: Domain> {
+    root: Hash,
     hidden: Vec<Hash>, // commitments to the hidden pre-processing executions
     random: TreePRF, // punctured PRF used to derive the randomness for the opened pre-processing executions
     _ph: PhantomData<D>,
@@ -57,6 +58,7 @@ impl<D: Domain> Proof<D> {
 }
 
 pub struct Run {
+    pub(crate) idx: usize,
     pub(crate) seed: [u8; KEY_SIZE], // root seed
     pub(crate) union: Hash,
     pub(crate) commitments: Vec<Hash>, // preprocessing commitment for every player
@@ -72,6 +74,7 @@ pub struct Run {
 pub struct PreprocessingOutput<D: Domain> {
     pub(crate) branches: Arc<Vec<Vec<D::Batch>>>,
     pub(crate) hidden: Vec<Run>,
+    pub online: MerkleTree,
 }
 
 pub struct Output<D: Domain> {
@@ -104,7 +107,7 @@ impl<D: Domain> Proof<D> {
         seeds: &[[u8; KEY_SIZE]],
         branches: Arc<Vec<Vec<D::Batch>>>,
         mut program: PI,
-    ) -> Vec<(Hash, Vec<Hash>)> {
+    ) -> Vec<(Hash, Vec<Hash>, Hash)> {
         assert!(
             branches.len() > 0,
             "even when the branch feature is not used, the branch should still be provided and should be a singleton list with an empty element"
@@ -115,7 +118,7 @@ impl<D: Domain> Proof<D> {
             branches: Arc<Vec<Vec<D::Batch>>>,
             outputs: Sender<()>,
             inputs: Receiver<Arc<Vec<Instruction<D::Scalar>>>>,
-        ) -> Result<(Hash, Vec<Hash>), SendError<()>> {
+        ) -> Result<(Hash, Vec<Hash>, Hash), SendError<()>> {
             let mut preprocessing: preprocessing::PreprocessingExecution<D> =
                 preprocessing::PreprocessingExecution::new(root, &branches[..]);
 
@@ -169,7 +172,8 @@ impl<D: Domain> Proof<D> {
         inputs.clear();
 
         // collect final commitments
-        let mut results: Vec<(Hash, Vec<Hash>)> = Vec::with_capacity(D::PREPROCESSING_REPETITIONS);
+        let mut results: Vec<(Hash, Vec<Hash>, Hash)> =
+            Vec::with_capacity(D::PREPROCESSING_REPETITIONS);
         for t in tasks.into_iter() {
             results.push(t.await.unwrap());
         }
@@ -225,7 +229,7 @@ impl<D: Domain> Proof<D> {
         // interleave the proved hashes with the recomputed ones
         let mut hashes = Vec::with_capacity(D::PREPROCESSING_REPETITIONS);
         {
-            let mut open_hsh = opened_results.iter().map(|(comm, _)| comm);
+            let mut open_hsh = opened_results.iter().map(|(comm, _, _)| comm);
             let mut hide_hsh = self.hidden.iter();
             for open in opened {
                 if open {
@@ -244,6 +248,7 @@ impl<D: Domain> Proof<D> {
             for hash in hashes.iter() {
                 oracle.feed(hash.as_bytes());
             }
+            oracle.feed(self.root.as_bytes());
             oracle.query()
         };
 
@@ -281,12 +286,22 @@ impl<D: Domain> Proof<D> {
         // block and wait for hashes to compute
         let results = task::block_on(Self::preprocess(&roots[..], branches.clone(), program));
 
+        // add online transcripts to Merkle tree
+        let mt = {
+            let mut online = Vec::with_capacity(results.len());
+            for (_, _, trans) in results.iter() {
+                online.push(trans.clone());
+            }
+            MerkleTree::new(&online[..])
+        };
+
         // send the pre-processing commitments to the random oracle, receive challenges
         let mut challenge_prg = {
             let mut oracle = RandomOracle::new(CONTEXT_ORACLE_PREPROCESSING, None);
-            for (hash, _) in results.iter() {
+            for (hash, _, _) in results.iter() {
                 oracle.feed(hash.as_bytes());
             }
+            oracle.feed(mt.root().as_bytes()); // add online transcripts to oracle query
             oracle.query()
         };
 
@@ -322,6 +337,7 @@ impl<D: Domain> Proof<D> {
 
             // add to the preprocessing output
             hidden_runs.push(Run {
+                idx: i,
                 seed: roots[i],
                 union: result.0.clone(),
                 commitments: result.1,
@@ -334,12 +350,14 @@ impl<D: Domain> Proof<D> {
         (
             // proof (used by the verifier)
             Proof {
+                root: mt.root().clone(),
                 hidden: hidden_hashes,
                 random: tree,
                 _ph: PhantomData,
             },
             // randomness used to re-executed the hidden views (used by the prover)
             PreprocessingOutput {
+                online: mt,
                 branches,
                 hidden: hidden_runs,
             },

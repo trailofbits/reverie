@@ -21,6 +21,9 @@ pub struct PreprocessingExecution<D: Domain> {
     // sharings
     shares: SharesGenerator<D>,
 
+    // transcript hasher
+    transcript: RingHasher<D::Sharing>,
+
     // Beaver multiplication state
     corrections_prg: Vec<PRG>,
     corrections: RingHasher<D::Batch>, // player 0 corrections
@@ -67,6 +70,7 @@ impl<D: Domain> PreprocessingExecution<D> {
         // aggregate branch hashes into Merkle tree and return pre-processor for circuit
         PreprocessingExecution {
             root,
+            transcript: RingHasher::new(),
             commitments,
             corrections_prg: player_seeds
                 .iter()
@@ -178,7 +182,7 @@ impl<D: Domain> PreprocessingExecution<D> {
         }
     }
 
-    pub fn done(mut self) -> (Hash, Vec<Hash>) {
+    pub fn done(mut self) -> (Hash, Vec<Hash>, Hash) {
         // add corrections and Merkle root to player 0 commitment
         self.commitments[0] = {
             let mut comm = Hasher::new();
@@ -195,6 +199,10 @@ impl<D: Domain> PreprocessingExecution<D> {
         }
 
         // return player commitments
-        (union.finalize(), self.commitments)
+        (
+            union.finalize(),
+            self.commitments,
+            self.transcript.finalize(),
+        )
     }
 }
