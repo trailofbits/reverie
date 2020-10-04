@@ -20,7 +20,7 @@ pub mod algebra;
 pub mod preprocessing;
 
 // online phase
-pub mod online;
+// pub mod online;
 
 // abstraction for Fiat-Shamir
 mod oracle;
@@ -31,9 +31,9 @@ mod crypto;
 // internal constants
 mod consts;
 
-mod proof;
+// mod proof;
 
-pub use proof::{ProofGF2P64, ProofGF2P64_64, ProofGF2P64_85, ProofGF2P8};
+// pub use proof::{ProofGF2P64, ProofGF2P64_64, ProofGF2P64_85, ProofGF2P8};
 
 use crate::algebra::RingElement;
 

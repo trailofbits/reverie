@@ -11,6 +11,7 @@ use crate::oracle::RandomOracle;
 use crate::util::*;
 use crate::Instruction;
 
+use std::iter;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -18,6 +19,144 @@ use async_channel::{Receiver, SendError, Sender};
 use async_std::task;
 
 use serde::{Deserialize, Serialize};
+
+fn challenge<D: Domain>(hash: &Hash) -> Vec<(usize, usize)> {
+    let mut oracle = RandomOracle::new(CONTEXT_ORACLE_PREPROCESSING, None);
+    oracle.feed(hash.as_bytes());
+    let mut prg = oracle.query();
+
+    // subset of indexes to open online phase
+    let online: Vec<usize> = random_subset(
+        &mut prg,
+        D::PREPROCESSING_REPETITIONS,
+        D::ONLINE_REPETITIONS,
+    );
+
+    // players to hide
+    let players: Vec<usize> = random_vector(&mut prg, D::PLAYERS, D::ONLINE_REPETITIONS);
+
+    online.into_iter().zip(players.into_iter()).collect()
+}
+
+struct Player0 {
+    corrections: Vec<u8>,
+}
+struct Online {
+    branch: Vec<u8>,    // encrypted branch bits
+    witness: Vec<u8>,   // encrypted witness bit
+    broadcast: Vec<u8>, // broadcast messages (omitted player)
+    branch_membership: MerkleSetProof,
+    player0: Option<Player0>,
+}
+
+// rather than supplying the online hash for all unopened online executions, prove membership of the
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Opening<D: Domain> {
+    online: MerkleProof,
+    preprocessing: Hash,
+    open: TreePRF,
+    _ph: PhantomData<D>,
+}
+
+pub struct Challenge<'a> {
+    online: MerkleTree,
+    executions: &'a [ExecutionCommitment],
+}
+
+impl<'a> Challenge<'a> {
+    fn new(executions: &'a [ExecutionCommitment]) -> Self {
+        // calculate preprocessing hashes
+        let online: Vec<Hash> = {
+            let mut hs: Vec<Hash> = Vec::with_capacity(executions.len());
+            for exec in executions.iter() {
+                hs.push(exec.online.clone())
+            }
+            hs
+        };
+
+        Self {
+            executions,
+            online: MerkleTree::new(&online[..]),
+        }
+    }
+
+    fn open_online(&self, indexes: &[(usize, usize)]) -> Vec<Opening> {
+        let mut opened: Vec<Opening> = Vec::with_capacity(indexes.len());
+        for (i, p) in indexes.iter().cloned() {
+            opened.push(Opening {
+                online: self.online.prove(i), // membership proof for online commitment
+                preprocessing: self.executions[i].preprocessing[p], // commitment from omitted player
+                player0: None,
+            })
+        }
+        opened
+    }
+
+    fn commit(&self) -> Hash {
+        // aggregate the views of the players in the preprocessing
+        let preprocessing: Hash = {
+            let mut sum = Hasher::new();
+            for exec in self.executions.iter() {
+                let mut hasher = Hasher::new();
+                for state in exec.preprocessing.iter() {
+                    hasher.update(state.as_bytes());
+                }
+                sum.update(hasher.finalize().as_bytes());
+            }
+            sum.finalize()
+        };
+
+        let mut joined = Hasher::new();
+        joined.update(preprocessing.as_bytes());
+        joined.update(self.online.root().as_bytes());
+        joined.finalize()
+    }
+}
+
+pub struct Execution<D: Domain> {
+    corrections: Vec<D::Batch>, // player0 corrections
+    messages: Vec<D::Sharing>,  // broadcast messages
+    preprocessing: Vec<Hash>,   // commitment to the preprocessing states of each player
+    online: Hash,               // commitment to the online communication
+}
+
+impl Execution {
+    fn new(
+        mut states: Vec<Hash>, // commitments to per-player PRG seeds (not full player 0 state)
+        corrections: Hash,     // correction bits (part of player 0 state)
+        root: Hash,            // root of branch Merkle tree (part of player 0 state)
+        messages: Hash,        // messages exchanged during online phase
+    ) -> Self {
+        // add corrections and to player 0 commitment
+        states[0] = {
+            let mut comm = Hasher::new();
+            comm.update(states[0].as_bytes());
+            comm.update(corrections.as_bytes());
+            comm.update(root.as_bytes());
+            comm.finalize()
+        };
+
+        Self {
+            preprocessing: states,
+            online: messages,
+        }
+    }
+
+    /// Update the online commitment (broadcast channel transcript)
+    ///
+    /// This is used to supply the online transcript when the preprocessing is opened in cut-and-choose.
+    pub fn set_online(&mut self, new: Hash) {
+        self.online = new
+    }
+
+    /// Update the preprocessing commitment of one of the players
+    ///
+    /// This is used to set the preprocessing commitment of the omitted player
+    /// as supplied by the prover.
+    pub fn set_preprocessing(&mut self, idx: usize, new: Hash) {
+        self.preprocessing[idx] = new;
+    }
+}
 
 async fn feed<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>>(
     senders: &mut [Sender<Arc<Vec<Instruction<D::Scalar>>>>],
@@ -41,8 +180,9 @@ async fn feed<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>>(
 /// which dictates the subset of executions to open.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Proof<D: Domain> {
-    hidden: Vec<Hash>, // commitments to the hidden pre-processing executions
-    random: TreePRF, // punctured PRF used to derive the randomness for the opened pre-processing executions
+    hash: Hash,
+    online: Vec<Opening<D>>,
+    random: TreePRF, // punctured PRF: randomness for the opened pre-processing executions
     _ph: PhantomData<D>,
 }
 
@@ -102,9 +242,13 @@ pub fn pack_branches<D: Domain>(branches: &[&[D::Scalar]]) -> Vec<Vec<D::Batch>>
 impl<D: Domain> Proof<D> {
     async fn preprocess<PI: Iterator<Item = Instruction<D::Scalar>>>(
         seeds: &[[u8; KEY_SIZE]],
-        branches: Arc<Vec<Vec<D::Batch>>>,
+        witness: Option<(
+            Arc<Vec<D::Scalar>>, // part of witness: active branch programming
+            Arc<Vec<D::Scalar>>, // part of witness: unconstrained inputs
+        )>,
+        branches: Arc<Vec<Vec<D::Batch>>>, // set of permissible branches (packed for efficiency)
         mut program: PI,
-    ) -> Vec<(Hash, Vec<Hash>)> {
+    ) -> Vec<ExecutionCommitment> {
         assert!(
             branches.len() > 0,
             "even when the branch feature is not used, the branch should still be provided and should be a singleton list with an empty element"
@@ -112,22 +256,64 @@ impl<D: Domain> Proof<D> {
 
         async fn process<D: Domain>(
             root: [u8; KEY_SIZE],
+            witness: Option<(
+                Arc<Vec<D::Scalar>>, // part of witness: active branch programming
+                Arc<Vec<D::Scalar>>, // part of witness: unconstrained inputs
+            )>,
             branches: Arc<Vec<Vec<D::Batch>>>,
             outputs: Sender<()>,
             inputs: Receiver<Arc<Vec<Instruction<D::Scalar>>>>,
-        ) -> Result<(Hash, Vec<Hash>), SendError<()>> {
-            let mut preprocessing: preprocessing::PreprocessingExecution<D> =
-                preprocessing::PreprocessingExecution::new(root, &branches[..]);
+        ) -> Result<ExecutionCommitment, SendError<()>> {
+            async fn drive<
+                D: Domain,
+                WI: Iterator<Item = D::Scalar>,
+                BI: Iterator<Item = D::Scalar>,
+            >(
+                outputs: Sender<()>,
+                inputs: Receiver<Arc<Vec<Instruction<D::Scalar>>>>,
+                mut pp: preprocessing::PreprocessingExecution<D, WI, BI>,
+            ) -> Result<ExecutionCommitment, SendError<()>> {
+                loop {
+                    match inputs.recv().await {
+                        Ok(program) => {
+                            pp.process(&program[..]);
+                            outputs.send(()).await?;
+                        }
+                        Err(_) => {
+                            return Ok(pp.done());
+                        }
+                    }
+                }
+            };
 
-            loop {
-                match inputs.recv().await {
-                    Ok(program) => {
-                        preprocessing.prove(&program[..]);
-                        outputs.send(()).await?;
-                    }
-                    Err(_) => {
-                        return Ok(preprocessing.done());
-                    }
+            match witness {
+                // prover processing
+                Some((branch, free)) => {
+                    drive::<D, _, _>(
+                        outputs,
+                        inputs,
+                        preprocessing::PreprocessingExecution::new(
+                            root,
+                            &branches[..],
+                            free.iter().cloned(),
+                            branch.iter().cloned(),
+                        ),
+                    )
+                    .await
+                }
+                // verifier cut-and-choose preprocessing
+                None => {
+                    drive::<D, _, _>(
+                        outputs,
+                        inputs,
+                        preprocessing::PreprocessingExecution::new(
+                            root,
+                            &branches[..],
+                            iter::repeat(D::Scalar::ZERO), // execute with infinite dummy inputs
+                            iter::repeat(D::Scalar::ZERO), // execute with infinite dummy inputs
+                        ),
+                    )
+                    .await
                 }
             }
         }
@@ -143,6 +329,7 @@ impl<D: Domain> Proof<D> {
             let (send_outputs, recv_outputs) = async_channel::bounded(5);
             tasks.push(task::spawn(process::<D>(
                 seed,
+                witness.clone(),
                 branches.clone(),
                 send_outputs,
                 recv_inputs,
@@ -169,7 +356,8 @@ impl<D: Domain> Proof<D> {
         inputs.clear();
 
         // collect final commitments
-        let mut results: Vec<(Hash, Vec<Hash>)> = Vec::with_capacity(D::PREPROCESSING_REPETITIONS);
+        let mut results: Vec<ExecutionCommitment> =
+            Vec::with_capacity(D::PREPROCESSING_REPETITIONS);
         for t in tasks.into_iter() {
             results.push(t.await.unwrap());
         }
@@ -181,6 +369,10 @@ impl<D: Domain> Proof<D> {
         branches: &[&[D::Scalar]],
         program: PI,
     ) -> Option<Output<D>> {
+        if self.online.len() != D::ONLINE_REPETITIONS {
+            return None;
+        }
+
         // pack branch scalars into batches for efficiency
         let branches = Arc::new(pack_branches::<D>(branches));
 
@@ -188,89 +380,35 @@ impl<D: Domain> Proof<D> {
         let mut roots: Vec<Option<[u8; KEY_SIZE]>> = vec![None; D::PREPROCESSING_REPETITIONS];
         self.random.expand(&mut roots);
 
-        // derive the hidden indexes
-        let mut opened: Vec<bool> = Vec::with_capacity(D::PREPROCESSING_REPETITIONS);
-        let mut hidden: Vec<usize> = Vec::with_capacity(D::ONLINE_REPETITIONS);
-        for (i, key) in roots.iter().enumerate() {
-            opened.push(key.is_some());
-            if key.is_none() {
-                hidden.push(i)
-            }
-        }
-
-        // prover must open exactly R-H repetitions
-        if hidden.len() != D::ONLINE_REPETITIONS {
-            return None;
-        }
-
         // recompute the opened repetitions
-        let opened_roots: Vec<[u8; KEY_SIZE]> = roots
-            .iter()
-            .filter(|v| v.is_some())
-            .map(|v| v.unwrap())
-            .collect();
+        let preprocessing_roots: Vec<[u8; KEY_SIZE]> =
+            roots.iter().map(|v| v.unwrap_or([0u8; KEY_SIZE])).collect();
 
-        debug_assert_eq!(
-            opened_roots.len(),
-            D::PREPROCESSING_REPETITIONS - D::ONLINE_REPETITIONS
-        );
+        // recover online and preprocessing indexes from proof
+        let mut online_indexes = challenge::<D>(&self.hash);
 
-        let opened_results = Self::preprocess(&opened_roots[..], branches, program).await;
+        let preprocessing_results =
+            Self::preprocess(&preprocessing_roots[..], None, branches, program).await;
 
         debug_assert_eq!(
             opened_results.len(),
             D::PREPROCESSING_REPETITIONS - D::ONLINE_REPETITIONS
         );
 
-        // interleave the proved hashes with the recomputed ones
-        let mut hashes = Vec::with_capacity(D::PREPROCESSING_REPETITIONS);
-        {
-            let mut open_hsh = opened_results.iter().map(|(comm, _)| comm);
-            let mut hide_hsh = self.hidden.iter();
-            for open in opened {
-                if open {
-                    hashes.push(open_hsh.next().unwrap())
-                } else {
-                    hashes.push(hide_hsh.next().unwrap())
-                }
-            }
-        }
-
-        debug_assert_eq!(hashes.len(), D::PREPROCESSING_REPETITIONS);
-
-        // feed to the Random-Oracle
-        let mut challenge_prg = {
-            let mut oracle = RandomOracle::new(CONTEXT_ORACLE_PREPROCESSING, None);
-            for hash in hashes.iter() {
-                oracle.feed(hash.as_bytes());
-            }
-            oracle.query()
-        };
-
-        // accept if the hidden indexes where computed correctly (Fiat-Shamir transform)
-        let subset: Vec<usize> = random_subset(
-            &mut challenge_prg,
-            D::PREPROCESSING_REPETITIONS,
-            D::ONLINE_REPETITIONS,
-        );
-        if &hidden[..] == &subset[..] {
-            Some(Output {
-                hidden: self.hidden.iter().cloned().collect(),
-                _ph: PhantomData,
-            })
-        } else {
-            None
-        }
+        unimplemented!()
     }
 
-    /// Create a new pre-processing proof.
-    ///
-    ///
+    /// Creates a new proof.
     pub fn new<PI: Iterator<Item = Instruction<D::Scalar>>>(
         global: [u8; KEY_SIZE],
+        active: usize,         // active branch programming
+        witness: &[D::Scalar], // free witness wires
         branches: &[&[D::Scalar]],
         program: PI,
-    ) -> (Self, PreprocessingOutput<D>) {
+    ) -> Self {
+        let witness = Arc::new(witness.to_owned());
+        let branch = Arc::new(branches[active].to_owned());
+
         // pack branch scalars into batches for efficiency
         let branches = Arc::new(pack_branches::<D>(branches));
 
@@ -279,71 +417,28 @@ impl<D: Domain> Proof<D> {
         TreePRF::expand_full(&mut roots, global);
 
         // block and wait for hashes to compute
-        let results = task::block_on(Self::preprocess(&roots[..], branches.clone(), program));
+        let results = task::block_on(Self::preprocess(
+            &roots[..],
+            Some((branch, witness)),
+            branches.clone(),
+            program,
+        ));
 
-        // send the pre-processing commitments to the random oracle, receive challenges
-        let mut challenge_prg = {
-            let mut oracle = RandomOracle::new(CONTEXT_ORACLE_PREPROCESSING, None);
-            for (hash, _) in results.iter() {
-                oracle.feed(hash.as_bytes());
-            }
-            oracle.query()
-        };
-
-        // interpret the oracle response as a subset of indexes to hide
-        // (implicitly: which executions to open)
-        let hidden: Vec<usize> = random_subset(
-            &mut challenge_prg,
-            D::PREPROCESSING_REPETITIONS,
-            D::ONLINE_REPETITIONS,
-        );
+        let opener = Challenge::new(&results[..]);
+        let commitment = opener.commit();
+        let online_indexes = challenge::<D>(&commitment);
 
         // puncture the prf at the hidden indexes
         // (implicitly: pass the randomness for all other executions to the verifier)
         let mut tree: TreePRF = TreePRF::new(D::PREPROCESSING_REPETITIONS, global);
-        for i in hidden.iter().cloned() {
+        for (i, _) in online_indexes.iter().cloned() {
             tree = tree.puncture(i);
         }
-
-        // extract pre-processing key material for the hidden views
-        // (returned to the prover for use in the online phase)
-        let mut hidden_runs: Vec<Run> = Vec::with_capacity(D::ONLINE_REPETITIONS);
-        let mut hidden_hashes: Vec<Hash> = Vec::with_capacity(D::ONLINE_REPETITIONS);
-        let mut results = results.into_iter().enumerate();
-
-        for i in hidden.iter().cloned() {
-            // find the matching result
-            let result = loop {
-                let (j, elem) = results.next().unwrap();
-                if i == j {
-                    break elem;
-                }
-            };
-
-            // add to the preprocessing output
-            hidden_runs.push(Run {
-                seed: roots[i],
-                union: result.0.clone(),
-                commitments: result.1,
-            });
-
-            // add to the preprocessing proof
-            hidden_hashes.push(result.0.clone());
+        Proof {
+            online: opener.open_online(online_indexes),
+            random: tree,
+            _ph: PhantomData,
         }
-
-        (
-            // proof (used by the verifier)
-            Proof {
-                hidden: hidden_hashes,
-                random: tree,
-                _ph: PhantomData,
-            },
-            // randomness used to re-executed the hidden views (used by the prover)
-            PreprocessingOutput {
-                branches,
-                hidden: hidden_runs,
-            },
-        )
     }
 }
 
