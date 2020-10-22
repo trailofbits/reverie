@@ -25,7 +25,7 @@ use rand::Rng;
 
 use rayon::prelude::*;
 
-use procfs::Meminfo;
+use sysinfo::SystemExt;
 
 const MAX_VEC_SIZE: usize = 1024 * 1024 * 1024;
 
@@ -191,11 +191,13 @@ async fn prove<
     let branches: Vec<&[BitScalar]> = branch_vecs.iter().map(|v| &v[..]).collect();
 
     // load to memory depending on available RAM
-    let mem = Meminfo::new().unwrap();
+    let mut system = sysinfo::System::new();
+    system.refresh_all();
+    let available_mem = system.get_available_memory();
 
     // open and parse program
     let program: FileStreamer<_, IP> =
-        FileStreamer::new(program_path, (mem.mem_total / 32) as usize)?;
+        FileStreamer::new(program_path, (available_mem * 1024 / 4) as usize)?;
 
     // open and parse witness
     let witness: FileStreamer<_, WP> = FileStreamer::new(witness_path, IN_MEMORY_FILE_SIZE)?;
