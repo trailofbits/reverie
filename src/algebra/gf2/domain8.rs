@@ -95,9 +95,9 @@ impl GF2P8 {
     unsafe fn convert_inv_sse(dst: &mut [BitBatch], src: &[BitSharing8]) {
         use core::arch::x86_64::*;
 
-        // use 8 x 64-bit registers
-        let mut v: [__m64; 8] = [
-            _mm_set_pi8(
+        // use 4 x 128-bit registers
+        let mut v: [__m128i; 4] = [
+            _mm_set_epi8(
                 src[0x00].0 as i8,
                 src[0x01].0 as i8,
                 src[0x02].0 as i8,
@@ -106,8 +106,6 @@ impl GF2P8 {
                 src[0x05].0 as i8,
                 src[0x06].0 as i8,
                 src[0x07].0 as i8,
-            ),
-            _mm_set_pi8(
                 src[0x08].0 as i8,
                 src[0x09].0 as i8,
                 src[0x0a].0 as i8,
@@ -117,7 +115,7 @@ impl GF2P8 {
                 src[0x0e].0 as i8,
                 src[0x0f].0 as i8,
             ),
-            _mm_set_pi8(
+            _mm_set_epi8(
                 src[0x10].0 as i8,
                 src[0x11].0 as i8,
                 src[0x12].0 as i8,
@@ -126,8 +124,6 @@ impl GF2P8 {
                 src[0x15].0 as i8,
                 src[0x16].0 as i8,
                 src[0x17].0 as i8,
-            ),
-            _mm_set_pi8(
                 src[0x18].0 as i8,
                 src[0x19].0 as i8,
                 src[0x1a].0 as i8,
@@ -137,7 +133,7 @@ impl GF2P8 {
                 src[0x1e].0 as i8,
                 src[0x1f].0 as i8,
             ),
-            _mm_set_pi8(
+            _mm_set_epi8(
                 src[0x20].0 as i8,
                 src[0x21].0 as i8,
                 src[0x22].0 as i8,
@@ -146,8 +142,6 @@ impl GF2P8 {
                 src[0x25].0 as i8,
                 src[0x26].0 as i8,
                 src[0x27].0 as i8,
-            ),
-            _mm_set_pi8(
                 src[0x28].0 as i8,
                 src[0x29].0 as i8,
                 src[0x2a].0 as i8,
@@ -157,7 +151,7 @@ impl GF2P8 {
                 src[0x2e].0 as i8,
                 src[0x2f].0 as i8,
             ),
-            _mm_set_pi8(
+            _mm_set_epi8(
                 src[0x30].0 as i8,
                 src[0x31].0 as i8,
                 src[0x32].0 as i8,
@@ -166,8 +160,6 @@ impl GF2P8 {
                 src[0x35].0 as i8,
                 src[0x36].0 as i8,
                 src[0x37].0 as i8,
-            ),
-            _mm_set_pi8(
                 src[0x38].0 as i8,
                 src[0x39].0 as i8,
                 src[0x3a].0 as i8,
@@ -180,9 +172,11 @@ impl GF2P8 {
         ];
 
         for p in 0..<Self as Domain>::Sharing::DIMENSION {
-            for i in 0..8 {
-                (dst[p].0)[i] = (_m_pmovmskb(v[i]) & 0xff) as u8;
-                v[i] = _mm_add_pi8(v[i], v[i]);
+            for i in (0..8).step_by(2) {
+                let mask = _mm_movemask_epi8(v[i / 2]);
+                (dst[p].0)[i] = (mask >> 8) as u8;
+                (dst[p].0)[i + 1] = mask as u8;
+                v[i / 2] = _mm_add_epi8(v[i / 2], v[i / 2]);
             }
         }
     }
