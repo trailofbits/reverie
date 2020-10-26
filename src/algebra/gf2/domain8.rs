@@ -5,8 +5,8 @@ pub struct GF2P8 {}
 
 impl GF2P8 {
     // This codes assumes that a bounds heck has been done prior to the call.
-    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
     #[inline(always)]
+    #[cfg(not(target_feature = "sse"))]
     fn convert_generic(dst: &mut [BitSharing8], src: &[BitBatch]) {
         let mut idx = 0;
         for i in 0..BATCH_SIZE_BYTES {
@@ -42,7 +42,7 @@ impl GF2P8 {
     }
 
     #[target_feature(enable = "sse")]
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[cfg(target_feature = "sse")]
     unsafe fn convert_sse(dst: &mut [BitSharing8], src: &[BitBatch]) {
         #[cfg(target_arch = "x86_64")]
         use core::arch::x86_64::*;
@@ -81,9 +81,8 @@ impl GF2P8 {
     }
 
     #[target_feature(enable = "sse")]
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[cfg(target_feature = "sse")]
     unsafe fn convert_inv_sse(dst: &mut [BitBatch], src: &[BitSharing8]) {
-        #[cfg(target_arch = "x86_64")]
         use core::arch::x86_64::*;
 
         // use 8 x 64-bit registers
@@ -179,7 +178,7 @@ impl GF2P8 {
     }
 
     // This codes assumes that a bounds heck has been done prior to the call.
-    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(not(target_feature = "sse"))]
     #[inline(always)]
     fn convert_inv_generic(dst: &mut [BitBatch], src: &[BitSharing8]) {
         for i in 0..BATCH_SIZE_BYTES {
@@ -225,11 +224,11 @@ impl Domain for GF2P8 {
         assert!(dst.len() >= Self::Batch::DIMENSION);
 
         // x86 / x86_64 SSE impl.
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        #[cfg(target_feature = "sse")]
         return unsafe { Self::convert_sse(dst, src) };
 
         // otherwise revert to the generic implementation (slow)
-        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+        #[cfg(not(target_feature = "sse"))]
         Self::convert_generic(dst, src);
     }
 
@@ -244,11 +243,11 @@ impl Domain for GF2P8 {
         assert_eq!(dst.len(), Self::Sharing::DIMENSION);
 
         // x86 / x86_64 SSE impl.
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        #[cfg(target_feature = "sse")]
         return unsafe { Self::convert_inv_sse(dst, src) };
 
         // otherwise revert to the generic implementation (slow)
-        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+        #[cfg(not(target_feature = "sse"))]
         Self::convert_inv_generic(dst, src);
     }
 }
