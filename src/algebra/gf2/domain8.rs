@@ -5,6 +5,7 @@ pub struct GF2P8 {}
 
 impl GF2P8 {
     // This codes assumes that a bounds heck has been done prior to the call.
+    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
     #[inline(always)]
     fn convert_generic(dst: &mut [BitSharing8], src: &[BitBatch]) {
         let mut idx = 0;
@@ -178,6 +179,7 @@ impl GF2P8 {
     }
 
     // This codes assumes that a bounds heck has been done prior to the call.
+    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
     #[inline(always)]
     fn convert_inv_generic(dst: &mut [BitBatch], src: &[BitSharing8]) {
         for i in 0..BATCH_SIZE_BYTES {
@@ -227,6 +229,7 @@ impl Domain for GF2P8 {
         return unsafe { Self::convert_sse(dst, src) };
 
         // otherwise revert to the generic implementation (slow)
+        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
         Self::convert_generic(dst, src);
     }
 
@@ -245,6 +248,7 @@ impl Domain for GF2P8 {
         return unsafe { Self::convert_inv_sse(dst, src) };
 
         // otherwise revert to the generic implementation (slow)
+        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
         Self::convert_inv_generic(dst, src);
     }
 }
