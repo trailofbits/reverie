@@ -172,12 +172,12 @@ impl GF2P8 {
         ];
 
         for p in 0..<Self as Domain>::Sharing::DIMENSION {
-            for i in (0..8).step_by(2) {
-                let idx = i / 2;
-                let mask = _mm_movemask_epi8(v[idx]);
-                (dst[p].0)[i] = (mask >> 8) as u8;
-                (dst[p].0)[i + 1] = mask as u8;
-                v[idx] = _mm_add_epi8(v[idx], v[idx]);
+            for i in 0..4 {
+                let base = i * 2;
+                let mask = _mm_movemask_epi8(v[i]);
+                (dst[p].0)[base] = (mask >> 8) as u8;
+                (dst[p].0)[base + 1] = mask as u8;
+                v[i] = _mm_add_epi8(v[i], v[i]);
             }
         }
     }
