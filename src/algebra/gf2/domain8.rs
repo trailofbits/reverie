@@ -181,7 +181,7 @@ impl GF2P8 {
         }
     }
 
-    // This codes assumes that a bounds heck has been done prior to the call.
+    // This codes assumes that a bounds check has been done prior to the call.
     #[inline(always)]
     #[cfg(any(not(target_feature = "sse"), test))]
     fn convert_inv_generic(dst: &mut [BitBatch], src: &[BitSharing8]) {
