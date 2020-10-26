@@ -373,7 +373,7 @@ mod tests {
 #[cfg(test)]
 #[cfg(not(debug_assertions))] // omit for testing
 mod benchmark {
-    use super::super::algebra::gf2::GF2P8;
+    use super::super::algebra::gf2::{BitScalar, GF2P8};
     use super::*;
 
     use test::Bencher;
@@ -390,7 +390,9 @@ mod benchmark {
     fn bench_preprocessing_proof_gen_n8(b: &mut Bencher) {
         let mut program = vec![Instruction::Input(1), Instruction::Input(2)];
         program.resize(MULT + 2, Instruction::Mul(0, 1, 2));
-        b.iter(|| Proof::<GF2P8>::new([0u8; KEY_SIZE], program.iter().cloned()));
+        let branch: Vec<BitScalar> = vec![];
+        let branches: Vec<&[BitScalar]> = vec![&branch];
+        b.iter(|| Proof::<GF2P8>::new([0u8; KEY_SIZE], &branches, program.iter().cloned()));
     }
 
     /*
@@ -418,7 +420,9 @@ mod benchmark {
     fn bench_preprocessing_proof_verify_n8(b: &mut Bencher) {
         let mut program = vec![Instruction::Input(1), Instruction::Input(2)];
         program.resize(MULT + 2, Instruction::Mul(0, 1, 2));
-        let (proof, _) = Proof::<GF2P8>::new([0u8; KEY_SIZE], program.iter().cloned());
-        b.iter(|| task::block_on(proof.verify(program.iter().cloned())));
+        let branch: Vec<BitScalar> = vec![];
+        let branches: Vec<&[BitScalar]> = vec![&branch];
+        let (proof, _) = Proof::<GF2P8>::new([0u8; KEY_SIZE], &branches, program.iter().cloned());
+        b.iter(|| task::block_on(proof.verify(&branches, program.iter().cloned())));
     }
 }
