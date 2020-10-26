@@ -1,6 +1,13 @@
 name: nightly
 
-on: [push]
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+  schedule:
+    # run CI every day even if no PRs/merges occur
+    - cron: '0 12 * * *'
 
 jobs:
   build:
