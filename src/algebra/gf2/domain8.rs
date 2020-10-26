@@ -295,3 +295,39 @@ mod test {
         }
     }
 }
+
+#[cfg(test)]
+mod benchmark {
+    use super::*;
+
+    use rand::thread_rng;
+    use ::test::{black_box, Bencher};
+
+    #[bench]
+    fn bench_gf2p8_convert_inv(b: &mut Bencher) {
+        let mut rng = thread_rng();
+
+        let batches: [_; 8] = [
+            BitBatch::gen(&mut rng),
+            BitBatch::gen(&mut rng),
+            BitBatch::gen(&mut rng),
+            BitBatch::gen(&mut rng),
+            //
+            BitBatch::gen(&mut rng),
+            BitBatch::gen(&mut rng),
+            BitBatch::gen(&mut rng),
+            BitBatch::gen(&mut rng),
+        ];
+
+        let mut shares = [BitSharing8::ZERO; 64];
+        GF2P8::convert(&mut shares, &batches);
+
+        b.iter(|| {
+            black_box({
+                let mut b = [BitBatch::ZERO; 8];
+                GF2P8::convert_inv(&mut b, &shares);
+                b
+            })
+        });
+    }
+}
