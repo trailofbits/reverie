@@ -47,10 +47,10 @@ impl GF2P8 {
         #[cfg(target_arch = "x86_64")]
         use core::arch::x86_64::*;
 
-        // transpose batch, byte-by-byte
-        for i in 0..BATCH_SIZE_BYTES {
-            // pack 1 bytes from 8 different shar
-            let mut v = _mm_set_pi8(
+        // transpose two batches at a time, byte-by-byte
+        for i in (0..BATCH_SIZE_BYTES).step_by(2) {
+            // pack 2 bytes from 8 different shares
+            let mut v = _mm_set_epi8(
                 src.get_unchecked(0).0[i] as i8,
                 src.get_unchecked(1).0[i] as i8,
                 src.get_unchecked(2).0[i] as i8,
@@ -59,21 +59,31 @@ impl GF2P8 {
                 src.get_unchecked(5).0[i] as i8,
                 src.get_unchecked(6).0[i] as i8,
                 src.get_unchecked(7).0[i] as i8,
+                src.get_unchecked(0).0[i + 1] as i8,
+                src.get_unchecked(1).0[i + 1] as i8,
+                src.get_unchecked(2).0[i + 1] as i8,
+                src.get_unchecked(3).0[i + 1] as i8,
+                src.get_unchecked(4).0[i + 1] as i8,
+                src.get_unchecked(5).0[i + 1] as i8,
+                src.get_unchecked(6).0[i + 1] as i8,
+                src.get_unchecked(7).0[i + 1] as i8,
             );
 
             // calculate the 8 sharings
             let mut idx = i * 8;
             for _ in 0..8 {
-                dst[idx] = BitSharing8((_m_pmovmskb(v) & 0xff) as u8);
-                v = _mm_add_pi8(v, v);
+                let mask = _mm_movemask_epi8(v);
+                dst[idx] = BitSharing8((mask >> 8) as u8);
+                dst[idx + 8] = BitSharing8(mask as u8);
+                v = _mm_add_epi8(v, v);
                 idx += 1;
             }
 
             // assert all bits consumed
             debug_assert_eq!(
                 {
-                    let v = _mm_add_pi8(v, v);
-                    _m_pmovmskb(v)
+                    let v = _mm_add_epi8(v, v);
+                    _mm_movemask_epi8(v)
                 },
                 0
             )
