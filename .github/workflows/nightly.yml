@@ -25,7 +25,7 @@ jobs:
             override: true
 
       - name: Build
-        run: cargo build
+        run: RUSTFLAGS="-C target-cpu=native" cargo build
 
       - name: Test
-        run: cargo test
+        run: RUSTFLAGS="-C target-cpu=native" cargo test
