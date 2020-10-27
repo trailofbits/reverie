@@ -86,7 +86,7 @@ impl RingModule<Scalar> for Batch {
 
     #[inline(always)]
     fn action(&self, s: Scalar) -> Self {
-        Batch(self.0 * s.0.0)
+        Batch(self.0 * (s.0).0)
     }
 
     #[inline(always)]

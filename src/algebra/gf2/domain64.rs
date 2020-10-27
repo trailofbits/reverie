@@ -223,38 +223,3 @@ impl Domain for GF2P64 {
         unimplemented!();
     }
 }
-
-#[cfg(test)]
-#[cfg(not(debug_assertions))] // omit for testing
-mod benchmark {
-    use super::*;
-
-    use rand::thread_rng;
-    use rand::Rng;
-    use test::{black_box, Bencher};
-
-    #[bench]
-    fn bench_gf2p8_convert(b: &mut Bencher) {
-        let mut rng = thread_rng();
-
-        let mut v: [BitBatch; 8] = [
-            BitBatch::gen(&mut rng),
-            BitBatch::gen(&mut rng),
-            BitBatch::gen(&mut rng),
-            BitBatch::gen(&mut rng),
-            //
-            BitBatch::gen(&mut rng),
-            BitBatch::gen(&mut rng),
-            BitBatch::gen(&mut rng),
-            BitBatch::gen(&mut rng),
-        ];
-
-        b.iter(|| {
-            black_box({
-                let mut sharing: [BitSharing8; 64] = [BitSharing8::ZERO; 64];
-                GF2P8::convert(&mut sharing[..], &v[..]);
-                sharing
-            })
-        });
-    }
-}

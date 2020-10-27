@@ -258,7 +258,7 @@ impl GF2P8 {
     }
 
     #[target_feature(enable = "sse2")]
-    #[cfg(target_feature = "sse2")]
+    #[cfg(all(target_feature = "sse2", not(target_feature = "avx2")))]
     unsafe fn convert_inv_sse2(dst: &mut [BitBatch], src: &[BitSharing8]) {
         #[cfg(target_arch = "x86")]
         use core::arch::x86::*;
@@ -493,6 +493,31 @@ mod benchmark {
 
     use rand::thread_rng;
     use ::test::{black_box, Bencher};
+
+    #[bench]
+    fn bench_gf2p8_convert(b: &mut Bencher) {
+        let mut rng = thread_rng();
+
+        let v: [BitBatch; 8] = [
+            BitBatch::gen(&mut rng),
+            BitBatch::gen(&mut rng),
+            BitBatch::gen(&mut rng),
+            BitBatch::gen(&mut rng),
+            //
+            BitBatch::gen(&mut rng),
+            BitBatch::gen(&mut rng),
+            BitBatch::gen(&mut rng),
+            BitBatch::gen(&mut rng),
+        ];
+
+        b.iter(|| {
+            black_box({
+                let mut sharing: [BitSharing8; 64] = [BitSharing8::ZERO; 64];
+                GF2P8::convert(&mut sharing[..], &v[..]);
+                sharing
+            })
+        });
+    }
 
     #[bench]
     fn bench_gf2p8_convert_inv(b: &mut Bencher) {

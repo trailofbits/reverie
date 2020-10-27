@@ -127,8 +127,8 @@ impl RingModule<Scalar> for Batch {
     #[inline(always)]
     fn action(&self, s: Scalar) -> Self {
         Batch(
-            self.0 & s.0.0,
-            self.1 & s.0.1,
+            self.0 & (s.0).0,
+            self.1 & (s.0).1,
         )
     }
 
