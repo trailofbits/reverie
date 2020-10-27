@@ -520,6 +520,31 @@ mod benchmark {
     }
 
     #[bench]
+    fn bench_gf2p8_convert_generic(b: &mut Bencher) {
+        let mut rng = thread_rng();
+
+        let v: [BitBatch; 8] = [
+            BitBatch::gen(&mut rng),
+            BitBatch::gen(&mut rng),
+            BitBatch::gen(&mut rng),
+            BitBatch::gen(&mut rng),
+            //
+            BitBatch::gen(&mut rng),
+            BitBatch::gen(&mut rng),
+            BitBatch::gen(&mut rng),
+            BitBatch::gen(&mut rng),
+        ];
+
+        b.iter(|| {
+            black_box({
+                let mut sharing: [BitSharing8; 64] = [BitSharing8::ZERO; 64];
+                GF2P8::convert_generic(&mut sharing[..], &v[..]);
+                sharing
+            })
+        });
+    }
+
+    #[bench]
     fn bench_gf2p8_convert_inv(b: &mut Bencher) {
         let mut rng = thread_rng();
 
@@ -542,6 +567,34 @@ mod benchmark {
             black_box({
                 let mut b = [BitBatch::ZERO; 8];
                 GF2P8::convert_inv(&mut b, &shares);
+                b
+            })
+        });
+    }
+
+    #[bench]
+    fn bench_gf2p8_convert_inv_generic(b: &mut Bencher) {
+        let mut rng = thread_rng();
+
+        let batches: [_; 8] = [
+            BitBatch::gen(&mut rng),
+            BitBatch::gen(&mut rng),
+            BitBatch::gen(&mut rng),
+            BitBatch::gen(&mut rng),
+            //
+            BitBatch::gen(&mut rng),
+            BitBatch::gen(&mut rng),
+            BitBatch::gen(&mut rng),
+            BitBatch::gen(&mut rng),
+        ];
+
+        let mut shares = [BitSharing8::ZERO; 64];
+        GF2P8::convert(&mut shares, &batches);
+
+        b.iter(|| {
+            black_box({
+                let mut b = [BitBatch::ZERO; 8];
+                GF2P8::convert_inv_generic(&mut b, &shares);
                 b
             })
         });
