@@ -6,7 +6,7 @@ pub struct GF2P8 {}
 impl GF2P8 {
     // This codes assumes that a bounds heck has been done prior to the call.
     #[inline(always)]
-    #[cfg(any(not(target_feature = "avx2"), test))]
+    #[cfg(any(all(not(target_feature = "avx2"), not(target_feature = "sse2")), test))]
     fn convert_generic(dst: &mut [BitSharing8], src: &[BitBatch]) {
         let mut idx = 0;
         for i in 0..BATCH_SIZE_BYTES {
@@ -355,7 +355,7 @@ impl GF2P8 {
 
     // This codes assumes that a bounds check has been done prior to the call.
     #[inline(always)]
-    #[cfg(any(not(target_feature = "avx2"), test))]
+    #[cfg(any(all(not(target_feature = "avx2"), not(target_feature = "sse2")), test))]
     fn convert_inv_generic(dst: &mut [BitBatch], src: &[BitSharing8]) {
         for i in 0..BATCH_SIZE_BYTES {
             // for every byte in the batch
