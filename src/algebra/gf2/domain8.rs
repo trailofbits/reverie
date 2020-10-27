@@ -6,7 +6,7 @@ pub struct GF2P8 {}
 impl GF2P8 {
     // This codes assumes that a bounds heck has been done prior to the call.
     #[inline(always)]
-    #[cfg(any(not(target_feature = "avx"), test))]
+    #[cfg(any(not(target_feature = "avx2"), test))]
     fn convert_generic(dst: &mut [BitSharing8], src: &[BitBatch]) {
         let mut idx = 0;
         for i in 0..BATCH_SIZE_BYTES {
@@ -41,9 +41,12 @@ impl GF2P8 {
         }
     }
 
-    #[target_feature(enable = "avx")]
-    #[cfg(target_feature = "avx")]
-    unsafe fn convert_avx(dst: &mut [BitSharing8], src: &[BitBatch]) {
+    #[target_feature(enable = "avx2")]
+    #[cfg(target_feature = "avx2")]
+    unsafe fn convert_avx2(dst: &mut [BitSharing8], src: &[BitBatch]) {
+        #[cfg(target_arch = "x86")]
+        use core::arch::x86::*;
+
         #[cfg(target_arch = "x86_64")]
         use core::arch::x86_64::*;
 
@@ -108,9 +111,61 @@ impl GF2P8 {
         }
     }
 
-    #[target_feature(enable = "avx")]
-    #[cfg(target_feature = "avx")]
-    unsafe fn convert_inv_avx(dst: &mut [BitBatch], src: &[BitSharing8]) {
+    #[target_feature(enable = "sse2")]
+    #[cfg(all(target_feature = "sse2", not(target_feature = "avx2")))]
+    unsafe fn convert_sse2(dst: &mut [BitSharing8], src: &[BitBatch]) {
+        #[cfg(target_arch = "x86")]
+        use core::arch::x86::*;
+
+        #[cfg(target_arch = "x86_64")]
+        use core::arch::x86_64::*;
+
+        // transpose four batches at a time, byte-by-byte
+        for i in (0..BATCH_SIZE_BYTES).step_by(2) {
+            // pack 2 bytes from 8 different shares
+            let mut v = _mm_set_epi8(
+                src.get_unchecked(0).0[i] as i8,
+                src.get_unchecked(1).0[i] as i8,
+                src.get_unchecked(2).0[i] as i8,
+                src.get_unchecked(3).0[i] as i8,
+                src.get_unchecked(4).0[i] as i8,
+                src.get_unchecked(5).0[i] as i8,
+                src.get_unchecked(6).0[i] as i8,
+                src.get_unchecked(7).0[i] as i8,
+                src.get_unchecked(0).0[i + 1] as i8,
+                src.get_unchecked(1).0[i + 1] as i8,
+                src.get_unchecked(2).0[i + 1] as i8,
+                src.get_unchecked(3).0[i + 1] as i8,
+                src.get_unchecked(4).0[i + 1] as i8,
+                src.get_unchecked(5).0[i + 1] as i8,
+                src.get_unchecked(6).0[i + 1] as i8,
+                src.get_unchecked(7).0[i + 1] as i8,
+            );
+
+            // calculate the 8 sharings
+            let mut idx = i * 8;
+            for _ in 0..8 {
+                let mask = _mm_movemask_epi8(v);
+                dst[idx] = BitSharing8((mask >> 8) as u8);
+                dst[idx + 8] = BitSharing8(mask as u8);
+                v = _mm_add_epi8(v, v);
+                idx += 1;
+            }
+
+            // assert all bits consumed
+            debug_assert_eq!(
+                {
+                    let v = _mm_add_epi8(v, v);
+                    _mm_movemask_epi8(v)
+                },
+                0
+            )
+        }
+    }
+
+    #[target_feature(enable = "avx2")]
+    #[cfg(target_feature = "avx2")]
+    unsafe fn convert_inv_avx2(dst: &mut [BitBatch], src: &[BitSharing8]) {
         use core::arch::x86_64::*;
 
         // use 2 x 256-bit registers
@@ -200,7 +255,7 @@ impl GF2P8 {
 
     // This codes assumes that a bounds check has been done prior to the call.
     #[inline(always)]
-    #[cfg(any(not(target_feature = "avx"), test))]
+    #[cfg(any(not(target_feature = "avx2"), test))]
     fn convert_inv_generic(dst: &mut [BitBatch], src: &[BitSharing8]) {
         for i in 0..BATCH_SIZE_BYTES {
             // for every byte in the batch
@@ -244,12 +299,22 @@ impl Domain for GF2P8 {
         assert_eq!(src.len(), Self::PLAYERS);
         assert!(dst.len() >= Self::Batch::DIMENSION);
 
-        // x86 / x86_64 AVX impl.
-        #[cfg(target_feature = "avx")]
-        return unsafe { Self::convert_avx(dst, src) };
+        // x86 specializations: prefer AVX2, then SSE2, falling back
+        // on the unoptimized version.
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        {
+            #[cfg(target_feature = "avx2")]
+            return unsafe { Self::convert_avx2(dst, src) };
 
-        // otherwise revert to the generic implementation (slow)
-        #[cfg(not(target_feature = "avx"))]
+            #[cfg(all(target_feature = "sse2", not(target_feature = "avx2")))]
+            return unsafe { Self::convert_sse2(dst, src) };
+
+            #[cfg(not(any(target_feature = "sse2", target_feature = "avx2")))]
+            return Self::convert_generic(dst, src);
+        }
+
+        // All other platforms: use the unoptimized version.
+        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
         Self::convert_generic(dst, src);
     }
 
@@ -264,11 +329,11 @@ impl Domain for GF2P8 {
         assert_eq!(dst.len(), Self::Sharing::DIMENSION);
 
         // x86 / x86_64 AVX impl.
-        #[cfg(target_feature = "avx")]
-        return unsafe { Self::convert_inv_avx(dst, src) };
+        #[cfg(target_feature = "avx2")]
+        return unsafe { Self::convert_inv_avx2(dst, src) };
 
         // otherwise revert to the generic implementation (slow)
-        #[cfg(not(target_feature = "avx"))]
+        #[cfg(not(target_feature = "avx2"))]
         Self::convert_inv_generic(dst, src);
     }
 }
