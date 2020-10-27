@@ -1,4 +1,3 @@
-#![feature(const_int_pow)]
 #![feature(test)]
 #![feature(stdsimd)]
 
