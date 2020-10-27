@@ -4,7 +4,7 @@ use super::*;
 pub struct GF2P8 {}
 
 impl GF2P8 {
-    // This codes assumes that a bounds heck has been done prior to the call.
+    // This codes assumes that a bounds check has been done prior to the call.
     #[inline(always)]
     #[cfg(any(all(not(target_feature = "avx2"), not(target_feature = "sse2")), test))]
     fn convert_generic(dst: &mut [BitSharing8], src: &[BitBatch]) {
