@@ -1,5 +1,5 @@
 use super::scalar::Scalar;
-use super::{Packable, RingElement, Samplable, RingModule, Serializable};
+use super::{Packable, RingElement, RingModule, Samplable, Serializable};
 
 use crate::util::Writer;
 
@@ -21,7 +21,7 @@ const TOTAL_BYTE_LEN: usize = LOW_BYTE_LEN + HIGH_BYTE_LEN;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Batch(
     pub(super) u64, // most significant 64 bits of 85-bit scalar
-    pub(super) u64  // least significant 21 bits of 85-bit scalar
+    pub(super) u64, // least significant 21 bits of 85-bit scalar
 );
 
 impl Batch {
@@ -66,7 +66,7 @@ impl Packable for Batch {
             let w1 = (chunk[0] as u64) | (chunk[1] as u64) << 8 | (chunk[2] as u64) << 16;
             let w0 = u64::from_le_bytes(chunk[LOW_BYTE_LEN..].try_into().unwrap());
             if w1 > LOW_MASK {
-                return Err(())
+                return Err(());
             }
             dst.write(Batch(w0, w1));
         }
@@ -81,10 +81,7 @@ impl Add for Batch {
     fn add(self, other: Self) -> Self::Output {
         debug_assert!(self.1 <= LOW_MASK);
         debug_assert!(other.1 <= LOW_MASK);
-        Batch(
-            self.0 ^ other.0,
-            self.1 ^ other.1,
-        )
+        Batch(self.0 ^ other.0, self.1 ^ other.1)
     }
 }
 
@@ -95,10 +92,7 @@ impl Sub for Batch {
     fn sub(self, other: Self) -> Self::Output {
         debug_assert!(self.1 <= LOW_MASK);
         debug_assert!(other.1 <= LOW_MASK);
-        Batch(
-            self.0 ^ other.0,
-            self.1 ^ other.1
-        )
+        Batch(self.0 ^ other.0, self.1 ^ other.1)
     }
 }
 
@@ -109,10 +103,7 @@ impl Mul for Batch {
     fn mul(self, other: Self) -> Self::Output {
         debug_assert!(self.1 <= LOW_MASK);
         debug_assert!(other.1 <= LOW_MASK);
-        Batch(
-            self.0 & other.0,
-            self.1 & other.1
-        )
+        Batch(self.0 & other.0, self.1 & other.1)
     }
 }
 
@@ -126,10 +117,7 @@ impl RingModule<Scalar> for Batch {
 
     #[inline(always)]
     fn action(&self, s: Scalar) -> Self {
-        Batch(
-            self.0 & (s.0).0,
-            self.1 & (s.0).1,
-        )
+        Batch(self.0 & (s.0).0, self.1 & (s.0).1)
     }
 
     #[inline(always)]
@@ -161,7 +149,7 @@ mod tests {
     #[test]
     fn test_vec85_rotation() {
         let mut rng = thread_rng();
-        for _  in 0..100 {
+        for _ in 0..100 {
             let org = Batch::gen(&mut rng);
 
             // rotate 85 times to get id
