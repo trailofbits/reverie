@@ -166,6 +166,10 @@ impl GF2P8 {
     #[target_feature(enable = "avx2")]
     #[cfg(target_feature = "avx2")]
     unsafe fn convert_inv_avx2(dst: &mut [BitBatch], src: &[BitSharing8]) {
+        #[cfg(target_arch = "x86")]
+        use core::arch::x86::*;
+
+        #[cfg(target_arch = "x86_64")]
         use core::arch::x86_64::*;
 
         // use 2 x 256-bit registers
@@ -253,6 +257,102 @@ impl GF2P8 {
         }
     }
 
+    #[target_feature(enable = "sse2")]
+    #[cfg(target_feature = "sse2")]
+    unsafe fn convert_inv_sse2(dst: &mut [BitBatch], src: &[BitSharing8]) {
+        #[cfg(target_arch = "x86")]
+        use core::arch::x86::*;
+
+        #[cfg(target_arch = "x86_64")]
+        use core::arch::x86_64::*;
+
+        // use 4 x 128-bit registers
+        let mut v: [__m128i; 4] = [
+            _mm_set_epi8(
+                src[0x00].0 as i8,
+                src[0x01].0 as i8,
+                src[0x02].0 as i8,
+                src[0x03].0 as i8,
+                src[0x04].0 as i8,
+                src[0x05].0 as i8,
+                src[0x06].0 as i8,
+                src[0x07].0 as i8,
+                src[0x08].0 as i8,
+                src[0x09].0 as i8,
+                src[0x0a].0 as i8,
+                src[0x0b].0 as i8,
+                src[0x0c].0 as i8,
+                src[0x0d].0 as i8,
+                src[0x0e].0 as i8,
+                src[0x0f].0 as i8,
+            ),
+            _mm_set_epi8(
+                src[0x10].0 as i8,
+                src[0x11].0 as i8,
+                src[0x12].0 as i8,
+                src[0x13].0 as i8,
+                src[0x14].0 as i8,
+                src[0x15].0 as i8,
+                src[0x16].0 as i8,
+                src[0x17].0 as i8,
+                src[0x18].0 as i8,
+                src[0x19].0 as i8,
+                src[0x1a].0 as i8,
+                src[0x1b].0 as i8,
+                src[0x1c].0 as i8,
+                src[0x1d].0 as i8,
+                src[0x1e].0 as i8,
+                src[0x1f].0 as i8,
+            ),
+            _mm_set_epi8(
+                src[0x20].0 as i8,
+                src[0x21].0 as i8,
+                src[0x22].0 as i8,
+                src[0x23].0 as i8,
+                src[0x24].0 as i8,
+                src[0x25].0 as i8,
+                src[0x26].0 as i8,
+                src[0x27].0 as i8,
+                src[0x28].0 as i8,
+                src[0x29].0 as i8,
+                src[0x2a].0 as i8,
+                src[0x2b].0 as i8,
+                src[0x2c].0 as i8,
+                src[0x2d].0 as i8,
+                src[0x2e].0 as i8,
+                src[0x2f].0 as i8,
+            ),
+            _mm_set_epi8(
+                src[0x30].0 as i8,
+                src[0x31].0 as i8,
+                src[0x32].0 as i8,
+                src[0x33].0 as i8,
+                src[0x34].0 as i8,
+                src[0x35].0 as i8,
+                src[0x36].0 as i8,
+                src[0x37].0 as i8,
+                src[0x38].0 as i8,
+                src[0x39].0 as i8,
+                src[0x3a].0 as i8,
+                src[0x3b].0 as i8,
+                src[0x3c].0 as i8,
+                src[0x3d].0 as i8,
+                src[0x3e].0 as i8,
+                src[0x3f].0 as i8,
+            ),
+        ];
+
+        for p in 0..<Self as Domain>::Sharing::DIMENSION {
+            for i in 0..4 {
+                let base = i * 2;
+                let mask = _mm_movemask_epi8(v[i]);
+                (dst[p].0)[base] = (mask >> 8) as u8;
+                (dst[p].0)[base + 1] = mask as u8;
+                v[i] = _mm_add_epi8(v[i], v[i]);
+            }
+        }
+    }
+
     // This codes assumes that a bounds check has been done prior to the call.
     #[inline(always)]
     #[cfg(any(not(target_feature = "avx2"), test))]
@@ -328,12 +428,22 @@ impl Domain for GF2P8 {
         // there will be one batch per player
         assert_eq!(dst.len(), Self::Sharing::DIMENSION);
 
-        // x86 / x86_64 AVX impl.
-        #[cfg(target_feature = "avx2")]
-        return unsafe { Self::convert_inv_avx2(dst, src) };
+        // x86 specializations: prefer AVX2, then SSE2, falling back
+        // on the unoptimized version.
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        {
+            #[cfg(target_feature = "avx2")]
+            return unsafe { Self::convert_inv_avx2(dst, src) };
 
-        // otherwise revert to the generic implementation (slow)
-        #[cfg(not(target_feature = "avx2"))]
+            #[cfg(all(target_feature = "sse2", not(target_feature = "avx2")))]
+            return unsafe { Self::convert_inv_sse2(dst, src) };
+
+            #[cfg(not(any(target_feature = "sse2", target_feature = "avx2")))]
+            return Self::convert_inv_generic(dst, src);
+        }
+
+        // All other platforms: use the unoptimized version.
+        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
         Self::convert_inv_generic(dst, src);
     }
 }
