@@ -475,14 +475,14 @@ mod test {
             let mut shares_2 = [BitSharing8::ZERO; 64];
             GF2P8::convert(&mut shares_1, &batches);
             GF2P8::convert_generic(&mut shares_2, &batches);
-            debug_assert_eq!(&shares_1[..], &shares_2[..]);
+            assert_eq!(&shares_1[..], &shares_2[..]);
 
             let mut batches_1 = [BitBatch::ZERO; 8];
             let mut batches_2 = [BitBatch::ZERO; 8];
             GF2P8::convert_inv(&mut batches_1, &shares_1);
             GF2P8::convert_inv_generic(&mut batches_2, &shares_1);
-            debug_assert_eq!(batches_1, batches);
-            debug_assert_eq!(batches_2, batches);
+            assert_eq!(batches_1, batches);
+            assert_eq!(batches_2, batches);
         }
     }
 }
