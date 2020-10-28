@@ -428,7 +428,6 @@ impl Domain for GF2P64 {
     const PREPROCESSING_REPETITIONS: usize = 631;
     const ONLINE_REPETITIONS: usize = 23;
 
-    #[inline(always)]
     fn convert(dst: &mut [Self::Sharing], src: &[Self::Batch]) {
         // do a single bounds check up front
         assert_eq!(src.len(), Self::PLAYERS);
@@ -446,7 +445,6 @@ impl Domain for GF2P64 {
         compile_error!("unsupported platform: requires x86{-64} with SSE2 or AVX2");
     }
 
-    #[inline(always)]
     fn convert_inv(dst: &mut [Self::Batch], src: &[Self::Sharing]) {
         assert_eq!(src.len(), Self::Batch::DIMENSION);
         assert_eq!(dst.len(), Self::Sharing::DIMENSION);

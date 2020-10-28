@@ -5,7 +5,6 @@ pub struct GF2P8 {}
 
 impl GF2P8 {
     // This codes assumes that a bounds check has been done prior to the call.
-    // #[inline(always)]
     #[cfg(any(all(not(target_feature = "avx2"), not(target_feature = "sse2")), test))]
     fn convert_generic(dst: &mut [BitSharing8], src: &[BitBatch]) {
         let mut idx = 0;
@@ -354,7 +353,6 @@ impl GF2P8 {
     }
 
     // This codes assumes that a bounds check has been done prior to the call.
-    // #[inline(always)]
     #[cfg(any(all(not(target_feature = "avx2"), not(target_feature = "sse2")), test))]
     fn convert_inv_generic(dst: &mut [BitBatch], src: &[BitSharing8]) {
         for i in 0..BATCH_SIZE_BYTES {
@@ -393,7 +391,6 @@ impl Domain for GF2P8 {
     const PREPROCESSING_REPETITIONS: usize = 252;
     const ONLINE_REPETITIONS: usize = 44;
 
-    #[inline(always)]
     fn convert(dst: &mut [Self::Sharing], src: &[Self::Batch]) {
         // do a single bounds check up front
         assert_eq!(src.len(), Self::PLAYERS);
@@ -420,7 +417,6 @@ impl Domain for GF2P8 {
 
     // converts 64 sharings between 8 players to 8 batches of 64 sharings:
     // one batch per player.
-    #[inline(always)]
     fn convert_inv(dst: &mut [Self::Batch], src: &[Self::Sharing]) {
         // there should be enough sharings to fill a batch
         assert_eq!(src.len(), Self::Batch::DIMENSION);
