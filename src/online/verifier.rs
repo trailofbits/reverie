@@ -319,7 +319,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                 let (preprocessing, transcript, omit, output) = t.await?;
                 if i == 0 {
                     result = output;
-                } else if &result[..] != &output[..] {
+                } else if result[..] != output[..] {
                     return None;
                 }
                 omitted.push(omit);
@@ -331,7 +331,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
 
         // verify opening indexes
         let should_omit = random_vector(&mut oracle.query(), D::PLAYERS, D::ONLINE_REPETITIONS);
-        if &omitted[..] != should_omit {
+        if omitted[..] != should_omit {
             return None;
         }
 

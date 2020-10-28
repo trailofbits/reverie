@@ -17,6 +17,7 @@ impl fmt::Debug for BitSharing8 {
 impl Add for BitSharing8 {
     type Output = Self;
 
+    #[allow(clippy::suspicious_arithmetic_impl)]
     fn add(self, other: Self) -> Self::Output {
         Self(self.0 ^ other.0)
     }
@@ -25,6 +26,7 @@ impl Add for BitSharing8 {
 impl Sub for BitSharing8 {
     type Output = Self;
 
+    #[allow(clippy::suspicious_arithmetic_impl)]
     fn sub(self, other: Self) -> Self::Output {
         Self(self.0 ^ other.0)
     }
@@ -33,6 +35,7 @@ impl Sub for BitSharing8 {
 impl Mul for BitSharing8 {
     type Output = Self;
 
+    #[allow(clippy::suspicious_arithmetic_impl)]
     fn mul(self, other: Self) -> Self::Output {
         Self(self.0 & other.0)
     }

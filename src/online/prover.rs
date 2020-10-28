@@ -94,7 +94,7 @@ impl<D: Domain, W: Writer<D::Batch>> Writer<D::Sharing> for BatchExtractor<D, W>
 
 impl<D: Domain, W: Writer<D::Batch>> Drop for BatchExtractor<D, W> {
     fn drop(&mut self) {
-        if self.shares.len() == 0 {
+        if self.shares.is_empty() {
             return;
         }
 

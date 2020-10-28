@@ -30,7 +30,7 @@ impl MerkleProof {
         let mut path = self.path;
         for elem in self.leafs.iter() {
             let bit = path & 1;
-            path = path >> 1;
+            path >>= 1;
             match bit {
                 0 => {
                     hash = merkle_internal(&hash, elem);
