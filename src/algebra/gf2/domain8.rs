@@ -248,10 +248,10 @@ impl GF2P8 {
             for i in 0..2 {
                 let base = i * 4;
                 let mask = _mm256_movemask_epi8(vecs[i]);
-                (*d.0)[base] = (mask >> 24) as u8;
-                (*d.0)[base + 1] = (mask >> 16) as u8;
-                (*d.0)[base + 2] = (mask >> 8) as u8;
-                (*d.0)[base + 3] = mask as u8;
+                (d.0)[base] = (mask >> 24) as u8;
+                (d.0)[base + 1] = (mask >> 16) as u8;
+                (d.0)[base + 2] = (mask >> 8) as u8;
+                (d.0)[base + 3] = mask as u8;
                 vecs[i] = _mm256_add_epi8(vecs[i], vecs[i]);
             }
         }
