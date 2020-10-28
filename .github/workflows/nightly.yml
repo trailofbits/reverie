@@ -18,10 +18,9 @@ jobs:
     steps:
       - uses: actions/checkout@master
 
-      - name: Set nightly toolchain
+      - name: Set toolchain
         uses: actions-rs/toolchain@v1
         with:
-            toolchain: nightly
             override: true
             components: rustfmt, clippy
 
