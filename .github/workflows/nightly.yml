@@ -24,6 +24,9 @@ jobs:
             toolchain: nightly
             override: true
 
+      - name: Format
+        run: cargo fmt
+
       - name: Build
         run: RUSTFLAGS="-C target-cpu=native" cargo build
 

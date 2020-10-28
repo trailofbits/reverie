@@ -491,8 +491,8 @@ mod test {
 mod benchmark {
     use super::*;
 
-    use rand::thread_rng;
     use ::test::{black_box, Bencher};
+    use rand::thread_rng;
 
     #[bench]
     fn bench_gf2p8_convert(b: &mut Bencher) {
