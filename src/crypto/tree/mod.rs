@@ -89,7 +89,7 @@ impl Node {
         level: usize,
     ) -> &'a mut [Option<[u8; KEY_SIZE]>] {
         // check if we have extracted the required number of leafs
-        if result.len() == 0 {
+        if result.is_empty() {
             return result;
         }
 
@@ -158,12 +158,12 @@ impl TreePRF {
     }
 
     pub fn expand_full(result: &mut [[u8; KEY_SIZE]], root: [u8; KEY_SIZE]) {
-        fn expand_full_internal<'a>(
-            result: &'a mut [[u8; KEY_SIZE]],
+        fn expand_full_internal(
+            result: &mut [[u8; KEY_SIZE]],
             root: [u8; KEY_SIZE],
             levels: usize,
-        ) -> &'a mut [[u8; KEY_SIZE]] {
-            if result.len() == 0 {
+        ) -> &mut [[u8; KEY_SIZE]] {
+            if result.is_empty() {
                 // destination full
                 result
             } else if levels == 0 {

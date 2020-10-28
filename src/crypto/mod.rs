@@ -13,8 +13,6 @@ use serde::de::{Deserializer, SeqAccess, Visitor};
 use serde::ser::{SerializeTuple, Serializer};
 use serde::{Deserialize, Serialize};
 
-use blake3;
-
 use std::fmt;
 
 pub use merkle::{MerkleSet, MerkleSetProof};
@@ -142,7 +140,8 @@ impl RngCore for PRG {
     }
 
     fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
-        Ok(self.fill_bytes(dest))
+        self.fill_bytes(dest);
+        Ok(())
     }
 
     fn next_u32(&mut self) -> u32 {

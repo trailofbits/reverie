@@ -14,8 +14,6 @@ use serde::{Deserialize, Serialize};
 
 use std::sync::Arc;
 
-use bincode;
-
 const CHANNEL_CAPACITY: usize = 100;
 
 pub type ProofGF2P8 = Proof<gf2::GF2P8>;

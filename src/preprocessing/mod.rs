@@ -1,5 +1,6 @@
 mod util;
 
+#[allow(clippy::module_inception)]
 pub mod preprocessing;
 pub mod prover;
 pub mod verifier;
@@ -253,9 +254,9 @@ impl<D: Domain> Proof<D> {
             D::PREPROCESSING_REPETITIONS,
             D::ONLINE_REPETITIONS,
         );
-        if &hidden[..] == &subset[..] {
+        if hidden[..] == subset[..] {
             Some(Output {
-                hidden: self.hidden.iter().cloned().collect(),
+                hidden: self.hidden.to_vec(),
                 _ph: PhantomData,
             })
         } else {

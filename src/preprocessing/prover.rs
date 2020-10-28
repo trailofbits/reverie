@@ -272,7 +272,7 @@ impl<D: Domain> PreprocessingExecution<D> {
         }
 
         // pad final multiplication batch if needed
-        if self.share_a.len() > 0 {
+        if !self.share_a.is_empty() {
             self.share_a.resize(D::Batch::DIMENSION, D::Sharing::ZERO);
             self.share_b.resize(D::Batch::DIMENSION, D::Sharing::ZERO);
             self.shares.beaver.empty();

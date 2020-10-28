@@ -47,7 +47,7 @@ impl MerkleProof {
 
 impl MerkleTree {
     pub fn new(elems: &[Hash]) -> MerkleTree {
-        assert!(elems.len() > 0);
+        assert!(!elems.is_empty());
         assert!(elems.len() < (1 << 31));
         if elems.len() == 1 {
             MerkleTree::Leaf(elems[0].clone())

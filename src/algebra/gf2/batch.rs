@@ -51,6 +51,7 @@ impl fmt::Debug for BitBatch {
 impl Add for BitBatch {
     type Output = Self;
 
+    #[allow(clippy::suspicious_arithmetic_impl)]
     #[inline(always)]
     fn add(self, other: Self) -> Self::Output {
         // LLVM optimizes this into a single XOR between 64-bit integers
@@ -65,6 +66,7 @@ impl Add for BitBatch {
 impl Sub for BitBatch {
     type Output = Self;
 
+    #[allow(clippy::suspicious_arithmetic_impl)]
     #[inline(always)]
     fn sub(self, other: Self) -> Self::Output {
         self + other
@@ -74,6 +76,7 @@ impl Sub for BitBatch {
 impl Mul for BitBatch {
     type Output = Self;
 
+    #[allow(clippy::suspicious_arithmetic_impl)]
     #[inline(always)]
     fn mul(self, other: Self) -> Self::Output {
         // LLVM optimizes this into a single XOR between 64-bit integers

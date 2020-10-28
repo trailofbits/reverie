@@ -14,8 +14,6 @@ use std::sync::Arc;
 use async_channel::{Receiver, SendError, Sender};
 use async_std::task;
 
-use bincode;
-
 const DEFAULT_CAPACITY: usize = BATCH_SIZE;
 
 async fn feed<

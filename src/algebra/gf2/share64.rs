@@ -9,6 +9,7 @@ impl LocalOperation for BitSharing64 {}
 impl Add for BitSharing64 {
     type Output = Self;
 
+    #[allow(clippy::suspicious_arithmetic_impl)]
     fn add(self, other: Self) -> Self::Output {
         Self(self.0 ^ other.0)
     }
@@ -17,6 +18,7 @@ impl Add for BitSharing64 {
 impl Sub for BitSharing64 {
     type Output = Self;
 
+    #[allow(clippy::suspicious_arithmetic_impl)]
     fn sub(self, other: Self) -> Self::Output {
         self + other
     }
@@ -25,6 +27,7 @@ impl Sub for BitSharing64 {
 impl Mul for BitSharing64 {
     type Output = Self;
 
+    #[allow(clippy::suspicious_arithmetic_impl)]
     fn mul(self, other: Self) -> Self::Output {
         Self(self.0 & other.0)
     }

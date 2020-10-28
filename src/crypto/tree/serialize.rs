@@ -43,7 +43,7 @@ impl<'de> Visitor<'de> for TreeVistor {
         match unflatten(&res[..]) {
             None => Err(A::Error::invalid_value(Unexpected::Seq, &self)),
             Some((rest, tree)) => {
-                if rest.len() == 0 {
+                if rest.is_empty() {
                     Ok(tree)
                 } else {
                     Err(A::Error::invalid_value(Unexpected::Seq, &self))

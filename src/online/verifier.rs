@@ -319,10 +319,8 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                 let (preprocessing, transcript, omit, output) = t.await?;
                 if i == 0 {
                     result = output;
-                } else {
-                    if &result[..] != &output[..] {
-                        return None;
-                    }
+                } else if &result[..] != &output[..] {
+                    return None;
                 }
                 omitted.push(omit);
                 oracle.feed(preprocessing.as_bytes());
