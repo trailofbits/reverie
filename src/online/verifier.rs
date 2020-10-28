@@ -7,6 +7,7 @@ use crate::consts::*;
 use crate::oracle::RandomOracle;
 use crate::preprocessing::verifier::PreprocessingExecution;
 use crate::util::*;
+use crate::Instructions;
 
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -17,9 +18,11 @@ use async_std::task;
 
 const DEFAULT_CAPACITY: usize = 1024;
 
+// TODO(ww): Figure out a reasonable type alias for `senders` below.
+#[allow(clippy::type_complexity)]
 async fn feed<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>>(
     chunk: usize,
-    senders: &mut [Sender<(Arc<Vec<Instruction<D::Scalar>>>, Vec<u8>)>],
+    senders: &mut [Sender<(Arc<Instructions<D>>, Vec<u8>)>],
     program: &mut PI,
     chunks: &mut Receiver<Vec<u8>>,
 ) -> Option<bool> {
@@ -98,8 +101,8 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
             run: Run<D>,
             outputs: Sender<()>,
             inputs: Receiver<(
-                Arc<Vec<Instruction<D::Scalar>>>, // next slice of program
-                Vec<u8>,                          // next chunk
+                Arc<Instructions<D>>, // next slice of program
+                Vec<u8>,              // next chunk
             )>,
         ) -> Option<(Hash, Hash, usize, Vec<D::Scalar>)> {
             let mut wires = VecMap::new();

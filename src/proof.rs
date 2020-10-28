@@ -164,7 +164,8 @@ impl<D: Domain> Proof<D> {
         }
 
         // check that online execution matches preprocessing (executing both in parallel)
-        task_online.await?.check(&preprocessing_task.await?)
+        let preprocessed = preprocessing_task.await?;
+        task_online.await?.check(&preprocessed)
     }
 
     /// Create a new proof for the correct execution of program(witness)

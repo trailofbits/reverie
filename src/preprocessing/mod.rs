@@ -10,7 +10,7 @@ use crate::consts::*;
 use crate::crypto::*;
 use crate::oracle::RandomOracle;
 use crate::util::*;
-use crate::Instruction;
+use crate::{Instruction, Instructions};
 
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -21,7 +21,7 @@ use async_std::task;
 use serde::{Deserialize, Serialize};
 
 async fn feed<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>>(
-    senders: &mut [Sender<Arc<Vec<Instruction<D::Scalar>>>>],
+    senders: &mut [Sender<Arc<Instructions<D>>>],
     program: &mut PI,
 ) -> bool {
     // next slice of program
@@ -115,7 +115,7 @@ impl<D: Domain> Proof<D> {
             root: [u8; KEY_SIZE],
             branches: Arc<Vec<Vec<D::Batch>>>,
             outputs: Sender<()>,
-            inputs: Receiver<Arc<Vec<Instruction<D::Scalar>>>>,
+            inputs: Receiver<Arc<Instructions<D>>>,
         ) -> Result<(Hash, Vec<Hash>), SendError<()>> {
             let mut preprocessing: preprocessing::PreprocessingExecution<D> =
                 preprocessing::PreprocessingExecution::new(root, &branches[..]);
@@ -135,7 +135,7 @@ impl<D: Domain> Proof<D> {
 
         // create async parallel task for every repetition
         let mut tasks = Vec::with_capacity(D::PREPROCESSING_REPETITIONS);
-        let mut inputs: Vec<Sender<Arc<Vec<Instruction<D::Scalar>>>>> =
+        let mut inputs: Vec<Sender<Arc<Instructions<D>>>> =
             Vec::with_capacity(D::PREPROCESSING_REPETITIONS);
         let mut outputs = Vec::with_capacity(D::PREPROCESSING_REPETITIONS);
 

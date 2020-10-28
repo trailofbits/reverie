@@ -8,11 +8,15 @@ use crate::oracle::RandomOracle;
 use crate::preprocessing::prover::PreprocessingExecution;
 use crate::preprocessing::PreprocessingOutput;
 use crate::util::*;
+use crate::Instructions;
 
 use std::sync::Arc;
 
 use async_channel::{Receiver, SendError, Sender};
 use async_std::task;
+
+/// A type alias for a tuple of a program slice and its witness slice.
+type ProgWitSlice<D> = (Arc<Instructions<D>>, Arc<Vec<<D as Domain>::Scalar>>);
 
 const DEFAULT_CAPACITY: usize = BATCH_SIZE;
 
@@ -22,7 +26,7 @@ async fn feed<
     WI: Iterator<Item = D::Scalar>,
 >(
     chunk: usize,
-    senders: &mut [Sender<(Arc<Vec<Instruction<D::Scalar>>>, Arc<Vec<D::Scalar>>)>],
+    senders: &mut [Sender<ProgWitSlice<D>>],
     program: &mut PI,
     witness: &mut WI,
 ) -> bool {
@@ -406,10 +410,7 @@ impl<D: Domain> StreamingProver<D> {
             branch_index: usize,
             branch: Arc<Vec<D::Scalar>>,
             outputs: Sender<()>,
-            inputs: Receiver<(
-                Arc<Vec<Instruction<D::Scalar>>>, // next slice of program
-                Arc<Vec<D::Scalar>>,              // next slice of witness
-            )>,
+            inputs: Receiver<ProgWitSlice<D>>,
         ) -> Result<(Vec<u8>, MerkleSetProof, Hash), SendError<Vec<u8>>> {
             // online execution
             let mut online = Prover::<D, _>::new(branch.iter().cloned());
@@ -581,10 +582,7 @@ impl<D: Domain> StreamingProver<D> {
             omitted: usize,
             branch: Arc<Vec<D::Scalar>>,
             outputs: Sender<Vec<u8>>,
-            inputs: Receiver<(
-                Arc<Vec<Instruction<D::Scalar>>>, // next slice of program
-                Arc<Vec<D::Scalar>>,              // next slice of witness
-            )>,
+            inputs: Receiver<ProgWitSlice<D>>,
         ) -> Result<(), SendError<Vec<u8>>> {
             let mut seeds = vec![[0u8; KEY_SIZE]; D::PLAYERS];
             TreePRF::expand_full(&mut seeds, root);
