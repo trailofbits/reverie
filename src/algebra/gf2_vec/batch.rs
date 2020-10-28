@@ -1,5 +1,5 @@
 use super::scalar::Scalar;
-use super::{Packable, RingElement, Samplable, RingModule, Serializable};
+use super::{Packable, RingElement, RingModule, Samplable, Serializable};
 
 use crate::util::Writer;
 
@@ -86,7 +86,7 @@ impl RingModule<Scalar> for Batch {
 
     #[inline(always)]
     fn action(&self, s: Scalar) -> Self {
-        Batch(self.0 * s.0.0)
+        Batch(self.0 * (s.0).0)
     }
 
     #[inline(always)]
@@ -101,7 +101,6 @@ impl RingModule<Scalar> for Batch {
         Scalar(*self)
     }
 }
-
 
 impl Samplable for Batch {
     fn gen<R: RngCore>(rng: &mut R) -> Batch {
