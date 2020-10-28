@@ -1,5 +1,4 @@
 #![feature(test)]
-#![feature(stdsimd)]
 
 #[cfg(test)]
 extern crate test;
