@@ -27,8 +27,11 @@ jobs:
       - name: Format
         run: cargo fmt
 
+      - name: Lint
+        run: cargo clippy -- -D warnings
+
       - name: Build
-        run: RUSTFLAGS="-C target-cpu=native" cargo build
+        run: cargo build
 
       - name: Test
-        run: RUSTFLAGS="-C target-cpu=native" cargo test
+        run: cargo test
