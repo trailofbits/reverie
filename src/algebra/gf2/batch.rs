@@ -56,8 +56,8 @@ impl Add for BitBatch {
     fn add(self, other: Self) -> Self::Output {
         // LLVM optimizes this into a single XOR between 64-bit integers
         let mut res: [u8; BATCH_SIZE_BYTES] = [0; BATCH_SIZE_BYTES];
-        for i in 0..BATCH_SIZE_BYTES {
-            res[i] = self.0[i] ^ other.0[i];
+        for (i, res_i) in res.iter_mut().enumerate().take(BATCH_SIZE_BYTES) {
+            *res_i = self.0[i] ^ other.0[i];
         }
         Self(res)
     }
@@ -81,8 +81,8 @@ impl Mul for BitBatch {
     fn mul(self, other: Self) -> Self::Output {
         // LLVM optimizes this into a single XOR between 64-bit integers
         let mut res: [u8; BATCH_SIZE_BYTES] = [0; BATCH_SIZE_BYTES];
-        for i in 0..BATCH_SIZE_BYTES {
-            res[i] = self.0[i] & other.0[i];
+        for (i, res_i) in res.iter_mut().enumerate().take(BATCH_SIZE_BYTES) {
+            *res_i = self.0[i] & other.0[i];
         }
         Self(res)
     }
@@ -99,8 +99,8 @@ impl RingModule<BitScalar> for BitBatch {
     #[inline(always)]
     fn action(&self, s: BitScalar) -> Self {
         let mut res: [u8; BATCH_SIZE_BYTES] = [0; BATCH_SIZE_BYTES];
-        for i in 0..BATCH_SIZE_BYTES {
-            res[i] = s.0 * self.0[i];
+        for (i, res_i) in res.iter_mut().enumerate().take(BATCH_SIZE_BYTES) {
+            *res_i = s.0 * self.0[i];
         }
         Self(res)
     }

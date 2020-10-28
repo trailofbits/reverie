@@ -47,8 +47,8 @@ impl<D: Domain> PreprocessingExecution<D> {
 
             for j in 0..branches[0].len() {
                 let mut pad = D::Batch::ZERO;
-                for i in 0..D::PLAYERS {
-                    pad = pad + D::Batch::gen(&mut prgs[i]);
+                for prg in prgs.iter_mut().take(D::PLAYERS) {
+                    pad = pad + D::Batch::gen(prg);
                 }
                 for b in 0..branches.len() {
                     hashes[b].write(pad + branches[b][j]) // notice the permutation

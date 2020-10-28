@@ -98,8 +98,8 @@ impl Node {
             Node::Punctured => {
                 // all the 2^level children of a punctured node are also punctured
                 let length = std::cmp::min(1 << level, result.len());
-                for i in 0..length {
-                    result[i] = None;
+                for child in result.iter_mut().take(length) {
+                    *child = None;
                 }
                 &mut result[length..]
             }
