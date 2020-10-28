@@ -84,8 +84,8 @@ impl RingModule<Scalar> for Sharing64 {
     // s * (r_1, r_2, ..., r_dimension) = (s * r_1, s * r_2, ..., s * r_dimension)
     fn action(&self, s: Scalar) -> Self {
         let mut res: [MaybeUninit<Batch>; PLAYERS] = [MaybeUninit::uninit(); PLAYERS];
-        for i in 0..PLAYERS {
-            res[i] = MaybeUninit::new(s.0 * self.0[i]);
+        for (i, res_i) in res.iter_mut().enumerate() {
+            *res_i = MaybeUninit::new(s.0 * self.0[i]);
         }
         Self(unsafe { mem::transmute(res) })
     }
