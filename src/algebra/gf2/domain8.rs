@@ -53,7 +53,7 @@ impl GF2P8 {
         // transpose four batches at a time, byte-by-byte
         for i in (0..BATCH_SIZE_BYTES).step_by(4) {
             // pack 4 bytes from 8 different shares
-            let mut v = _mm256_set_epi8(
+            let mut vecs = _mm256_set_epi8(
                 src.get_unchecked(0).0[i] as i8,
                 src.get_unchecked(1).0[i] as i8,
                 src.get_unchecked(2).0[i] as i8,
@@ -91,20 +91,20 @@ impl GF2P8 {
             // calculate the 8 sharings
             let mut idx = i * 8;
             for _ in 0..8 {
-                let mask = _mm256_movemask_epi8(v);
+                let mask = _mm256_movemask_epi8(vecs);
                 dst[idx] = BitSharing8((mask >> 24) as u8);
                 dst[idx + 8] = BitSharing8((mask >> 16) as u8);
                 dst[idx + 16] = BitSharing8((mask >> 8) as u8);
                 dst[idx + 24] = BitSharing8(mask as u8);
-                v = _mm256_add_epi8(v, v);
+                vecs = _mm256_add_epi8(vecs, vecs);
                 idx += 1;
             }
 
             // assert all bits consumed
             debug_assert_eq!(
                 {
-                    let v = _mm256_add_epi8(v, v);
-                    _mm256_movemask_epi8(v)
+                    let vecs = _mm256_add_epi8(vecs, vecs);
+                    _mm256_movemask_epi8(vecs)
                 },
                 0
             )
@@ -123,7 +123,7 @@ impl GF2P8 {
         // transpose four batches at a time, byte-by-byte
         for i in (0..BATCH_SIZE_BYTES).step_by(2) {
             // pack 2 bytes from 8 different shares
-            let mut v = _mm_set_epi8(
+            let mut vecs = _mm_set_epi8(
                 src.get_unchecked(0).0[i] as i8,
                 src.get_unchecked(1).0[i] as i8,
                 src.get_unchecked(2).0[i] as i8,
@@ -145,18 +145,18 @@ impl GF2P8 {
             // calculate the 8 sharings
             let mut idx = i * 8;
             for _ in 0..8 {
-                let mask = _mm_movemask_epi8(v);
+                let mask = _mm_movemask_epi8(vecs);
                 dst[idx] = BitSharing8((mask >> 8) as u8);
                 dst[idx + 8] = BitSharing8(mask as u8);
-                v = _mm_add_epi8(v, v);
+                vecs = _mm_add_epi8(vecs, vecs);
                 idx += 1;
             }
 
             // assert all bits consumed
             debug_assert_eq!(
                 {
-                    let v = _mm_add_epi8(v, v);
-                    _mm_movemask_epi8(v)
+                    let vecs = _mm_add_epi8(vecs, vecs);
+                    _mm_movemask_epi8(vecs)
                 },
                 0
             )
@@ -173,7 +173,7 @@ impl GF2P8 {
         use core::arch::x86_64::*;
 
         // use 2 x 256-bit registers
-        let mut v: [__m256i; 2] = [
+        let mut vecs: [__m256i; 2] = [
             _mm256_set_epi8(
                 src[0x00].0 as i8,
                 src[0x01].0 as i8,
@@ -244,15 +244,15 @@ impl GF2P8 {
             ),
         ];
 
-        for p in 0..<Self as Domain>::Sharing::DIMENSION {
+        for d in dst.iter_mut().take(<Self as Domain>::Sharing::DIMENSION) {
             for i in 0..2 {
                 let base = i * 4;
-                let mask = _mm256_movemask_epi8(v[i]);
-                (dst[p].0)[base] = (mask >> 24) as u8;
-                (dst[p].0)[base + 1] = (mask >> 16) as u8;
-                (dst[p].0)[base + 2] = (mask >> 8) as u8;
-                (dst[p].0)[base + 3] = mask as u8;
-                v[i] = _mm256_add_epi8(v[i], v[i]);
+                let mask = _mm256_movemask_epi8(vecs[i]);
+                (*d.0)[base] = (mask >> 24) as u8;
+                (*d.0)[base + 1] = (mask >> 16) as u8;
+                (*d.0)[base + 2] = (mask >> 8) as u8;
+                (*d.0)[base + 3] = mask as u8;
+                vecs[i] = _mm256_add_epi8(vecs[i], vecs[i]);
             }
         }
     }
@@ -267,7 +267,7 @@ impl GF2P8 {
         use core::arch::x86_64::*;
 
         // use 4 x 128-bit registers
-        let mut v: [__m128i; 4] = [
+        let mut vecs: [__m128i; 4] = [
             _mm_set_epi8(
                 src[0x00].0 as i8,
                 src[0x01].0 as i8,
@@ -342,13 +342,13 @@ impl GF2P8 {
             ),
         ];
 
-        for p in 0..<Self as Domain>::Sharing::DIMENSION {
-            for i in 0..4 {
+        for d in dst.iter_mut().take(<Self as Domain>::Sharing::DIMENSION) {
+            for (i, vec) in vecs.iter_mut().enumerate() {
                 let base = i * 2;
-                let mask = _mm_movemask_epi8(v[i]);
-                (dst[p].0)[base] = (mask >> 8) as u8;
-                (dst[p].0)[base + 1] = mask as u8;
-                v[i] = _mm_add_epi8(v[i], v[i]);
+                let mask = _mm_movemask_epi8(*vec);
+                (d.0)[base] = (mask >> 8) as u8;
+                (d.0)[base + 1] = mask as u8;
+                *vec = _mm_add_epi8(*vec, *vec);
             }
         }
     }

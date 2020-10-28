@@ -174,6 +174,9 @@ impl GF2P64 {
         dst: &mut [<Self as Domain>::Batch],
         src: &[<Self as Domain>::Sharing],
     ) {
+        // NOTE(ww): This is safe, since we fully initialize sharings immediately below.
+        // We could probably avoid this with an impl `From<Domain::Sharing> for ...`
+        #[allow(clippy::uninit_assumed_init)]
         let mut sharings: [[u8; 8]; <Self as Domain>::Batch::DIMENSION] =
             MaybeUninit::uninit().assume_init();
 
@@ -315,6 +318,9 @@ impl GF2P64 {
         dst: &mut [<Self as Domain>::Batch],
         src: &[<Self as Domain>::Sharing],
     ) {
+        // NOTE(ww): This is safe, since we fully initialize sharings immediately below.
+        // We could probably avoid this with an impl `From<Domain::Sharing> for ...`
+        #[allow(clippy::uninit_assumed_init)]
         let mut sharings: [[u8; 8]; <Self as Domain>::Batch::DIMENSION] =
             MaybeUninit::uninit().assume_init();
 
@@ -354,7 +360,7 @@ impl GF2P64 {
         // transpose two batches at a time, byte-by-byte
         for i in (0..(<Self as Domain>::Sharing::DIMENSION / 8)).step_by(2) {
             // pack 2 bytes from 64 different players
-            let mut v: [__m128i; 8] = [
+            let mut vecs: [__m128i; 8] = [
                 pack8x2!(0x00, i),
                 pack8x2!(0x08, i),
                 pack8x2!(0x10, i),
@@ -370,15 +376,15 @@ impl GF2P64 {
 
             for _ in 0..8 {
                 let masks: [_; 8] = [
-                    _mm_movemask_epi8(v[0]),
-                    _mm_movemask_epi8(v[1]),
-                    _mm_movemask_epi8(v[2]),
-                    _mm_movemask_epi8(v[3]),
+                    _mm_movemask_epi8(vecs[0]),
+                    _mm_movemask_epi8(vecs[1]),
+                    _mm_movemask_epi8(vecs[2]),
+                    _mm_movemask_epi8(vecs[3]),
                     //
-                    _mm_movemask_epi8(v[4]),
-                    _mm_movemask_epi8(v[5]),
-                    _mm_movemask_epi8(v[6]),
-                    _mm_movemask_epi8(v[7]),
+                    _mm_movemask_epi8(vecs[4]),
+                    _mm_movemask_epi8(vecs[5]),
+                    _mm_movemask_epi8(vecs[6]),
+                    _mm_movemask_epi8(vecs[7]),
                 ];
 
                 dst[idx] = BitBatch([
@@ -403,8 +409,8 @@ impl GF2P64 {
                     masks[7] as u8,
                 ]);
 
-                for i in 0..8 {
-                    v[i] = _mm_add_epi8(v[i], v[i]);
+                for vec in &mut vecs {
+                    *vec = _mm_add_epi8(*vec, *vec);
                 }
 
                 idx += 1;
