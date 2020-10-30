@@ -6,6 +6,8 @@ use std::io;
 use std::mem::{self, MaybeUninit};
 use std::ops::{Add, Mul, Sub};
 
+use itertools::izip;
+
 const PLAYERS: usize = 64;
 
 // vector element
@@ -25,8 +27,8 @@ impl LocalOperation for Sharing64 {
     #[inline(always)]
     fn operation(&self) -> Self {
         let mut res: [MaybeUninit<Batch>; PLAYERS] = [MaybeUninit::uninit(); PLAYERS];
-        for (i, res_i) in res.iter_mut().enumerate() {
-            *res_i = MaybeUninit::new(self.0[i].rotate());
+        for (res_batch, self_batch) in res.iter_mut().zip(&self.0) {
+            *res_batch = MaybeUninit::new(self_batch.rotate());
         }
         Self(unsafe { mem::transmute(res) })
     }
@@ -38,8 +40,8 @@ impl Add for Sharing64 {
     #[inline(always)]
     fn add(self, other: Self) -> Self {
         let mut res: [MaybeUninit<Batch>; PLAYERS] = [MaybeUninit::uninit(); PLAYERS];
-        for (i, res_i) in res.iter_mut().enumerate() {
-            *res_i = MaybeUninit::new(self.0[i] + other.0[i]);
+        for (res_batch, self_batch, other_batch) in izip!(&mut res, &self.0, &other.0) {
+            *res_batch = MaybeUninit::new(*self_batch + *other_batch);
         }
         Self(unsafe { mem::transmute(res) })
     }
@@ -51,8 +53,8 @@ impl Sub for Sharing64 {
     #[inline(always)]
     fn sub(self, other: Self) -> Self {
         let mut res: [MaybeUninit<Batch>; PLAYERS] = [MaybeUninit::uninit(); PLAYERS];
-        for (i, res_i) in res.iter_mut().enumerate() {
-            *res_i = MaybeUninit::new(self.0[i] - other.0[i]);
+        for (res_batch, self_batch, other_batch) in izip!(&mut res, &self.0, &other.0) {
+            *res_batch = MaybeUninit::new(*self_batch - *other_batch);
         }
         Self(unsafe { mem::transmute(res) })
     }
@@ -64,8 +66,8 @@ impl Mul for Sharing64 {
     #[inline(always)]
     fn mul(self, other: Self) -> Self {
         let mut res: [MaybeUninit<Batch>; PLAYERS] = [MaybeUninit::uninit(); PLAYERS];
-        for (i, res_i) in res.iter_mut().enumerate() {
-            *res_i = MaybeUninit::new(self.0[i] * other.0[i]);
+        for (res_batch, self_batch, other_batch) in izip!(&mut res, &self.0, &other.0) {
+            *res_batch = MaybeUninit::new(*self_batch * *other_batch);
         }
         Self(unsafe { mem::transmute(res) })
     }
@@ -84,8 +86,8 @@ impl RingModule<Scalar> for Sharing64 {
     // s * (r_1, r_2, ..., r_dimension) = (s * r_1, s * r_2, ..., s * r_dimension)
     fn action(&self, s: Scalar) -> Self {
         let mut res: [MaybeUninit<Batch>; PLAYERS] = [MaybeUninit::uninit(); PLAYERS];
-        for (i, res_i) in res.iter_mut().enumerate() {
-            *res_i = MaybeUninit::new(s.0 * self.0[i]);
+        for (res_batch, self_batch) in res.iter_mut().zip(&self.0) {
+            *res_batch = MaybeUninit::new(s.0 * *self_batch);
         }
         Self(unsafe { mem::transmute(res) })
     }
@@ -102,8 +104,8 @@ impl RingModule<Scalar> for Sharing64 {
 impl Sharing<Scalar> for Sharing64 {
     fn reconstruct(&self) -> Scalar {
         let mut batch = Batch::ZERO;
-        for i in 0..PLAYERS {
-            batch = batch + self.0[i];
+        for self_batch in &self.0 {
+            batch = batch + *self_batch;
         }
         Scalar(batch)
     }
