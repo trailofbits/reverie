@@ -2,6 +2,7 @@ use super::*;
 
 use crate::util::Writer;
 
+use itertools::izip;
 use serde::{Deserialize, Serialize};
 
 use std::fmt;
@@ -56,8 +57,8 @@ impl Add for BitBatch {
     fn add(self, other: Self) -> Self::Output {
         // LLVM optimizes this into a single XOR between 64-bit integers
         let mut res: [u8; BATCH_SIZE_BYTES] = [0; BATCH_SIZE_BYTES];
-        for (i, res_i) in res.iter_mut().enumerate() {
-            *res_i = self.0[i] ^ other.0[i];
+        for (res_byte, self_byte, other_byte) in izip!(&mut res, &self.0, &other.0) {
+            *res_byte = self_byte ^ other_byte;
         }
         Self(res)
     }
@@ -79,10 +80,10 @@ impl Mul for BitBatch {
     #[allow(clippy::suspicious_arithmetic_impl)]
     #[inline(always)]
     fn mul(self, other: Self) -> Self::Output {
-        // LLVM optimizes this into a single XOR between 64-bit integers
+        // LLVM optimizes this into a single AND between 64-bit integers
         let mut res: [u8; BATCH_SIZE_BYTES] = [0; BATCH_SIZE_BYTES];
-        for (i, res_i) in res.iter_mut().enumerate() {
-            *res_i = self.0[i] & other.0[i];
+        for (res_byte, self_byte, other_byte) in izip!(&mut res, &self.0, &other.0) {
+            *res_byte = self_byte & other_byte;
         }
         Self(res)
     }
@@ -97,10 +98,10 @@ impl RingModule<BitScalar> for BitBatch {
     const DIMENSION: usize = BATCH_SIZE_BITS;
 
     #[inline(always)]
-    fn action(&self, s: BitScalar) -> Self {
+    fn action(&self, scalar: BitScalar) -> Self {
         let mut res: [u8; BATCH_SIZE_BYTES] = [0; BATCH_SIZE_BYTES];
-        for (i, res_i) in res.iter_mut().enumerate() {
-            *res_i = s.0 * self.0[i];
+        for (res_byte, self_byte) in res.iter_mut().zip(&self.0) {
+            *res_byte = scalar.0 * self_byte;
         }
         Self(res)
     }
