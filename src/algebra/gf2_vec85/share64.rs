@@ -67,7 +67,7 @@ impl Mul for Sharing64 {
     fn mul(self, other: Self) -> Self {
         let mut res: [MaybeUninit<Batch>; PLAYERS] = [MaybeUninit::uninit(); PLAYERS];
         for (res_batch, self_batch, other_batch) in izip!(&mut res, &self.0, &other.0) {
-            *res_batch = MaybeUninit::new(self_batch * other_batch);
+            *res_batch = MaybeUninit::new(*self_batch * *other_batch);
         }
         Self(unsafe { mem::transmute(res) })
     }
@@ -87,7 +87,7 @@ impl RingModule<Scalar> for Sharing64 {
     fn action(&self, s: Scalar) -> Self {
         let mut res: [MaybeUninit<Batch>; PLAYERS] = [MaybeUninit::uninit(); PLAYERS];
         for (res_batch, self_batch) in res.iter_mut().zip(&self.0) {
-            *res_batch = MaybeUninit::new(s.0 * self_batch);
+            *res_batch = MaybeUninit::new(s.0 * *self_batch);
         }
         Self(unsafe { mem::transmute(res) })
     }
@@ -105,7 +105,7 @@ impl Sharing<Scalar> for Sharing64 {
     fn reconstruct(&self) -> Scalar {
         let mut batch = Batch::ZERO;
         for self_batch in &self.0 {
-            batch = batch + self_batch;
+            batch = batch + *self_batch;
         }
         Scalar(batch)
     }
