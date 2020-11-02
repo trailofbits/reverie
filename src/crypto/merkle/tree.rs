@@ -30,7 +30,7 @@ impl MerkleProof {
         let mut path = self.path;
         for elem in self.leafs.iter() {
             let bit = path & 1;
-            path = path >> 1;
+            path >>= 1;
             match bit {
                 0 => {
                     hash = merkle_internal(&hash, elem);
@@ -47,7 +47,7 @@ impl MerkleProof {
 
 impl MerkleTree {
     pub fn new(elems: &[Hash]) -> MerkleTree {
-        assert!(elems.len() > 0);
+        assert!(!elems.is_empty());
         assert!(elems.len() < (1 << 31));
         if elems.len() == 1 {
             MerkleTree::Leaf(elems[0].clone())

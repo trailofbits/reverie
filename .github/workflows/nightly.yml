@@ -18,14 +18,20 @@ jobs:
     steps:
       - uses: actions/checkout@master
 
-      - name: Set nightly toolchain
+      - name: Set toolchain
         uses: actions-rs/toolchain@v1
         with:
-            toolchain: nightly
             override: true
+            components: rustfmt, clippy
+
+      - name: Format
+        run: cargo fmt
+
+      - name: Lint
+        run: cargo clippy -- -D warnings
 
       - name: Build
-        run: RUSTFLAGS="-C target-cpu=native" cargo build
+        run: cargo build
 
       - name: Test
-        run: RUSTFLAGS="-C target-cpu=native" cargo test
+        run: cargo test

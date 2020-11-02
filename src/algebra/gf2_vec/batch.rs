@@ -52,6 +52,7 @@ impl Packable for Batch {
 impl Add for Batch {
     type Output = Self;
 
+    #[allow(clippy::suspicious_arithmetic_impl)]
     #[inline(always)]
     fn add(self, other: Self) -> Self::Output {
         Batch(self.0 ^ other.0)
@@ -61,6 +62,7 @@ impl Add for Batch {
 impl Sub for Batch {
     type Output = Self;
 
+    #[allow(clippy::suspicious_arithmetic_impl)]
     #[inline(always)]
     fn sub(self, other: Self) -> Self::Output {
         Batch(self.0 ^ other.0)
@@ -70,6 +72,7 @@ impl Sub for Batch {
 impl Mul for Batch {
     type Output = Self;
 
+    #[allow(clippy::suspicious_arithmetic_impl)]
     #[inline(always)]
     fn mul(self, other: Self) -> Self::Output {
         Batch(self.0 & other.0)

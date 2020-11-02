@@ -14,8 +14,6 @@ use serde::{Deserialize, Serialize};
 
 use std::sync::Arc;
 
-use bincode;
-
 const CHANNEL_CAPACITY: usize = 100;
 
 pub type ProofGF2P8 = Proof<gf2::GF2P8>;
@@ -166,7 +164,8 @@ impl<D: Domain> Proof<D> {
         }
 
         // check that online execution matches preprocessing (executing both in parallel)
-        task_online.await?.check(&preprocessing_task.await?)
+        let preprocessed = preprocessing_task.await?;
+        task_online.await?.check(&preprocessed)
     }
 
     /// Create a new proof for the correct execution of program(witness)

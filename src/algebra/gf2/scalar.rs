@@ -30,7 +30,7 @@ impl Packable for BitScalar {
         }
         if rem != 0 {
             debug_assert!(rem < 8);
-            pac = pac << (8 - rem);
+            pac <<= 8 - rem;
             dst.write_all(&[pac])
         } else {
             Ok(())

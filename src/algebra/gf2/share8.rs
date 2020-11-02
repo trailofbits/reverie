@@ -17,6 +17,7 @@ impl fmt::Debug for BitSharing8 {
 impl Add for BitSharing8 {
     type Output = Self;
 
+    #[allow(clippy::suspicious_arithmetic_impl)]
     fn add(self, other: Self) -> Self::Output {
         Self(self.0 ^ other.0)
     }
@@ -25,6 +26,7 @@ impl Add for BitSharing8 {
 impl Sub for BitSharing8 {
     type Output = Self;
 
+    #[allow(clippy::suspicious_arithmetic_impl)]
     fn sub(self, other: Self) -> Self::Output {
         Self(self.0 ^ other.0)
     }
@@ -33,6 +35,7 @@ impl Sub for BitSharing8 {
 impl Mul for BitSharing8 {
     type Output = Self;
 
+    #[allow(clippy::suspicious_arithmetic_impl)]
     fn mul(self, other: Self) -> Self::Output {
         Self(self.0 & other.0)
     }
@@ -96,7 +99,7 @@ mod benchmark {
 
         let mut rng = thread_rng();
 
-        let mut v: [BitSharing8; 4] = [
+        let v: [BitSharing8; 4] = [
             BitSharing8(rng.gen()),
             BitSharing8(rng.gen()),
             BitSharing8(rng.gen()),
@@ -125,7 +128,7 @@ mod benchmark {
 
         b.iter(|| {
             black_box(for _ in 0..1_000_000 {
-                black_box({ v.action(s) });
+                black_box(v.action(s));
             })
         });
     }

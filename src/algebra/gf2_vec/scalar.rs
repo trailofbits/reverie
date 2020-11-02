@@ -26,7 +26,7 @@ impl Packable for Scalar {
     }
 
     fn unpack<W: Writer<Scalar>>(dst: W, bytes: &[u8]) -> Result<(), ()> {
-        Batch::unpack(MapWriter::new(|batch| Scalar(batch), dst), bytes)
+        Batch::unpack(MapWriter::new(Scalar, dst), bytes)
     }
 }
 

@@ -89,7 +89,7 @@ impl Node {
         level: usize,
     ) -> &'a mut [Option<[u8; KEY_SIZE]>] {
         // check if we have extracted the required number of leafs
-        if result.len() == 0 {
+        if result.is_empty() {
             return result;
         }
 
@@ -98,8 +98,8 @@ impl Node {
             Node::Punctured => {
                 // all the 2^level children of a punctured node are also punctured
                 let length = std::cmp::min(1 << level, result.len());
-                for i in 0..length {
-                    result[i] = None;
+                for child in result.iter_mut().take(length) {
+                    *child = None;
                 }
                 &mut result[length..]
             }
@@ -158,12 +158,12 @@ impl TreePRF {
     }
 
     pub fn expand_full(result: &mut [[u8; KEY_SIZE]], root: [u8; KEY_SIZE]) {
-        fn expand_full_internal<'a>(
-            result: &'a mut [[u8; KEY_SIZE]],
+        fn expand_full_internal(
+            result: &mut [[u8; KEY_SIZE]],
             root: [u8; KEY_SIZE],
             levels: usize,
-        ) -> &'a mut [[u8; KEY_SIZE]] {
-            if result.len() == 0 {
+        ) -> &mut [[u8; KEY_SIZE]] {
+            if result.is_empty() {
                 // destination full
                 result
             } else if levels == 0 {

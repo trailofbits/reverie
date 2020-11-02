@@ -101,7 +101,7 @@ impl<D: Domain> ShareGenerator<D> {
     }
 
     pub fn is_empty(&self) -> bool {
-        return self.next == D::Batch::DIMENSION;
+        self.next == D::Batch::DIMENSION
     }
 
     pub fn empty(&mut self) {
@@ -150,7 +150,7 @@ impl<D: Domain> PartialShareGenerator<D> {
     }
 
     pub fn is_empty(&self) -> bool {
-        return self.next == D::Batch::DIMENSION;
+        self.next == D::Batch::DIMENSION
     }
 
     pub fn empty(&mut self) {

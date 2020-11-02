@@ -46,3 +46,5 @@ pub enum Instruction<E: RingElement> {
     Input(usize),              // read next field element from input tape
     Output(usize),             // output wire (write wire-value to output tape)
 }
+
+type Instructions<D> = Vec<Instruction<<D as algebra::Domain>::Scalar>>;

@@ -21,16 +21,12 @@ impl Domain for GF2P64_85 {
     fn convert(dst: &mut [Self::Sharing], src: &[Self::Batch]) {
         debug_assert_eq!(src.len(), Self::PLAYERS);
         let sharing: &mut Self::Sharing = &mut dst[0];
-        for i in 0..Self::PLAYERS {
-            sharing.0[i] = src[i];
-        }
+        sharing.0.clone_from_slice(&src)
     }
 
     /// Conversion for this domain is trivial
     fn convert_inv(dst: &mut [Self::Batch], src: &[Self::Sharing]) {
         let sharing: &Self::Sharing = &src[0];
-        for i in 0..Self::PLAYERS {
-            dst[i] = sharing.0[i];
-        }
+        dst.clone_from_slice(&sharing.0)
     }
 }
