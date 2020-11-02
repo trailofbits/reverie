@@ -159,11 +159,11 @@ impl RngCore for PRG {
 mod tests {
     use test::Bencher;
 
-    use aes::block_cipher_trait::generic_array::GenericArray;
-    use aes::block_cipher_trait::BlockCipher;
-    use aes::Aes128;
+    use aes::{Aes128, BlockCipher, NewBlockCipher};
 
     use blake3::Hasher;
+
+    use cipher::generic_array::GenericArray;
 
     #[bench]
     fn bench_aes128(b: &mut Bencher) {
