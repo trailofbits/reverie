@@ -324,8 +324,8 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                 if i == 0 {
                     result = output;
                 } else if result[..] != output[..] {
-                    return None;
                     eprintln!("Output for task {} was {:?}, should be {:?}", i, output, result);
+                    return None;
                 }
                 omitted.push(omit);
                 oracle.feed(preprocessing.as_bytes());
