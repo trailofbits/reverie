@@ -270,6 +270,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
         }
 
         if self.proof.runs.len() != D::ONLINE_REPETITIONS {
+            eprintln!("Length mismatch!");
             return None;
         }
 
@@ -324,6 +325,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                     result = output;
                 } else if result[..] != output[..] {
                     return None;
+                    eprintln!("Output for task {} was {:?}, should be {:?}", i, output, result);
                 }
                 omitted.push(omit);
                 oracle.feed(preprocessing.as_bytes());
@@ -335,6 +337,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
         // verify opening indexes
         let should_omit = random_vector(&mut oracle.query(), D::PLAYERS, D::ONLINE_REPETITIONS);
         if omitted[..] != should_omit {
+            eprintln!("Omitted did not match expected!");
             return None;
         }
 
