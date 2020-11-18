@@ -25,7 +25,8 @@ async fn feed<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>>(
     program: &mut PI,
 ) -> bool {
     // next slice of program
-    let ps = Arc::new(read_n(program, BATCH_SIZE));
+    let collected: Vec<Instruction<D::Scalar>> = program.collect();
+    let ps = Arc::new(collected);
     if ps.len() == 0 {
         return false;
     }

@@ -21,13 +21,14 @@ const DEFAULT_CAPACITY: usize = 1024;
 // TODO(ww): Figure out a reasonable type alias for `senders` below.
 #[allow(clippy::type_complexity)]
 async fn feed<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>>(
-    chunk: usize,
+    _chunk: usize,
     senders: &mut [Sender<(Arc<Instructions<D>>, Vec<u8>)>],
     program: &mut PI,
     chunks: &mut Receiver<Vec<u8>>,
 ) -> Option<bool> {
     // next slice of program
-    let ps = Arc::new(read_n(program, chunk));
+    let collected: Vec<Instruction<D::Scalar>> = program.collect();
+    let ps = Arc::new(collected);
     if ps.len() == 0 {
         return Some(false);
     }
