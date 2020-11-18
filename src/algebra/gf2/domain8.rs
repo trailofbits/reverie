@@ -514,7 +514,7 @@ mod test {
             let mut result: Vec<BitBatch> = vec![];
             BitBatch::unpack(&mut result, &serialized).unwrap();
             assert_eq!(result.len(), batches.len());
-            for (i, res) in result.iter().enumerate(){
+            for (i, res) in result.iter().enumerate() {
                 assert_eq!(batches[i], *res);
             }
         }
@@ -552,18 +552,16 @@ mod test {
             let mut result: Vec<BitScalar> = vec![];
             BitScalar::unpack(&mut result, &serialized).unwrap();
             assert_eq!(result.len(), batches.len());
-            for (i, res) in result.iter().enumerate(){
+            for (i, res) in result.iter().enumerate() {
                 assert_eq!(batches[i], *res);
             }
         }
     }
 }
 
-
 #[cfg(test)]
 mod benchmark {
     use super::*;
-
 
     use ::test::{black_box, Bencher};
     use rand::thread_rng;
