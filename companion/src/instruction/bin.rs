@@ -4,6 +4,7 @@ use std::fs::File;
 use std::io::{self, prelude::*, BufReader, ErrorKind};
 
 use reverie::algebra::gf2::BitScalar;
+use reverie::algebra::RingElement;
 use reverie::Instruction;
 
 /// Simple relatively compact binary format
