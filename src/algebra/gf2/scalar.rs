@@ -89,3 +89,9 @@ impl RingElement for BitScalar {
     const ONE: Self = Self(1);
     const ZERO: Self = Self(0);
 }
+
+impl Samplable for BitScalar {
+    fn gen<R: RngCore>(rng: &mut R) -> BitScalar {
+        BitScalar(rng.gen::<u8>() & 1)
+    }
+}
