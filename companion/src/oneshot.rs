@@ -189,7 +189,6 @@ async fn prove_and_verify<
     // read all chunks from online execution
     let mut chunks: Vec<Vec<u8>> = Vec::new();
     while let Ok(chunk) = recv.recv().await {
-        println!("Chunk was: {:?}", chunk);
         chunks.push(chunk);
     }
 
