@@ -20,8 +20,8 @@ use std::process::exit;
 use std::sync::Arc;
 
 use clap::{App, Arg};
-use rand::rngs::OsRng;
-use rand::Rng;
+// use rand::rngs::OsRng;
+// use rand::Rng;
 
 use rayon::prelude::*;
 
