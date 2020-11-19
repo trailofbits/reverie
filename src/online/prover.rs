@@ -25,14 +25,13 @@ async fn feed<
     PI: Iterator<Item = Instruction<D::Scalar>>,
     WI: Iterator<Item = D::Scalar>,
 >(
-    _chunk: usize,
+    chunk: usize,
     senders: &mut [Sender<ProgWitSlice<D>>],
     program: &mut PI,
     witness: &mut WI,
 ) -> bool {
     // next slice of program
-    let collected: Vec<Instruction<D::Scalar>> = program.collect();
-    let ps = Arc::new(collected);
+    let ps = Arc::new(read_n(program, chunk));
     if ps.len() == 0 {
         return false;
     }
