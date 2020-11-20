@@ -114,9 +114,9 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
             let mut preprocessing = PreprocessingExecution::<D>::new(&run.open);
             let mut masks: Vec<D::Sharing> = Vec::with_capacity(DEFAULT_CAPACITY);
             let mut ab_gamma: Vec<D::Sharing> = Vec::with_capacity(DEFAULT_CAPACITY);
-            let mut broadcast: Vec<D::Batch> = Vec::with_capacity(DEFAULT_CAPACITY);
-            let mut corrections: Vec<D::Batch> = Vec::with_capacity(DEFAULT_CAPACITY);
-            let mut masked_witness: Vec<D::Scalar> = Vec::with_capacity(DEFAULT_CAPACITY);
+            let mut broadcast_upstream: Vec<D::Batch> = Vec::with_capacity(DEFAULT_CAPACITY);
+            let mut corrections_upstream: Vec<D::Batch> = Vec::with_capacity(DEFAULT_CAPACITY);
+            let mut masked_witness_upstream: Vec<D::Scalar> = Vec::with_capacity(DEFAULT_CAPACITY);
 
             // check branch proof
             let (root, mut branch) = {
@@ -152,13 +152,16 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                     }
                     Ok((program, chunk)) => {
                         // deserialize the chunk
+                        masked_witness_upstream.clear();
+                        corrections_upstream.clear();
+                        broadcast_upstream.clear();
                         let chunk: Chunk = bincode::deserialize(&chunk[..]).ok()?;
-                        Packable::unpack(&mut masked_witness, &chunk.witness[..]).ok()?;
-                        Packable::unpack(&mut corrections, &chunk.corrections[..]).ok()?;
-                        Packable::unpack(&mut broadcast, &chunk.broadcast[..]).ok()?;
+                        Packable::unpack(&mut masked_witness_upstream, &chunk.witness[..]).ok()?;
+                        Packable::unpack(&mut corrections_upstream, &chunk.corrections[..]).ok()?;
+                        Packable::unpack(&mut broadcast_upstream, &chunk.broadcast[..]).ok()?;
 
                         // add corrections to player 0 view
-                        for elem in corrections.iter().cloned() {
+                        for elem in corrections_upstream.iter().cloned() {
                             corrections_hash.update(elem);
                         }
 
@@ -169,7 +172,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                         // run (partial) preprocessing on next chunk
                         preprocessing.process(
                             &program[..],
-                            &corrections[..],
+                            &corrections_upstream[..],
                             &mut masks,
                             &mut ab_gamma,
                         )?;
@@ -177,13 +180,13 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                         // consume preprocessing and execute the next chunk
                         {
                             let mut masks = masks.iter().cloned();
-                            let mut witness = masked_witness.iter().cloned();
+                            let mut witness = masked_witness_upstream.iter().cloned();
                             let mut ab_gamma = ab_gamma.iter().cloned();
 
                             // pad omitted player scalars into sharings (zero shares for all other players)
                             let mut broadcast: ShareIterator<D, _> = ShareIterator::new(
                                 preprocessing.omitted(),
-                                broadcast.iter().cloned(),
+                                broadcast_upstream.iter().cloned(),
                             );
 
                             for step in program.iter().cloned() {
