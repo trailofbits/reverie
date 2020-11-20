@@ -160,20 +160,19 @@ impl<D: Domain> Proof<D> {
 
         // send proof to the online verifier
         for chunk in self.chunks.clone().into_iter() {
-            match send.send(chunk).await {
-                Err(_e) => return Err(String::from("Failed to send chunk to the verifier")),
-                Ok(_) => (),
+            if let Err(_e) = send.send(chunk).await {
+                return Err(String::from("Failed to send chunk to the verifier"));
             }
         }
 
         // check that online execution matches preprocessing (executing both in parallel)
         let preprocessed = preprocessing_task
             .await
-            .ok_or(String::from("Preprocessing task Failed"))?;
+            .ok_or_else(|| String::from("Preprocessing task Failed"))?;
         match task_online.await {
-            Ok(out) => Ok(out.check(&preprocessed).ok_or(String::from(
-                "Online task output did not match preprocessing output",
-            ))?),
+            Ok(out) => Ok(out.check(&preprocessed).ok_or_else(|| {
+                String::from("Online task output did not match preprocessing output")
+            })?),
             Err(_e) => Err(String::from("Online verification task failed")),
         }
     }

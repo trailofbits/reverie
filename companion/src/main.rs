@@ -290,7 +290,7 @@ async fn verify<
 
     Ok(online_output
         .check(&pp_output)
-        .ok_or(String::from("Online output check failed")))
+        .ok_or_else(|| String::from("Online output check failed")))
 }
 
 async fn async_main() -> io::Result<()> {

@@ -296,10 +296,10 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
         let mut scheduled = 0;
         scheduled += feed::<D, _>(BATCH_SIZE, &mut inputs[..], &mut self.program, &mut proof)
             .await
-            .ok_or(String::from("Failed to schedule tasks"))? as usize;
+            .ok_or_else(|| String::from("Failed to schedule tasks"))? as usize;
         scheduled += feed::<D, _>(BATCH_SIZE, &mut inputs[..], &mut self.program, &mut proof)
             .await
-            .ok_or(String::from("Failed to schedule tasks"))? as usize;
+            .ok_or_else(|| String::from("Failed to schedule tasks"))? as usize;
 
         // wait for all scheduled tasks to complete
         while scheduled > 0 {
@@ -312,7 +312,8 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
             // schedule a new task and wait for all works to complete one
             scheduled += feed::<D, _>(BATCH_SIZE, &mut inputs[..], &mut self.program, &mut proof)
                 .await
-                .ok_or(String::from("Failed to schedule tasks"))? as usize;
+                .ok_or_else(|| String::from("Failed to schedule tasks"))?
+                as usize;
         }
 
         // wait for tasks to finish
@@ -325,8 +326,9 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
         let mut pp_hashes: Vec<Hash> = Vec::with_capacity(D::ONLINE_REPETITIONS);
         {
             for (i, t) in tasks.into_iter().enumerate() {
-                let (preprocessing, transcript, omit, output) =
-                    t.await.ok_or(String::from("Circuit evaluation failed"))?;
+                let (preprocessing, transcript, omit, output) = t
+                    .await
+                    .ok_or_else(|| String::from("Circuit evaluation failed"))?;
                 if i == 0 {
                     result = output;
                 } else if result[..] != output[..] {
