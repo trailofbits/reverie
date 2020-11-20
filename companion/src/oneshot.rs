@@ -20,8 +20,8 @@ use std::process::exit;
 use std::sync::Arc;
 
 use clap::{App, Arg};
-// use rand::rngs::OsRng;
-// use rand::Rng;
+use rand::rngs::OsRng;
+use rand::Rng;
 
 use rayon::prelude::*;
 
@@ -162,7 +162,7 @@ async fn prove_and_verify<
     // prove preprocessing
     println!("preprocessing...");
     let (preprocessing, pp_output) = preprocessing::Proof::<GF2P8>::new(
-        [128u8; 32],       // seed
+        OsRng.gen(),       // seed
         &branches[..],     // branches
         program.rewind()?, // program
     );
