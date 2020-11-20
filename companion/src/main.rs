@@ -262,15 +262,18 @@ async fn verify<
     let mut proof = BufReader::new(File::open(proof_path)?);
 
     // parse preprocessing
-    let preprocessing: preprocessing::Proof<GF2P8> =
-        read_vec(&mut proof)?.and_then(|v| preprocessing::Proof::<GF2P8>::deserialize(&v)).expect("Failed to deserialize proof after preprocessing");
+    let preprocessing: preprocessing::Proof<GF2P8> = read_vec(&mut proof)?
+        .and_then(|v| preprocessing::Proof::<GF2P8>::deserialize(&v))
+        .expect("Failed to deserialize proof after preprocessing");
 
     let pp_output = match preprocessing.verify(&branches[..], program.rewind()?).await {
         Some(output) => output,
-        None => panic!("Failed to verify preprocessed proof")
+        None => panic!("Failed to verify preprocessed proof"),
     };
 
-    let online = read_vec(&mut proof)?.and_then(|v| online::Proof::<GF2P8>::deserialize(&v)).expect("Failed to deserialize online proof");
+    let online = read_vec(&mut proof)?
+        .and_then(|v| online::Proof::<GF2P8>::deserialize(&v))
+        .expect("Failed to deserialize online proof");
 
     // verify the online execution
     let (send, recv) = bounded(100);
