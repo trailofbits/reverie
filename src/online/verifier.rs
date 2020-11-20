@@ -96,7 +96,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
         mut self,
         bind: Option<&[u8]>,
         mut proof: Receiver<Vec<u8>>,
-    ) -> Option<Output<D>> {
+    ) -> Result<Output<D>, String> {
         async fn process<D: Domain>(
             run: Run<D>,
             outputs: Sender<()>,
@@ -273,8 +273,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
         }
 
         if self.proof.runs.len() != D::ONLINE_REPETITIONS {
-            eprintln!("Length mismatch!");
-            return None;
+            return Err(String::from("Failed to complete all online repetitions"));
         }
 
         // create async parallel task for every repetition
@@ -296,9 +295,11 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
         // schedule up to 2 tasks immediately (for better performance)
         let mut scheduled = 0;
         scheduled += feed::<D, _>(BATCH_SIZE, &mut inputs[..], &mut self.program, &mut proof)
-            .await? as usize;
+            .await
+            .ok_or(String::from("Failed to schedule tasks"))? as usize;
         scheduled += feed::<D, _>(BATCH_SIZE, &mut inputs[..], &mut self.program, &mut proof)
-            .await? as usize;
+            .await
+            .ok_or(String::from("Failed to schedule tasks"))? as usize;
 
         // wait for all scheduled tasks to complete
         while scheduled > 0 {
@@ -310,7 +311,8 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
 
             // schedule a new task and wait for all works to complete one
             scheduled += feed::<D, _>(BATCH_SIZE, &mut inputs[..], &mut self.program, &mut proof)
-                .await? as usize;
+                .await
+                .ok_or(String::from("Failed to schedule tasks"))? as usize;
         }
 
         // wait for tasks to finish
@@ -323,15 +325,15 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
         let mut pp_hashes: Vec<Hash> = Vec::with_capacity(D::ONLINE_REPETITIONS);
         {
             for (i, t) in tasks.into_iter().enumerate() {
-                let (preprocessing, transcript, omit, output) = t.await?;
+                let (preprocessing, transcript, omit, output) =
+                    t.await.ok_or(String::from("Circuit evaluation failed"))?;
                 if i == 0 {
                     result = output;
                 } else if result[..] != output[..] {
-                    eprintln!(
+                    return Err(format!(
                         "Output for task {} was {:?}, should be {:?}",
                         i, output, result
-                    );
-                    return None;
+                    ));
                 }
                 omitted.push(omit);
                 oracle.feed(preprocessing.as_bytes());
@@ -343,14 +345,15 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
         // verify opening indexes
         let should_omit = random_vector(&mut oracle.query(), D::PLAYERS, D::ONLINE_REPETITIONS);
         if omitted[..] != should_omit {
-            eprintln!("Omitted did not match expected!");
-            return None;
+            return Err(String::from(
+                "Omitted shares did not match expected omissions",
+            ));
         }
 
         debug_assert_eq!(pp_hashes.len(), D::ONLINE_REPETITIONS);
         debug_assert_eq!(should_omit.len(), D::ONLINE_REPETITIONS);
 
         // return output to verify against pre-processing
-        Some(Output { pp_hashes, result })
+        Ok(Output { pp_hashes, result })
     }
 }

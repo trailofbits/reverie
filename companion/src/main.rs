@@ -249,7 +249,7 @@ async fn verify<
     proof_path: &str,
     program_path: &str,
     branch_paths: Option<Vec<&str>>,
-) -> io::Result<Option<Vec<BitScalar>>> {
+) -> io::Result<Result<Vec<BitScalar>, String>> {
     let branch_vecs = load_branches::<BP>(branch_paths)?;
 
     // collect branch slices
@@ -286,12 +286,11 @@ async fn verify<
 
     mem::drop(send);
 
-    let online_output = match task_online.await {
-        Some(output) => output,
-        None => return Ok(None),
-    };
+    let online_output = task_online.await.unwrap();
 
-    Ok(online_output.check(&pp_output))
+    Ok(online_output
+        .check(&pp_output)
+        .ok_or(String::from("Online output check failed")))
 }
 
 async fn async_main() -> io::Result<()> {
@@ -416,11 +415,11 @@ async fn async_main() -> io::Result<()> {
                 _ => unreachable!(),
             };
             match res {
-                None => {
-                    eprintln!("invalid proof");
+                Err(e) => {
+                    eprintln!("Invalid proof: {}", e);
                     exit(-1)
                 }
-                Some(output) => println!("{:?}", output),
+                Ok(output) => println!("{:?}", output),
             }
             Ok(())
         }
