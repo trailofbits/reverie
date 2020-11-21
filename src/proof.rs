@@ -122,13 +122,13 @@ impl<D: Domain> Proof<D> {
         bind: Option<Vec<u8>>,
         branches: Arc<Vec<Vec<D::Scalar>>>,
         program: Arc<Vec<Instruction<D::Scalar>>>,
-    ) -> Option<Vec<D::Scalar>> {
+    ) -> Result<Vec<D::Scalar>, String> {
         async fn online_verification<D: Domain>(
             bind: Option<Vec<u8>>,
             program: Arc<Vec<Instruction<D::Scalar>>>,
             proof: online::Proof<D>,
             recv: Receiver<Vec<u8>>,
-        ) -> Option<online::Output<D>> {
+        ) -> Result<online::Output<D>, String> {
             let verifier = online::StreamingVerifier::new(program.iter().cloned(), proof);
             verifier.verify(bind.as_ref().map(|x| &x[..]), recv).await
         }
@@ -160,12 +160,21 @@ impl<D: Domain> Proof<D> {
 
         // send proof to the online verifier
         for chunk in self.chunks.clone().into_iter() {
-            send.send(chunk).await.ok()?;
+            if let Err(_e) = send.send(chunk).await {
+                return Err(String::from("Failed to send chunk to the verifier"));
+            }
         }
 
         // check that online execution matches preprocessing (executing both in parallel)
-        let preprocessed = preprocessing_task.await?;
-        task_online.await?.check(&preprocessed)
+        let preprocessed = preprocessing_task
+            .await
+            .ok_or_else(|| String::from("Preprocessing task Failed"))?;
+        match task_online.await {
+            Ok(out) => Ok(out.check(&preprocessed).ok_or_else(|| {
+                String::from("Online task output did not match preprocessing output")
+            })?),
+            Err(_e) => Err(String::from("Online verification task failed")),
+        }
     }
 
     /// Create a new proof for the correct execution of program(witness)
@@ -220,7 +229,7 @@ impl<D: Domain> Proof<D> {
         bind: Option<Vec<u8>>,
         program: Vec<Instruction<D::Scalar>>,
         branches: Vec<Vec<D::Scalar>>,
-    ) -> Option<Vec<D::Scalar>> {
+    ) -> Result<Vec<D::Scalar>, String> {
         task::block_on(self.verify_async(bind, Arc::new(branches), Arc::new(program)))
     }
 }

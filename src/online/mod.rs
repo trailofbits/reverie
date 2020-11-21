@@ -95,6 +95,7 @@ mod test {
     use crate::algebra::gf2::*;
     use crate::preprocessing::PreprocessingOutput;
     use crate::tests::*;
+    use std::future::Future;
 
     use rand::thread_rng;
     use rand::Rng;
@@ -105,29 +106,40 @@ mod test {
         inputs: &[D::Scalar],
     ) {
         let mut rng = thread_rng();
+        const R: usize = 32;
         let mut seeds: [[u8; KEY_SIZE]; R] = [[0; KEY_SIZE]; R];
         for i in 0..R {
             rng.fill_bytes(&mut seeds[i]);
         }
 
-        // create a proof of the program execution
-        let proof: Proof<D> = Proof::new(PreprocessingOutput::dummy(), program, inputs);
+        for seed in seeds.iter() {
+            // create a proof of the program execution
+            let (proof, _pp_output) =
+                preprocessing::Proof::new(*seed, &[], program.iter().cloned());
 
-        // evaluate program in the clear
-        let correct_output = evaluate_program::<D>(program, inputs);
+            // evaluate program in the clear
+            let correct_output = evaluate_program::<D>(program, inputs, &[]);
 
-        // extract the output from the proof
-        let proof_output = proof.verify(program).unwrap();
+            // extract the output from the proof
+            let proof_output = proof.verify(&[], program.iter().cloned());
 
-        // since the proof is generated correctly the proof output is "Some"
-        // with the same value as the clear evaluation
-        assert_eq!(
-            proof_output.unsafe_output(),
-            &correct_output[..],
-            "program = {:?}, inputs = {:?}",
-            program,
-            inputs
-        );
+            match proof_output.poll() {
+                Poll::Pending => (),
+                Poll::Ready(output) => {
+                    // since the proof is generated correctly the proof output is "Some"
+                    // with the same value as the clear evaluation
+                    assert_eq!(
+                        output.unsafe_output(),
+                        &correct_output[..],
+                        "program = {:?}, inputs = {:?}",
+                        program,
+                        inputs
+                    );
+                }
+            }
+
+
+        }
     }
 
     fn test_random_proof<D: Domain>() {
@@ -135,7 +147,7 @@ mod test {
 
         let inputs = (rng.gen::<usize>() % 126) + 1;
         let length = (rng.gen::<usize>() % 1024) + 1;
-        let program = random_program::<D, _>(&mut rng, inputs, length, true);
+        let (ninputs, nbranch, program) = random_program::<D, _>(&mut rng, inputs, length);
         for ins in program.iter() {
             println!("{:?}", ins);
         }

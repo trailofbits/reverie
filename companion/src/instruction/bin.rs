@@ -4,6 +4,7 @@ use std::fs::File;
 use std::io::{self, prelude::*, BufReader, ErrorKind};
 
 use reverie::algebra::gf2::BitScalar;
+use reverie::algebra::RingElement;
 use reverie::Instruction;
 
 /// Simple relatively compact binary format
@@ -54,11 +55,21 @@ impl Parser<Instruction<BitScalar>> for InsParser {
                 let src_2 = read_index(&mut self.reader)?;
                 Ok(Some(Instruction::Add(dst, src_1, src_2)))
             }
+            CODE_ADD_CONST => {
+                let dst = read_index(&mut self.reader)?;
+                let src = read_index(&mut self.reader)?;
+                Ok(Some(Instruction::AddConst(dst, src, BitScalar::ONE)))
+            }
             CODE_MUL => {
                 let dst = read_index(&mut self.reader)?;
                 let src_1 = read_index(&mut self.reader)?;
                 let src_2 = read_index(&mut self.reader)?;
                 Ok(Some(Instruction::Mul(dst, src_1, src_2)))
+            }
+            CODE_MUL_CONST => {
+                let dst = read_index(&mut self.reader)?;
+                let src = read_index(&mut self.reader)?;
+                Ok(Some(Instruction::MulConst(dst, src, BitScalar::ZERO)))
             }
             CODE_INPUT => {
                 let dst = read_index(&mut self.reader)?;
@@ -71,6 +82,11 @@ impl Parser<Instruction<BitScalar>> for InsParser {
             CODE_OUTPUT => {
                 let src = read_index(&mut self.reader)?;
                 Ok(Some(Instruction::Output(src)))
+            }
+            CODE_LOCAL => {
+                let dst = read_index(&mut self.reader)?;
+                let src = read_index(&mut self.reader)?;
+                Ok(Some(Instruction::LocalOp(dst, src)))
             }
             _ => unimplemented!("unknown operation: {:?}", op[0]),
         }

@@ -249,7 +249,7 @@ async fn verify<
     proof_path: &str,
     program_path: &str,
     branch_paths: Option<Vec<&str>>,
-) -> io::Result<Option<Vec<BitScalar>>> {
+) -> io::Result<Result<Vec<BitScalar>, String>> {
     let branch_vecs = load_branches::<BP>(branch_paths)?;
 
     // collect branch slices
@@ -262,27 +262,18 @@ async fn verify<
     let mut proof = BufReader::new(File::open(proof_path)?);
 
     // parse preprocessing
-    let preprocessing: preprocessing::Proof<GF2P8> =
-        match read_vec(&mut proof)?.and_then(|v| preprocessing::Proof::<GF2P8>::deserialize(&v)) {
-            Some(proof) => proof,
-            None => {
-                return Ok(None);
-            }
-        };
+    let preprocessing: preprocessing::Proof<GF2P8> = read_vec(&mut proof)?
+        .and_then(|v| preprocessing::Proof::<GF2P8>::deserialize(&v))
+        .expect("Failed to deserialize proof after preprocessing");
 
     let pp_output = match preprocessing.verify(&branches[..], program.rewind()?).await {
         Some(output) => output,
-        None => {
-            return Ok(None);
-        }
+        None => panic!("Failed to verify preprocessed proof"),
     };
 
-    let online = match read_vec(&mut proof)?.and_then(|v| online::Proof::<GF2P8>::deserialize(&v)) {
-        Some(proof) => proof,
-        None => {
-            return Ok(None);
-        }
-    };
+    let online = read_vec(&mut proof)?
+        .and_then(|v| online::Proof::<GF2P8>::deserialize(&v))
+        .expect("Failed to deserialize online proof");
 
     // verify the online execution
     let (send, recv) = bounded(100);
@@ -295,12 +286,11 @@ async fn verify<
 
     mem::drop(send);
 
-    let online_output = match task_online.await {
-        Some(output) => output,
-        None => return Ok(None),
-    };
+    let online_output = task_online.await.unwrap();
 
-    Ok(online_output.check(&pp_output))
+    Ok(online_output
+        .check(&pp_output)
+        .ok_or_else(|| String::from("Online output check failed")))
 }
 
 async fn async_main() -> io::Result<()> {
@@ -425,11 +415,11 @@ async fn async_main() -> io::Result<()> {
                 _ => unreachable!(),
             };
             match res {
-                None => {
-                    eprintln!("invalid proof");
+                Err(e) => {
+                    eprintln!("Invalid proof: {}", e);
                     exit(-1)
                 }
-                Some(output) => println!("{:?}", output),
+                Ok(output) => println!("{:?}", output),
             }
             Ok(())
         }

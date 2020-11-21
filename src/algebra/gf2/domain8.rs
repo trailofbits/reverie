@@ -481,6 +481,82 @@ mod test {
             assert_eq!(batches_2, batches);
         }
     }
+
+    // test the platform dependent optimized version against the generic implementation
+    #[test]
+    fn test_pack_batch() {
+        let mut rng = thread_rng();
+        for _ in 0..100 {
+            let batches: [_; 16] = [
+                BitBatch::gen(&mut rng),
+                BitBatch::gen(&mut rng),
+                BitBatch::gen(&mut rng),
+                BitBatch::gen(&mut rng),
+                BitBatch::gen(&mut rng),
+                BitBatch::gen(&mut rng),
+                BitBatch::gen(&mut rng),
+                BitBatch::gen(&mut rng),
+                BitBatch::gen(&mut rng),
+                BitBatch::gen(&mut rng),
+                BitBatch::gen(&mut rng),
+                BitBatch::gen(&mut rng),
+                BitBatch::gen(&mut rng),
+                BitBatch::gen(&mut rng),
+                BitBatch::gen(&mut rng),
+                BitBatch::gen(&mut rng),
+            ];
+
+            // serialize into a vector
+            let mut serialized: Vec<u8> = vec![];
+            BitBatch::pack(&mut serialized, batches.iter()).unwrap();
+
+            // deserialize and check equality
+            let mut result: Vec<BitBatch> = vec![];
+            BitBatch::unpack(&mut result, &serialized).unwrap();
+            assert_eq!(result.len(), batches.len());
+            for (i, res) in result.iter().enumerate() {
+                assert_eq!(batches[i], *res);
+            }
+        }
+    }
+
+    // test the platform dependent optimized version against the generic implementation
+    #[test]
+    fn test_pack_scalar() {
+        let mut rng = thread_rng();
+        for _ in 0..100 {
+            let batches: [_; 16] = [
+                BitScalar::gen(&mut rng),
+                BitScalar::gen(&mut rng),
+                BitScalar::gen(&mut rng),
+                BitScalar::gen(&mut rng),
+                BitScalar::gen(&mut rng),
+                BitScalar::gen(&mut rng),
+                BitScalar::gen(&mut rng),
+                BitScalar::gen(&mut rng),
+                BitScalar::gen(&mut rng),
+                BitScalar::gen(&mut rng),
+                BitScalar::gen(&mut rng),
+                BitScalar::gen(&mut rng),
+                BitScalar::gen(&mut rng),
+                BitScalar::gen(&mut rng),
+                BitScalar::gen(&mut rng),
+                BitScalar::gen(&mut rng),
+            ];
+
+            // serialize into a vector
+            let mut serialized: Vec<u8> = vec![];
+            BitScalar::pack(&mut serialized, batches.iter()).unwrap();
+
+            // deserialize and check equality
+            let mut result: Vec<BitScalar> = vec![];
+            BitScalar::unpack(&mut result, &serialized).unwrap();
+            assert_eq!(result.len(), batches.len());
+            for (i, res) in result.iter().enumerate() {
+                assert_eq!(batches[i], *res);
+            }
+        }
+    }
 }
 
 #[cfg(test)]

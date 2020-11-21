@@ -96,7 +96,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
         mut self,
         bind: Option<&[u8]>,
         mut proof: Receiver<Vec<u8>>,
-    ) -> Option<Output<D>> {
+    ) -> Result<Output<D>, String> {
         async fn process<D: Domain>(
             run: Run<D>,
             outputs: Sender<()>,
@@ -114,9 +114,9 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
             let mut preprocessing = PreprocessingExecution::<D>::new(&run.open);
             let mut masks: Vec<D::Sharing> = Vec::with_capacity(DEFAULT_CAPACITY);
             let mut ab_gamma: Vec<D::Sharing> = Vec::with_capacity(DEFAULT_CAPACITY);
-            let mut broadcast: Vec<D::Batch> = Vec::with_capacity(DEFAULT_CAPACITY);
-            let mut corrections: Vec<D::Batch> = Vec::with_capacity(DEFAULT_CAPACITY);
-            let mut masked_witness: Vec<D::Scalar> = Vec::with_capacity(DEFAULT_CAPACITY);
+            let mut broadcast_upstream: Vec<D::Batch> = Vec::with_capacity(DEFAULT_CAPACITY);
+            let mut corrections_upstream: Vec<D::Batch> = Vec::with_capacity(DEFAULT_CAPACITY);
+            let mut masked_witness_upstream: Vec<D::Scalar> = Vec::with_capacity(DEFAULT_CAPACITY);
 
             // check branch proof
             let (root, mut branch) = {
@@ -152,13 +152,16 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                     }
                     Ok((program, chunk)) => {
                         // deserialize the chunk
+                        masked_witness_upstream.clear();
+                        corrections_upstream.clear();
+                        broadcast_upstream.clear();
                         let chunk: Chunk = bincode::deserialize(&chunk[..]).ok()?;
-                        Packable::unpack(&mut masked_witness, &chunk.witness[..]).ok()?;
-                        Packable::unpack(&mut corrections, &chunk.corrections[..]).ok()?;
-                        Packable::unpack(&mut broadcast, &chunk.broadcast[..]).ok()?;
+                        Packable::unpack(&mut masked_witness_upstream, &chunk.witness[..]).ok()?;
+                        Packable::unpack(&mut corrections_upstream, &chunk.corrections[..]).ok()?;
+                        Packable::unpack(&mut broadcast_upstream, &chunk.broadcast[..]).ok()?;
 
                         // add corrections to player 0 view
-                        for elem in corrections.iter().cloned() {
+                        for elem in corrections_upstream.iter().cloned() {
                             corrections_hash.update(elem);
                         }
 
@@ -169,7 +172,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                         // run (partial) preprocessing on next chunk
                         preprocessing.process(
                             &program[..],
-                            &corrections[..],
+                            &corrections_upstream[..],
                             &mut masks,
                             &mut ab_gamma,
                         )?;
@@ -177,13 +180,13 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                         // consume preprocessing and execute the next chunk
                         {
                             let mut masks = masks.iter().cloned();
-                            let mut witness = masked_witness.iter().cloned();
+                            let mut witness = masked_witness_upstream.iter().cloned();
                             let mut ab_gamma = ab_gamma.iter().cloned();
 
                             // pad omitted player scalars into sharings (zero shares for all other players)
                             let mut broadcast: ShareIterator<D, _> = ShareIterator::new(
                                 preprocessing.omitted(),
-                                broadcast.iter().cloned(),
+                                broadcast_upstream.iter().cloned(),
                             );
 
                             for step in program.iter().cloned() {
@@ -270,7 +273,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
         }
 
         if self.proof.runs.len() != D::ONLINE_REPETITIONS {
-            return None;
+            return Err(String::from("Failed to complete all online repetitions"));
         }
 
         // create async parallel task for every repetition
@@ -292,9 +295,11 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
         // schedule up to 2 tasks immediately (for better performance)
         let mut scheduled = 0;
         scheduled += feed::<D, _>(BATCH_SIZE, &mut inputs[..], &mut self.program, &mut proof)
-            .await? as usize;
+            .await
+            .ok_or_else(|| String::from("Failed to schedule tasks"))? as usize;
         scheduled += feed::<D, _>(BATCH_SIZE, &mut inputs[..], &mut self.program, &mut proof)
-            .await? as usize;
+            .await
+            .ok_or_else(|| String::from("Failed to schedule tasks"))? as usize;
 
         // wait for all scheduled tasks to complete
         while scheduled > 0 {
@@ -306,7 +311,9 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
 
             // schedule a new task and wait for all works to complete one
             scheduled += feed::<D, _>(BATCH_SIZE, &mut inputs[..], &mut self.program, &mut proof)
-                .await? as usize;
+                .await
+                .ok_or_else(|| String::from("Failed to schedule tasks"))?
+                as usize;
         }
 
         // wait for tasks to finish
@@ -319,11 +326,16 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
         let mut pp_hashes: Vec<Hash> = Vec::with_capacity(D::ONLINE_REPETITIONS);
         {
             for (i, t) in tasks.into_iter().enumerate() {
-                let (preprocessing, transcript, omit, output) = t.await?;
+                let (preprocessing, transcript, omit, output) = t
+                    .await
+                    .ok_or_else(|| String::from("Circuit evaluation failed"))?;
                 if i == 0 {
                     result = output;
                 } else if result[..] != output[..] {
-                    return None;
+                    return Err(format!(
+                        "Output for task {} was {:?}, should be {:?}",
+                        i, output, result
+                    ));
                 }
                 omitted.push(omit);
                 oracle.feed(preprocessing.as_bytes());
@@ -335,13 +347,15 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
         // verify opening indexes
         let should_omit = random_vector(&mut oracle.query(), D::PLAYERS, D::ONLINE_REPETITIONS);
         if omitted[..] != should_omit {
-            return None;
+            return Err(String::from(
+                "Omitted shares did not match expected omissions",
+            ));
         }
 
         debug_assert_eq!(pp_hashes.len(), D::ONLINE_REPETITIONS);
         debug_assert_eq!(should_omit.len(), D::ONLINE_REPETITIONS);
 
         // return output to verify against pre-processing
-        Some(Output { pp_hashes, result })
+        Ok(Output { pp_hashes, result })
     }
 }

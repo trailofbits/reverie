@@ -68,7 +68,7 @@ impl Parser<Instruction<BitScalar>> for InsParser {
                 let dst = ins[1].parse().unwrap();
                 Ok(Some(Instruction::AddConst(dst, src, BitScalar::ZERO)))
             }
-            _ => unimplemented!(),
+            _unk => unimplemented!("Parse error on token:: {}", _unk),
         }
     }
 }
