@@ -14,6 +14,9 @@ readme = "README.md"
 keywords = ["crypto", "cryptography", "zero-knowledge"]
 categories = ["cryptography"]
 
+[lib]
+name = "reverie"
+
 [package.metadata.release]
 no-dev-version = true
 disable-publish = true # handled by GitHub Actions
