@@ -1,7 +1,7 @@
 [package]
 name = "reverie"
 description = "An efficient implementation of the NIZKPoK outlined in KKW 2018"
-license = "GPLv3"
+license = "AGPL-3.0"
 homepage = "https://github.com/trailofbits/reverie"
 repository = "https://github.com/trailofbits/reverie"
 version = "0.2.0"
