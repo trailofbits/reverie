@@ -1,9 +1,25 @@
 [package]
-authors = ["Mathias Hall-Andersen <mathias@hall-andersen.dk>"]
-edition = "2018"
 name = "reverie"
-license = "GPLv3"
+description = "An efficient implementation of the NIZKPoK outlined in KKW 2018"
+license = "AGPL-3.0"
+homepage = "https://github.com/trailofbits/reverie"
+repository = "https://github.com/trailofbits/reverie"
 version = "0.2.0"
+authors = [
+    "Mathias Hall-Andersen <mathias@hall-andersen.dk>",
+    "William Woodruff <william@trailofbits.com>"
+]
+edition = "2018"
+readme = "README.md"
+keywords = ["crypto", "cryptography", "zero-knowledge"]
+categories = ["cryptography"]
+
+[package.metadata.release]
+no-dev-version = true
+disable-publish = true # handled by GitHub Actions
+
+[badges]
+maintenance = { status = "actively-developed" }
 
 [dependencies]
 async-channel = "*"
