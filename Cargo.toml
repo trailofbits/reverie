@@ -25,23 +25,23 @@ disable-publish = true # handled by GitHub Actions
 maintenance = { status = "actively-developed" }
 
 [dependencies]
-async-channel = "*"
-async-scoped = "0.5.1"
-async-std = "*"
-async-stream = "0.3.0"
-bincode = "1.3.1"
-blake3 = "0.3.4"
-crossbeam = "0.8.0"
-fnv = "1.0.7"
+async-channel = "1.5"
+async-scoped = "0.5"
+async-std = "1.7"
+async-stream = "0.3"
+bincode = "1.3"
+blake3 = "0.3"
+crossbeam = "0.8"
+fnv = "1.0"
 hex = "0.4"
 itertools = "0.9"
-rand = "0.7.3"
-rand_chacha = "0.2.2"
-rand_core = "*"
+rand = "0.7"
+rand_chacha = "0.2"
+rand_core = "0.5"
 rayon = "1.3"
 serde = {version = "1.0", features = ["derive"]}
-static_assertions = "1.1.0"
-typenum = "1.12.0"
+static_assertions = "1.1"
+typenum = "1.12"
 
 [dev-dependencies]
 aes = "0.6.0"
