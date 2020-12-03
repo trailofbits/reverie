@@ -1,5 +1,5 @@
 [package]
-name = "reverie"
+name = "reverie-zk"
 description = "An efficient implementation of the NIZKPoK outlined in KKW 2018"
 license = "AGPL-3.0"
 homepage = "https://github.com/trailofbits/reverie"
@@ -13,6 +13,9 @@ edition = "2018"
 readme = "README.md"
 keywords = ["crypto", "cryptography", "zero-knowledge"]
 categories = ["cryptography"]
+
+[lib]
+name = "reverie"
 
 [package.metadata.release]
 no-dev-version = true
