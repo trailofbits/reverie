@@ -6,10 +6,10 @@ version = "0.1.0"
 
 [dependencies]
 sysinfo = "0.15.3"
-async-channel = "*"
-async-scoped = "0.4.1"
-async-std = "*"
-async-stream = "0.2.1"
+async-channel = "1.5"
+async-scoped = "0.4"
+async-std = "1.7"
+async-stream = "0.2"
 clap = "2.33.1"
 rand = "0.7.3"
 reverie-zk = { path = "../" }
