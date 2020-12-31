@@ -15,6 +15,7 @@ pub struct InsParser {
     pub n_input: usize,
     pub n_output: usize,
     pending_input: usize,
+    pending_output: usize,
 }
 
 fn parse_header(l1: String, l2: String, l3: String) -> (usize, usize, usize, usize) {
@@ -83,8 +84,9 @@ impl Parser<Instruction<BitScalar>> for InsParser {
             n_gate,
             n_wire,
             n_input: 0,
-            n_output,
+            n_output: 0,
             pending_input: n_input,
+            pending_output: n_output,
         })
     }
 
@@ -98,7 +100,14 @@ impl Parser<Instruction<BitScalar>> for InsParser {
 
         self.line.clear();
         self.reader.read_line(&mut self.line)?;
-        if self.line.len() == 0 {
+        if self.line.is_empty() {
+            if self.pending_output > 0 {
+                let idx = self.n_output;
+                let total_outputs = self.n_output + self.pending_output;
+                self.n_output += 1;
+                self.pending_output -= 1;
+                return Ok(Some(Instruction::Output(self.n_wire - total_outputs + idx)));
+            }
             return Ok(None);
         }
         let mut parts = self.line.split(' ');

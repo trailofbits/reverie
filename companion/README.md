@@ -8,13 +8,21 @@ The companion is build by running: `cargo build --release`
 Reverie accepts circuits in the [Bristol Fashion](https://homes.esat.kuleuven.be/~nsmart/MPC/) circuit format. 
 It is _not_ compatible with circuits written in the older "Bristol Format" circuit format. 
 
-### Circuit I/O
-The Bristol fashion specification does not make any recommendations for marking wires as inputs or outputs.
-Therefore, Reverie places some  additional constraints on the wire indices used.
-* Wires `0` through `n-1` must correspond to the first `n` bits of input
+The correct Bristol header conforms to the following format:
+```
+<Number of Gates> <Number of Wires>
+<Number of inputs> [<Input bit size> ...]
+<Number of outputs> [<Output bit size> ...]
+```
 
-Reverie does _not_ place any specific requirements on the indices of the output wires. The `OUTPUT` gate may be used to 
-explicitly output the value of a given wire. If no `OUTPUT` gates are found, the values of all wires will be displayed. 
+### Circuit I/O
+The Bristol fashion specification recommends the following convention for I/O wires:
+* Wires `0` through `n-1` must correspond to the `n` bits of input
+* Wires `<Number of Outputs> - n` through `<Number of outputs> - 1` must correspond to the n bits of output
+
+Reverie will implicitly generate `INPUT` and `OUTPUT` gates according to this convention. 
+To manually configure the circuit interface, one may set the numbers of inputs/outputs to zero and provide 
+explicit `INPUT`/`OUTPUT` gates.
 
 ## Example Usage
 
