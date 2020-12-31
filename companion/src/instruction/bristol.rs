@@ -29,14 +29,13 @@ fn parse_header(l1: String, l2: String, l3: String) -> (usize, usize, usize, usi
     for i in 0..n_input_wires {
         let vec_size: usize = parts
             .next()
-            .expect(
-                format!(
+            .unwrap_or_else(|| {
+                panic!(
                     "Expected {} input vectors, only found {}",
                     n_input_wires,
                     i + 1
                 )
-                .as_str(),
-            )
+            })
             .trim()
             .parse()
             .unwrap();
@@ -49,14 +48,13 @@ fn parse_header(l1: String, l2: String, l3: String) -> (usize, usize, usize, usi
     for i in 0..n_output_wires {
         let vec_size: usize = parts
             .next()
-            .expect(
-                format!(
+            .unwrap_or_else(|| {
+                panic!(
                     "Expected {} output vectors, only found {}",
                     n_output_wires,
                     i + 1
                 )
-                .as_str(),
-            )
+            })
             .trim()
             .parse()
             .unwrap();

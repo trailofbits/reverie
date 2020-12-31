@@ -148,7 +148,7 @@ impl<E: Clone, P: Parser<E>> Iterator for FileStream<E, P> {
             FileStream::File(parser) => parser.next().unwrap(),
             FileStream::Memory(vec, n) => {
                 let res = vec.get(*n).cloned();
-                *n = *n + 1;
+                *n += 1;
                 res
             }
         }
