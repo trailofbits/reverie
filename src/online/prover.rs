@@ -157,11 +157,7 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
                     }
                 }
                 Instruction::Input(dst) => {
-                    let value: D::Scalar = match dst {
-                        0 => D::Scalar::ZERO,
-                        1 => D::Scalar::ONE,
-                        _ => witness.next().unwrap(),
-                    };
+                    let value: D::Scalar = witness.next().unwrap();
                     let mask: D::Sharing = masks.next().unwrap();
                     let wire = value + D::Sharing::reconstruct(&mask);
                     self.wires.set(dst, wire);
