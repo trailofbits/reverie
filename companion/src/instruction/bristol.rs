@@ -44,7 +44,7 @@ fn parse_header(l1: String, l2: String, l3: String) -> (usize, usize, usize, usi
 
     parts = l3.split(' ');
     let mut n_output = 0;
-    let n_output_wires = parts.next().trim().unwrap().parse().unwrap();
+    let n_output_wires = parts.next().unwrap().trim().parse().unwrap();
     for i in 0..n_output_wires {
         let vec_size: usize = parts
             .next()
