@@ -65,14 +65,6 @@ fn parse_header(l1: String, l2: String, l3: String) -> (usize, usize, usize, usi
     (n_gate, n_wire, n_input, n_output)
 }
 
-fn check_dst(dst: usize) -> usize {
-    match dst {
-        0 => panic!("Input 0 is reserved for the Zero constant value."),
-        1 => panic!("Input 1 is reserved for the One constant value."),
-        any => any,
-    }
-}
-
 impl Parser<Instruction<BitScalar>> for InsParser {
     fn new(mut reader: BufReader<File>) -> io::Result<Self> {
         let mut l1 = String::with_capacity(128);
@@ -92,7 +84,7 @@ impl Parser<Instruction<BitScalar>> for InsParser {
             n_wire,
             n_input: 0,
             n_output,
-            pending_input: n_input + 2,
+            pending_input: n_input,
         })
     }
 
@@ -119,22 +111,22 @@ impl Parser<Instruction<BitScalar>> for InsParser {
             "XOR" => {
                 let src_1 = ins[0].parse().unwrap();
                 let src_2 = ins[1].parse().unwrap();
-                let dst = check_dst(ins[2].parse().unwrap());
+                let dst = ins[2].parse().unwrap();
                 Ok(Some(Instruction::Add(dst, src_1, src_2)))
             }
             "AND" => {
                 let src_1 = ins[0].parse().unwrap();
                 let src_2 = ins[1].parse().unwrap();
-                let dst = check_dst(ins[2].parse().unwrap());
+                let dst = ins[2].parse().unwrap();
                 Ok(Some(Instruction::Mul(dst, src_1, src_2)))
             }
             "INV" => {
                 let src = ins[0].parse().unwrap();
-                let dst = check_dst(ins[1].parse().unwrap());
+                let dst = ins[1].parse().unwrap();
                 Ok(Some(Instruction::AddConst(dst, src, BitScalar::ONE)))
             }
             "INPUT" => {
-                let dst = check_dst(ins[0].parse().unwrap());
+                let dst = ins[0].parse().unwrap();
                 Ok(Some(Instruction::Input(dst)))
             }
             "OUTPUT" => {
@@ -142,12 +134,12 @@ impl Parser<Instruction<BitScalar>> for InsParser {
                 Ok(Some(Instruction::Output(src)))
             }
             "BRANCH" => {
-                let dst = check_dst(ins[0].parse().unwrap());
+                let dst = ins[0].parse().unwrap();
                 Ok(Some(Instruction::Branch(dst)))
             }
             "BUF" => {
                 let src = ins[0].parse().unwrap();
-                let dst = check_dst(ins[1].parse().unwrap());
+                let dst = ins[1].parse().unwrap();
                 Ok(Some(Instruction::AddConst(dst, src, BitScalar::ZERO)))
             }
             _unk => unimplemented!("Parse error on token:: {}", _unk),
