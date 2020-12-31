@@ -19,12 +19,12 @@ pub struct InsParser {
 
 fn parse_header(l1: String, l2: String, l3: String) -> (usize, usize, usize, usize) {
     let mut parts = l1.split(' ');
-    let n_gate: usize = parts.next().unwrap().parse().unwrap();
-    let n_wire: usize = parts.next().unwrap().parse().unwrap();
+    let n_gate: usize = parts.next().unwrap().trim().parse().unwrap();
+    let n_wire: usize = parts.next().unwrap().trim().parse().unwrap();
 
     parts = l2.split(' ');
     let mut n_input = 0;
-    let n_input_wires = parts.next().unwrap().parse().unwrap();
+    let n_input_wires = parts.next().unwrap().trim().parse().unwrap();
     for i in 0..n_input_wires {
         let vec_size: usize = parts
             .next()
@@ -36,6 +36,7 @@ fn parse_header(l1: String, l2: String, l3: String) -> (usize, usize, usize, usi
                 )
                 .as_str(),
             )
+            .trim()
             .parse()
             .unwrap();
         n_input += vec_size;
@@ -43,7 +44,7 @@ fn parse_header(l1: String, l2: String, l3: String) -> (usize, usize, usize, usi
 
     parts = l3.split(' ');
     let mut n_output = 0;
-    let n_output_wires = parts.next().unwrap().parse().unwrap();
+    let n_output_wires = parts.next().trim().unwrap().parse().unwrap();
     for i in 0..n_output_wires {
         let vec_size: usize = parts
             .next()
@@ -55,6 +56,7 @@ fn parse_header(l1: String, l2: String, l3: String) -> (usize, usize, usize, usi
                 )
                 .as_str(),
             )
+            .trim()
             .parse()
             .unwrap();
         n_output += vec_size;
