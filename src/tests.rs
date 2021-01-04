@@ -49,6 +49,9 @@ pub fn evaluate_program<D: Domain>(
             Instruction::Mul(dst, src1, src2) => {
                 wires.set(dst, wires.get(src1) * wires.get(src2));
             }
+            Instruction::Const(dst, c) => {
+                wires.set(dst, c);
+            }
             Instruction::AddConst(dst, src, c) => {
                 wires.set(dst, wires.get(src) + c);
             }
