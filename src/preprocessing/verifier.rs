@@ -183,7 +183,6 @@ impl<D: Domain> PreprocessingExecution<D> {
                 }
                 Instruction::Const(_dst, _c) => {
                     // We don't need to mask constant inputs because the circuit is public
-                    ()
                 }
                 Instruction::AddConst(dst, src, _c) => {
                     // noop in pre-processing
