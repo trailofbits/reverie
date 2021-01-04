@@ -181,6 +181,10 @@ impl<D: Domain> PreprocessingExecution<D> {
                     // assign the next unused input share to the destination wire
                     self.masks.set(dst, mask);
                 }
+                Instruction::Const(_dst, _c) => {
+                    // We don't need to mask constant inputs because the circuit is public
+                    ()
+                }
                 Instruction::AddConst(dst, src, _c) => {
                     // noop in pre-processing
                     self.masks.set(dst, self.masks.get(src));

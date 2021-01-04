@@ -139,6 +139,10 @@ impl<D: Domain> PreprocessingExecution<D> {
                 Instruction::Branch(dst) => {
                     self.masks.set(dst, self.shares.branch.next());
                 }
+                Instruction::Const(_dst, _c) => {
+                    // We don't need to mask constant inputs because the circuit is public
+                    ()
+                }
                 Instruction::AddConst(dst, src, _c) => {
                     self.masks.set(dst, self.masks.get(src));
                 }

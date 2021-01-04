@@ -215,6 +215,9 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                                     Instruction::Branch(dst) => {
                                         wires.set(dst, branch.next()?);
                                     }
+                                    Instruction::Const(dst, c) => {
+                                        wires.set(dst, c);
+                                    }
                                     Instruction::AddConst(dst, src, c) => {
                                         let a_w = wires.get(src);
                                         wires.set(dst, a_w + c);
