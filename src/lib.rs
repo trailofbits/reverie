@@ -45,6 +45,7 @@ pub enum Instruction<E: RingElement> {
     Branch(usize),             // load next branch element
     Input(usize),              // read next field element from input tape
     Output(usize),             // output wire (write wire-value to output tape)
+    Const(usize, E),           // fixed constant value
 }
 
 type Instructions<D> = Vec<Instruction<<D as algebra::Domain>::Scalar>>;
