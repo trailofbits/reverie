@@ -197,6 +197,10 @@ impl<D: Domain> PreprocessingExecution<D> {
                     // return the mask to the online phase (for hiding the witness)
                     masks.write(mask);
                 }
+                Instruction::Const(_dst, _c) => {
+                    // We don't need to mask constant inputs because the circuit is public
+                    ()
+                }
                 Instruction::AddConst(dst, src, _c) => {
                     // noop in pre-processing
                     self.masks.set(dst, self.masks.get(src));

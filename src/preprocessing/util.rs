@@ -4,6 +4,7 @@ use crate::crypto::*;
 
 pub struct SharesGenerator<D: Domain> {
     pub input: ShareGenerator<D>,
+    pub constant: ShareGenerator<D>,
     pub branch: ShareGenerator<D>,
     pub beaver: ShareGenerator<D>,
 }
@@ -11,6 +12,11 @@ pub struct SharesGenerator<D: Domain> {
 impl<D: Domain> SharesGenerator<D> {
     pub fn new(player_seeds: &[[u8; KEY_SIZE]]) -> Self {
         let input_prgs: Vec<PRG> = player_seeds
+            .iter()
+            .map(|seed| PRG::new(kdf(CONTEXT_RNG_INPUT_MASK, seed)))
+            .collect();
+
+        let constant_prgs: Vec<PRG> = player_seeds
             .iter()
             .map(|seed| PRG::new(kdf(CONTEXT_RNG_INPUT_MASK, seed)))
             .collect();
@@ -27,6 +33,7 @@ impl<D: Domain> SharesGenerator<D> {
 
         Self {
             input: ShareGenerator::new(input_prgs),
+            constant: ShareGenerator::new(constant_prgs),
             branch: ShareGenerator::new(branch_prgs),
             beaver: ShareGenerator::new(beaver_prgs),
         }
@@ -35,6 +42,7 @@ impl<D: Domain> SharesGenerator<D> {
 
 pub struct PartialSharesGenerator<D: Domain> {
     pub input: PartialShareGenerator<D>,
+    pub constant: PartialShareGenerator<D>,
     pub branch: PartialShareGenerator<D>,
     pub beaver: PartialShareGenerator<D>,
 }
@@ -42,6 +50,11 @@ pub struct PartialSharesGenerator<D: Domain> {
 impl<D: Domain> PartialSharesGenerator<D> {
     pub fn new(player_seeds: &[[u8; KEY_SIZE]], omit: usize) -> Self {
         let input_prgs: Vec<PRG> = player_seeds
+            .iter()
+            .map(|seed| PRG::new(kdf(CONTEXT_RNG_INPUT_MASK, seed)))
+            .collect();
+
+        let constant_prgs: Vec<PRG> = player_seeds
             .iter()
             .map(|seed| PRG::new(kdf(CONTEXT_RNG_INPUT_MASK, seed)))
             .collect();
@@ -58,6 +71,7 @@ impl<D: Domain> PartialSharesGenerator<D> {
 
         Self {
             input: PartialShareGenerator::new(input_prgs, omit),
+            constant: PartialShareGenerator::new(constant_prgs, omit),
             branch: PartialShareGenerator::new(branch_prgs, omit),
             beaver: PartialShareGenerator::new(beaver_prgs, omit),
         }
