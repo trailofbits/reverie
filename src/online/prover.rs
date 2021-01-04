@@ -222,9 +222,6 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
                     #[cfg(test)]
                     #[cfg(debug_assertions)]
                     {
-                        assert_eq!(self.wires.get(dst) + mask.reconstruct(), c);
-                        #[cfg(feature = "trace")]
-                        println!("  mask = {:?}, c = {:?}", mask, c);
                         self.plain.set(dst, Some(c));
                     }
                 }
