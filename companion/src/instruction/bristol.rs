@@ -144,10 +144,19 @@ impl Parser<Instruction<BitScalar>> for InsParser {
                 let dst = ins[0].parse().unwrap();
                 Ok(Some(Instruction::Branch(dst)))
             }
-            "BUF" => {
+            "BUF" | "EQW" => {
                 let src = ins[0].parse().unwrap();
                 let dst = ins[1].parse().unwrap();
                 Ok(Some(Instruction::AddConst(dst, src, BitScalar::ZERO)))
+            }
+            "EQ" => {
+                let src = ins[0].parse().unwrap();
+                let dst = ins[1].parse().unwrap();
+                Ok(Some(Instruction::Const(dst, match src {
+                    0 => BitScalar::ZERO,
+                    1 => BitScalar::ONE,
+                    _ => unimplemented!("Only 0 and 1 are valid constant values")
+                })))
             }
             _unk => unimplemented!("Parse error on token:: {}", _unk),
         }
