@@ -262,7 +262,7 @@ impl<D: Domain, D2: Domain> StreamingProver<D, D2> {
         branch_index: usize, // branch index (from preprocessing)
         mut program: PI,
         mut witness: WI,
-    ) -> (Proof<D>, Self) {
+    ) -> (Proof<D, D2>, Self) {
         assert_eq!(preprocessing.hidden.len(), D::ONLINE_REPETITIONS);
 
         async fn process<D: Domain, D2: Domain>(
@@ -423,10 +423,12 @@ impl<D: Domain, D2: Domain> StreamingProver<D, D2> {
                             commitment: run.commitments[omit].clone(),
                             open: tree.puncture(omit),
                             _ph: PhantomData,
+                            _ph2: PhantomData,
                         }
                     })
                     .collect(),
                 _ph: PhantomData,
+                _ph2: PhantomData,
             },
             StreamingProver {
                 branch,

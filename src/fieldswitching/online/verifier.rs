@@ -6,7 +6,7 @@ use async_std::task;
 
 use crate::algebra::{Domain, LocalOperation, Packable, RingElement, RingModule, Sharing};
 use crate::consts::*;
-use crate::Instructions;
+use crate::{Instructions, ConnectionInstruction};
 use crate::oracle::RandomOracle;
 use crate::preprocessing::verifier::PreprocessingExecution;
 use crate::util::*;
@@ -38,10 +38,13 @@ async fn feed<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>>(
     Some(true)
 }
 
-pub struct StreamingVerifier<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> {
-    proof: Proof<D>,
-    program: PI,
+pub struct StreamingVerifier<D: Domain, D2: Domain, PI: Iterator<Item = ConnectionInstruction>, PI1: Iterator<Item = Instruction<D::Scalar>>, PI2: Iterator<Item = Instruction<D2::Scalar>>> {
+    proof: Proof<D, D2>,
+    conn_program: PI,
+    program1: PI1,
+    program2: PI2,
     _ph: PhantomData<D>,
+    _ph2: PhantomData<D2>,
 }
 
 struct ShareIterator<D: Domain, I: Iterator<Item = D::Batch>> {
@@ -81,12 +84,15 @@ impl<D: Domain, I: Iterator<Item = D::Batch>> Iterator for ShareIterator<D, I> {
     }
 }
 
-impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D, PI> {
-    pub fn new(program: PI, proof: Proof<D>) -> Self {
+impl<D: Domain, D2: Domain, PI: Iterator<Item = ConnectionInstruction>, PI1: Iterator<Item = Instruction<D::Scalar>>, PI2: Iterator<Item = Instruction<D2::Scalar>>> StreamingVerifier<D, D2, PI, PI1, PI2> {
+    pub fn new(conn_program: PI, program1: PI1, program2: PI2, proof: Proof<D, D2>) -> Self {
         StreamingVerifier {
-            program,
+            conn_program,
+            program1,
+            program2,
             proof,
             _ph: PhantomData,
+            _ph2: PhantomData,
         }
     }
 
@@ -94,9 +100,9 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
         mut self,
         bind: Option<&[u8]>,
         mut proof: Receiver<Vec<u8>>,
-    ) -> Result<Output<D>, String> {
-        async fn process<D: Domain>(
-            run: Run<D>,
+    ) -> Result<Output<D, D2>, String> {
+        async fn process<D: Domain, D2: Domain>(
+            run: Run<D, D2>,
             outputs: Sender<()>,
             inputs: Receiver<(
                 Arc<Instructions<D>>, // next slice of program
@@ -281,7 +287,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
         for run in self.proof.runs {
             let (sender_inputs, reader_inputs) = async_channel::bounded(5);
             let (sender_outputs, reader_outputs) = async_channel::bounded(5);
-            tasks.push(task::spawn(process::<D>(
+            tasks.push(task::spawn(process::<D, D2>(
                 run,
                 sender_outputs,
                 reader_inputs,
@@ -292,10 +298,10 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
 
         // schedule up to 2 tasks immediately (for better performance)
         let mut scheduled = 0;
-        scheduled += feed::<D, _>(BATCH_SIZE, &mut inputs[..], &mut self.program, &mut proof)
+        scheduled += feed::<D, _>(BATCH_SIZE, &mut inputs[..], &mut self.program1, &mut proof)
             .await
             .ok_or_else(|| String::from("Failed to schedule tasks"))? as usize;
-        scheduled += feed::<D, _>(BATCH_SIZE, &mut inputs[..], &mut self.program, &mut proof)
+        scheduled += feed::<D, _>(BATCH_SIZE, &mut inputs[..], &mut self.program1, &mut proof)
             .await
             .ok_or_else(|| String::from("Failed to schedule tasks"))? as usize;
 
@@ -308,7 +314,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
             }
 
             // schedule a new task and wait for all works to complete one
-            scheduled += feed::<D, _>(BATCH_SIZE, &mut inputs[..], &mut self.program, &mut proof)
+            scheduled += feed::<D, _>(BATCH_SIZE, &mut inputs[..], &mut self.program1, &mut proof)
                 .await
                 .ok_or_else(|| String::from("Failed to schedule tasks"))?
                 as usize;
@@ -354,6 +360,6 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
         debug_assert_eq!(should_omit.len(), D::ONLINE_REPETITIONS);
 
         // return output to verify against pre-processing
-        Ok(Output { pp_hashes, result })
+        Ok(Output { pp_hashes, result, _ph: PhantomData })
     }
 }

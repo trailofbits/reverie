@@ -71,6 +71,68 @@ pub fn evaluate_program<D: Domain>(
     output
 }
 
+// Evaluates two programs with fieldswitching (in the clear)
+pub fn evaluate_fieldswitching_btoa_program<D: Domain, D2: Domain>(
+    conn_program: &[ConnectionInstruction],
+    program1: &[Instruction<D::Scalar>],
+    program2: &[Instruction<D2::Scalar>],
+    inputs1: &[D::Scalar],
+    inputs2: &[D2::Scalar],
+    branch1: &[D::Scalar],
+    branch2: &[D2::Scalar],
+) -> Vec<D::Scalar> {
+    let output1 = evaluate_program::<D2>(program2, inputs2, branch2);
+
+    let mut wires1 = Vec::new();
+
+
+    for step in conn_program {
+        match *step {
+            ConnectionInstruction::BToA(dst, src) => {
+                let mut input = D::Scalar::ZERO;
+                let mut pow_two = D::Scalar::ONE;
+                let two = D::Scalar::ONE + D::Scalar::ONE;
+                for &_src in src.iter() {
+                    input = input + convert_bit::<D2, D>(output1[_src]) * pow_two;
+                    pow_two = two * pow_two;
+                }
+                // wires1.set(dst, input);
+                wires1.push(input); //TODO: change order
+            }
+            ConnectionInstruction::AToB(dst, src) => {
+                // let mut output = output1[src].clone();
+                // let mut pow_two = D::Scalar::ONE;
+                // let two = D::Scalar::ONE + D::Scalar::ONE;
+                // while output < pow_two {
+                //     pow_two = two * pow_two;
+                // }
+                // for _dst in dst {
+                //     pow_two = pow_two / two;
+                //     if pow_two < output {
+                //         output = output - pow_two;
+                //         wires2.set(_dst, D2::Scalar::ONE);
+                //     } else {
+                //         wires2.set(_dst, D2::Scalar::ZERO);
+                //     }
+                // }
+            }
+            _ => {}
+        }
+    }
+
+    let output2 = evaluate_program::<D>(program1, &wires1[..], branch1);
+
+    output2
+}
+
+fn convert_bit<D: Domain, D2: Domain>(input: D::Scalar) -> D2::Scalar {
+    if input == D::Scalar::ONE {
+        return D2::Scalar::ONE;
+    } else {
+        return D2::Scalar::ZERO;
+    }
+}
+
 // Generates a random program for property based test
 pub fn random_program<D: Domain, R: RngCore>(
     rng: &mut R,
@@ -157,6 +219,24 @@ pub fn test_integration() {
 
     let verifier_output = proof.verify(None, program.clone(), branches).unwrap();
     assert_eq!(verifier_output, output);
+}
+
+#[test]
+pub fn test_evaluate_program() {
+    let mut rng = thread_rng();
+
+    let program1 = mini_program::<GF2P8>();
+    let program2 = mini_program::<GF2P8>();
+    let conn_program = connection_program();
+    let input = random_scalars::<GF2P8, _>(&mut rng, 4);
+
+    let branch: Vec<BitScalar> = vec![];
+    let branches: Vec<Vec<BitScalar>> = vec![branch];
+
+    let output = evaluate_fieldswitching_btoa_program::<GF2P8, GF2P8>(&conn_program[..], &program1[..], &program2[..], &input[..], &input[..], &branches[0][..], &branches[0][..]);
+    println!("{:?}", input);
+    println!("{:?}", output);
+    assert_eq!(output, input);
 }
 
 pub fn mini_program<D: Domain>() -> Vec<Instruction<D::Scalar>> {

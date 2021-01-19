@@ -33,8 +33,10 @@ mod crypto;
 mod consts;
 
 mod proof;
+mod fieldswitching_proof;
 
 pub use proof::{ProofGF2P64, ProofGF2P64_64, ProofGF2P64_85, ProofGF2P8};
+pub use fieldswitching_proof::{FieldSwitching_ProofGF2P64, FieldSwitching_ProofGF2P64_64, FieldSwitching_ProofGF2P64_85, FieldSwitching_ProofGF2P8};
 
 use crate::algebra::RingElement;
 
