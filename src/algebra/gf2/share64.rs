@@ -34,7 +34,7 @@ impl Mul for BitSharing64 {
 }
 
 impl RingElement for BitSharing64 {
-    const ONE: Self = Self(0xffff_ffff_ffff_ffff);
+    const ONE: Self = Self(0xffff_ffff_ffff_fffe);
     const ZERO: Self = Self(0x0);
 }
 

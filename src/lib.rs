@@ -14,6 +14,9 @@ mod tests;
 // exposed to enable uses to define programs for the supported rings.
 pub mod algebra;
 
+// field switching
+pub mod fieldswitching;
+
 // pre-processing
 pub mod preprocessing;
 
@@ -46,6 +49,14 @@ pub enum Instruction<E: RingElement> {
     Input(usize),              // read next field element from input tape
     Output(usize),             // output wire (write wire-value to output tape)
     Const(usize, E),           // fixed constant value
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum ConnectionInstruction {
+    Input(usize),              // read next field element from input tape
+    Output(usize),             // output wire (write wire-value to output tape)
+    BToA(usize, [usize; 2]),      // Change field from GF(2) to GF(2^k) //TODO: make more flexible
+    AToB([usize; 2], usize),      // Change field from GF(2^k) to GF(2) //TODO: make more flexible
 }
 
 type Instructions<D> = Vec<Instruction<<D as algebra::Domain>::Scalar>>;
