@@ -8,6 +8,8 @@ use reverie::Instruction;
 use super::Parser;
 use std::str::FromStr;
 
+use thiserror::Error;
+
 pub struct BristolHeader {
     pub n_gate: usize,
     pub n_wire: usize,
@@ -15,6 +17,14 @@ pub struct BristolHeader {
     pub n_output: usize,
     pub pending_input: usize,
     pub pending_output: usize,
+}
+
+#[derive(Error, Debug)]
+pub enum BristolHeaderError {
+    #[error("IO Error")]
+    Io(#[from] std::io::Error),
+    #[error("Integer Conversion Error")]
+    ParseError(#[from] std::num::ParseIntError),
 }
 
 impl BristolHeader {
@@ -30,18 +40,18 @@ impl BristolHeader {
 }
 
 impl FromStr for BristolHeader {
-    type Err = std::io::Error;
+    type Err = BristolHeaderError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut lines = s.trim().split('\n');
         let mut parts = lines.next().unwrap().split(' ');
 
-        let n_gate: usize = parts.next().unwrap().trim().parse().unwrap();
-        let n_wire: usize = parts.next().unwrap().trim().parse().unwrap();
+        let n_gate: usize = parts.next().unwrap().trim().parse()?;
+        let n_wire: usize = parts.next().unwrap().trim().parse()?;
 
         parts = lines.next().unwrap().split(' ');
         let mut n_input = 0;
-        let n_input_wires = parts.next().unwrap().trim().parse().unwrap();
+        let n_input_wires = parts.next().unwrap().trim().parse()?;
         for i in 0..n_input_wires {
             let vec_size: usize = parts
                 .next()
@@ -60,7 +70,7 @@ impl FromStr for BristolHeader {
 
         parts = lines.next().unwrap().split(' ');
         let mut n_output = 0;
-        let n_output_wires = parts.next().unwrap().trim().parse().unwrap();
+        let n_output_wires = parts.next().unwrap().trim().parse()?;
         for i in 0..n_output_wires {
             let vec_size: usize = parts
                 .next()
@@ -101,7 +111,7 @@ impl Parser<Instruction<BitScalar>> for InsParser {
         reader.read_line(&mut header_raw)?;
         reader.read_line(&mut header_raw)?;
 
-        let header: BristolHeader = header_raw.parse()?;
+        let header: BristolHeader = header_raw.parse().expect("Failed to parse header");
 
         Ok(InsParser {
             line: String::with_capacity(128),
