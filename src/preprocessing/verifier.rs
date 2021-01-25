@@ -164,6 +164,7 @@ impl<D: Domain> PreprocessingExecution<D> {
             debug_assert!(self.share_a.len() < D::Batch::DIMENSION);
             debug_assert!(self.share_a.len() < D::Batch::DIMENSION);
             match *step {
+                Instruction::NrOfWires(nr) => {}
                 Instruction::LocalOp(dst, src) => {
                     self.masks.set(dst, self.masks.get(src).operation());
                 }
@@ -181,7 +182,8 @@ impl<D: Domain> PreprocessingExecution<D> {
                     // assign the next unused input share to the destination wire
                     self.masks.set(dst, mask);
                 }
-                Instruction::Const(_dst, _c) => {
+                Instruction::Const(dst, _c) => {
+                    self.masks.set(dst, D::Sharing::ZERO);
                     // We don't need to mask constant inputs because the circuit is public
                 }
                 Instruction::AddConst(dst, src, _c) => {

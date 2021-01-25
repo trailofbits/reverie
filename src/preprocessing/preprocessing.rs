@@ -130,6 +130,7 @@ impl<D: Domain> PreprocessingExecution<D> {
             debug_assert_eq!(self.share_a.len(), self.share_b.len());
 
             match *step {
+                Instruction::NrOfWires(nr) => {}
                 Instruction::LocalOp(dst, src) => {
                     self.masks.set(dst, self.masks.get(src).operation());
                 }
@@ -139,7 +140,8 @@ impl<D: Domain> PreprocessingExecution<D> {
                 Instruction::Branch(dst) => {
                     self.masks.set(dst, self.shares.branch.next());
                 }
-                Instruction::Const(_dst, _c) => {
+                Instruction::Const(dst, _c) => {
+                    self.masks.set(dst, D::Sharing::ZERO);
                     // We don't need to mask constant inputs because the circuit is public
                 }
                 Instruction::AddConst(dst, src, _c) => {

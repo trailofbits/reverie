@@ -191,6 +191,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
 
                             for step in program.iter().cloned() {
                                 match step {
+                                    Instruction::NrOfWires(nr) => {}
                                     Instruction::LocalOp(dst, src) => {
                                         let w: D::Scalar = wires.get(src);
                                         wires.set(dst, w.operation());

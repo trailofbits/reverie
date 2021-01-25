@@ -275,7 +275,7 @@ mod tests {
 
         let branch_index = rng.gen::<usize>() % num_branches;
 
-        let output = evaluate_program::<D>(&program[..], &input[..], &branches[branch_index][..]);
+        let (_wires, output) = evaluate_program::<D>(&program[..], &input[..], &branches[branch_index][..]);
 
         (program, input, branches, branch_index, output)
     }
@@ -623,7 +623,7 @@ mod tests {
         ];
 
         for test in test_vectors.iter() {
-            let output = evaluate_program::<GF2P8>(
+            let (_wires, output) = evaluate_program::<GF2P8>(
                 &test.program[..],
                 &test.input[..],
                 &test.branches[test.branch_index][..],

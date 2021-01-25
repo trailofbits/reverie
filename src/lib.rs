@@ -42,6 +42,7 @@ use crate::algebra::RingElement;
 
 #[derive(Copy, Clone, Debug)]
 pub enum Instruction<E: RingElement> {
+    NrOfWires(usize),          // Total nr of wires, should be first (and only first) in circuit
     AddConst(usize, usize, E), // addition of constant
     MulConst(usize, usize, E), // multiplication by constant
     LocalOp(usize, usize),     // apply domain-specific local operation
@@ -57,8 +58,8 @@ pub enum Instruction<E: RingElement> {
 pub enum ConnectionInstruction {
     Input(usize),              // read next field element from input tape
     Output(usize),             // output wire (write wire-value to output tape)
-    BToA(usize, [usize; 2]),      // Change field from GF(2) to GF(2^k) //TODO: make more flexible
-    AToB([usize; 2], usize),      // Change field from GF(2^k) to GF(2) //TODO: make more flexible
+    BToA(usize, [usize; 1]),      // Change field from GF(2) to GF(2^k) //TODO: make more flexible
+    AToB([usize; 1], usize),      // Change field from GF(2^k) to GF(2) //TODO: make more flexible
 }
 
 type Instructions<D> = Vec<Instruction<<D as algebra::Domain>::Scalar>>;

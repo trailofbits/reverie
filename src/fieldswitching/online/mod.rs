@@ -125,7 +125,7 @@ mod test {
             // proof.write_all(&preprocessing.serialize()[..]);
 
             // evaluate program in the clear
-            let correct_output = evaluate_program::<D>(program1, inputs, &[]);
+            let (_wires, correct_output) = evaluate_program::<D>(program1, inputs, &[]);
             // let correct_output = evaluate_program::<D2>(program2, inputs, &[]);
 
             // extract the output from the proof

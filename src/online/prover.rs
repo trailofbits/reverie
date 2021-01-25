@@ -145,6 +145,7 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
 
         for step in program {
             match *step {
+                Instruction::NrOfWires(nr) => {}
                 Instruction::LocalOp(dst, src) => {
                     self.wires.set(dst, self.wires.get(src).operation());
 

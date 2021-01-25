@@ -195,6 +195,7 @@ impl<D: Domain, D2: Domain, PI: Iterator<Item = ConnectionInstruction>, PI1: Ite
 
                             for step in program.iter().cloned() {
                                 match step {
+                                    Instruction::NrOfWires(nr) => {}
                                     Instruction::LocalOp(dst, src) => {
                                         let w: D::Scalar = wires.get(src);
                                         wires.set(dst, w.operation());
@@ -218,6 +219,9 @@ impl<D: Domain, D2: Domain, PI: Iterator<Item = ConnectionInstruction>, PI1: Ite
                                     }
                                     Instruction::Branch(dst) => {
                                         wires.set(dst, branch.next()?);
+                                    }
+                                    Instruction::Const(dst, c) => {
+                                        wires.set(dst, c);
                                     }
                                     Instruction::AddConst(dst, src, c) => {
                                         let a_w = wires.get(src);

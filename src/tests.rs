@@ -30,14 +30,16 @@ pub fn evaluate_program<D: Domain>(
     program: &[Instruction<D::Scalar>],
     inputs: &[D::Scalar],
     branch: &[D::Scalar],
-) -> Vec<D::Scalar> {
+) -> (Vec<usize>, Vec<D::Scalar>) {
     let mut wires = VecMap::new();
     let mut output = Vec::new();
+    let mut output_wires = Vec::new();
     let mut inputs = inputs.iter().cloned();
     let mut branch = branch.iter().cloned();
 
     for step in program {
         match *step {
+            Instruction::NrOfWires(nr) => {}
             Instruction::Input(dst) => {
                 wires.set(dst, inputs.next().unwrap());
             }
@@ -64,11 +66,12 @@ pub fn evaluate_program<D: Domain>(
             }
             Instruction::Output(src) => {
                 output.push(wires.get(src));
+                output_wires.push(src);
             }
         }
     }
 
-    output
+    (output_wires, output)
 }
 
 // Evaluates two programs with fieldswitching (in the clear)
@@ -81,7 +84,7 @@ pub fn evaluate_fieldswitching_btoa_program<D: Domain, D2: Domain>(
     branch1: &[D::Scalar],
     branch2: &[D2::Scalar],
 ) -> Vec<D::Scalar> {
-    let output1 = evaluate_program::<D2>(program2, inputs2, branch2);
+    let (out_wires, output1) = evaluate_program::<D2>(program2, inputs2, branch2);
 
     let mut wires1 = Vec::new();
 
@@ -93,7 +96,8 @@ pub fn evaluate_fieldswitching_btoa_program<D: Domain, D2: Domain>(
                 let mut pow_two = D::Scalar::ONE;
                 let two = D::Scalar::ONE + D::Scalar::ONE;
                 for &_src in src.iter() {
-                    input = input + convert_bit::<D2, D>(output1[_src]) * pow_two;
+                    let index = out_wires.iter().position(|&x| x == _src).unwrap();
+                    input = input + convert_bit::<D2, D>(output1[index]) * pow_two;
                     pow_two = two * pow_two;
                 }
                 // wires1.set(dst, input);
@@ -120,7 +124,7 @@ pub fn evaluate_fieldswitching_btoa_program<D: Domain, D2: Domain>(
         }
     }
 
-    let output2 = evaluate_program::<D>(program1, &wires1[..], branch1);
+    let (_wires, output2) = evaluate_program::<D>(program1, &wires1[..], branch1);
 
     output2
 }
@@ -201,7 +205,7 @@ pub fn test_integration() {
     let branch: Vec<BitScalar> = vec![];
     let branches: Vec<Vec<BitScalar>> = vec![branch];
 
-    let output = evaluate_program::<GF2P8>(&program[..], &input[..], &branches[0][..]);
+    let (_wires, output) = evaluate_program::<GF2P8>(&program[..], &input[..], &branches[0][..]);
     print!("{:?}", input);
     print!("{:?}", output);
 
@@ -241,6 +245,7 @@ pub fn test_evaluate_program() {
 
 pub fn mini_program<D: Domain>() -> Vec<Instruction<D::Scalar>> {
     let mut program: Vec<Instruction<D::Scalar>> = Vec::new();
+    program.push(Instruction::NrOfWires(8));
     program.push(Instruction::Input(0));
     program.push(Instruction::Input(1));
     program.push(Instruction::Input(2));
@@ -261,24 +266,15 @@ pub fn mini_program<D: Domain>() -> Vec<Instruction<D::Scalar>> {
 
 pub fn connection_program() -> Vec<ConnectionInstruction> {
     let mut program: Vec<ConnectionInstruction> = Vec::new();
-    program.push(ConnectionInstruction::Input(0));
-    program.push(ConnectionInstruction::Input(1));
-    program.push(ConnectionInstruction::Input(2));
-    program.push(ConnectionInstruction::Input(3));
 
-    let src1: [usize; 2] = [0, 0];
-    let src2: [usize; 2] = [1, 1];
-    let src3: [usize; 2] = [2, 2];
-    let src4: [usize; 2] = [3, 3];
-    program.push(ConnectionInstruction::BToA(4, src1));
-    program.push(ConnectionInstruction::BToA(5, src2));
-    program.push(ConnectionInstruction::BToA(6, src3));
-    program.push(ConnectionInstruction::BToA(7, src4));
-
-    program.push(ConnectionInstruction::Output(4));
-    program.push(ConnectionInstruction::Output(5));
-    program.push(ConnectionInstruction::Output(6));
-    program.push(ConnectionInstruction::Output(7));
+    let src1: [usize; 1] = [4];
+    let src4: [usize; 1] = [7];
+    let src2: [usize; 1] = [5];
+    let src3: [usize; 1] = [6];
+    program.push(ConnectionInstruction::BToA(0, src1));
+    program.push(ConnectionInstruction::BToA(1, src2));
+    program.push(ConnectionInstruction::BToA(2, src3));
+    program.push(ConnectionInstruction::BToA(3, src4));
 
     program
 }
