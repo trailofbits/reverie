@@ -142,6 +142,7 @@ impl<D: Domain, I: Iterator<Item=D::Scalar>> Prover<D, I> {
         broadcast: &mut BW,
         fieldswitching_input: Vec<usize>,
         fieldswitching_output: Vec<Vec<usize>>,
+        output: &mut Vec<D::Scalar>,
     ) {
         let mut witness = witness.iter().cloned();
         let mut ab_gamma = preprocessing_ab_gamma.iter().cloned();
@@ -199,7 +200,7 @@ impl<D: Domain, I: Iterator<Item=D::Scalar>> Prover<D, I> {
                         }
 
                     if fieldswitching_input.contains(&dst) {
-                        //TODO Subtract constant instead of add
+                        //TODO(gvl) Subtract constant instead of add
                         self.process_add_const(&mut masks, dst, nr_of_wires, D::Scalar::ZERO);
                         nr_of_wires += 1;
                     }
@@ -303,11 +304,11 @@ impl<D: Domain, I: Iterator<Item=D::Scalar>> Prover<D, I> {
                             let (outputs, carry_out) = self.full_adder(broadcast, &mut ab_gamma, &mut masks, out_list, zeroes, nr_of_wires);
                             nr_of_wires = carry_out;
                             for outs in outputs {
-                                self.process_output(broadcast, &mut masks, outs);
+                                self.process_output(broadcast, &mut masks, output, outs);
                             }
                         }
                     } else {
-                        self.process_output(broadcast, &mut masks, src);
+                        self.process_output(broadcast, &mut masks, output, src);
                     }
                 }
             }
@@ -420,9 +421,10 @@ impl<D: Domain, I: Iterator<Item=D::Scalar>> Prover<D, I> {
             }
     }
 
-    fn process_output<BW: Writer<D::Sharing>>(&mut self, broadcast: &mut BW, masks: &mut Cloned<Iter<D::Sharing>>, src: usize) {
+    fn process_output<BW: Writer<D::Sharing>>(&mut self, broadcast: &mut BW, masks: &mut Cloned<Iter<D::Sharing>>, output: &mut Vec<D::Scalar>, src: usize) {
         let recon: D::Sharing = masks.next().unwrap();
         broadcast.write(recon);
+        output.write(self.wires.get(src) + recon.reconstruct());
 
         #[cfg(feature = "trace")]
             {
@@ -573,7 +575,7 @@ impl<D: Domain> StreamingProver<D> {
             inputs: Receiver<ProgWitSlice<D>>,
             fieldswitching_input: Vec<usize>,
             fieldswitching_output: Vec<Vec<usize>>,
-        ) -> Result<(Vec<u8>, MerkleSetProof, Hash), SendError<Vec<u8>>> {
+        ) -> Result<(Vec<u8>, MerkleSetProof, Hash, Vec<D::Scalar>), SendError<Vec<u8>>> {
             // online execution
             let mut online = Prover::<D, _>::new(branch.iter().cloned());
 
@@ -586,6 +588,7 @@ impl<D: Domain> StreamingProver<D> {
             // vectors for values passed between preprocessing and online execution
             let mut masks = Vec::with_capacity(DEFAULT_CAPACITY);
             let mut ab_gamma = Vec::with_capacity(DEFAULT_CAPACITY);
+            let mut output = Vec::new();
 
             loop {
                 match inputs.recv().await {
@@ -616,6 +619,7 @@ impl<D: Domain> StreamingProver<D> {
                                 &mut transcript,
                                 fieldswitching_input.clone(),
                                 fieldswitching_output.clone(),
+                                &mut output,
                             );
                         }
 
@@ -626,7 +630,7 @@ impl<D: Domain> StreamingProver<D> {
                         let mut packed: Vec<u8> = Vec::with_capacity(256);
                         let (branch, proof) = preprocessing.prove_branch(&*branches, branch_index);
                         Packable::pack(&mut packed, branch.iter()).unwrap();
-                        return Ok((packed, proof, transcript.finalize()));
+                        return Ok((packed, proof, transcript.finalize(), output));
                     }
                 }
             }
@@ -694,7 +698,7 @@ impl<D: Domain> StreamingProver<D> {
         let mut masked_branches = Vec::with_capacity(D::ONLINE_REPETITIONS);
 
         for (pp, t) in preprocessing.hidden.iter().zip(tasks.into_iter()) {
-            let (masked, proof, transcript) = t.await.unwrap();
+            let (masked, proof, transcript, output) = t.await.unwrap();
             masked_branches.push((masked, proof));
 
             // RO((preprocessing, transcript))
@@ -746,7 +750,7 @@ impl<D: Domain> StreamingProver<D> {
         mut witness: WI,
         fieldswitching_input: Vec<usize>,
         fieldswitching_output: Vec<Vec<usize>>,
-    ) -> Result<(), SendError<Vec<u8>>> {
+    ) -> Result<Vec<D::Scalar>, SendError<Vec<u8>>> {
         async fn process<D: Domain>(
             root: [u8; KEY_SIZE],
             omitted: usize,
@@ -755,7 +759,7 @@ impl<D: Domain> StreamingProver<D> {
             inputs: Receiver<ProgWitSlice<D>>,
             fieldswitching_input: Vec<usize>,
             fieldswitching_output: Vec<Vec<usize>>,
-        ) -> Result<(), SendError<Vec<u8>>> {
+        ) -> Result<Vec<D::Scalar>, SendError<Vec<u8>>> {
             let mut seeds = vec![[0u8; KEY_SIZE]; D::PLAYERS];
             TreePRF::expand_full(&mut seeds, root);
 
@@ -768,6 +772,7 @@ impl<D: Domain> StreamingProver<D> {
             let mut corrections = Vec::with_capacity(DEFAULT_CAPACITY);
             let mut broadcast = Vec::with_capacity(DEFAULT_CAPACITY);
             let mut masked: Vec<D::Scalar> = Vec::with_capacity(DEFAULT_CAPACITY);
+            let mut output = Vec::new();
 
             // packed elements to be serialized
             let mut chunk = Chunk {
@@ -807,6 +812,7 @@ impl<D: Domain> StreamingProver<D> {
                                 &mut BatchExtractor::<D, _>::new(omitted, &mut broadcast),
                                 fieldswitching_input.clone(),
                                 fieldswitching_output.clone(),
+                                &mut output,
                             );
                         }
 
@@ -823,7 +829,7 @@ impl<D: Domain> StreamingProver<D> {
                             .await
                             .unwrap();
                     }
-                    Err(_) => return Ok(()),
+                    Err(_) => return Ok(output),
                 }
             }
         }
@@ -877,9 +883,17 @@ impl<D: Domain> StreamingProver<D> {
 
         // wait for tasks to finish
         inputs.clear();
+        let mut output = Vec::new();
+        let mut start = true;
         for t in tasks {
-            t.await.unwrap();
+            let new_output = t.await.unwrap();
+            if start {
+                output = new_output.clone();
+                start = false;
+            }
+            assert_eq!(output, new_output);
+            output = new_output;
         }
-        Ok(())
+        Ok(output)
     }
 }

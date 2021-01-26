@@ -56,8 +56,8 @@ pub enum Instruction<E: RingElement> {
 
 #[derive(Copy, Clone, Debug)]
 pub enum ConnectionInstruction {
-    BToA(usize, [usize; 1]),      // Change field from GF(2) to GF(2^k) //TODO: make more flexible
-    AToB([usize; 1], usize),      // Change field from GF(2^k) to GF(2) //TODO: make more flexible
+    BToA(usize, [usize; 1]),      // Change field from GF(2) to GF(2^k) //TODO(gvl): make more flexible
+    AToB([usize; 1], usize),      // Change field from GF(2^k) to GF(2) //TODO(gvl): make more flexible
 }
 
 type Instructions<D> = Vec<Instruction<<D as algebra::Domain>::Scalar>>;

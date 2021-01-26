@@ -40,7 +40,7 @@ async fn feed<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>>(
 /// Represents repeated execution of the preprocessing phase.
 /// The preprocessing phase is executed D::ONLINE_REPETITIONS times, then fed to a random oracle,
 /// which dictates the subset of executions to open.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Proof<D: Domain> {
     hidden: Vec<Hash>, // commitments to the hidden pre-processing executions
     random: TreePRF, // punctured PRF used to derive the randomness for the opened pre-processing executions
@@ -57,6 +57,7 @@ impl<D: Domain> Proof<D> {
     }
 }
 
+#[derive(Clone)]
 pub struct Run {
     pub(crate) seed: [u8; KEY_SIZE], // root seed
     pub(crate) union: Hash,
@@ -70,6 +71,7 @@ pub struct Run {
 ///
 /// For this reason PreprocessingOutput does not implement Copy/Clone
 /// and the online phase takes ownership of the struct, nor does it expose any fields.
+#[derive(Clone)]
 pub struct PreprocessingOutput<D: Domain> {
     pub(crate) branches: Arc<Vec<Vec<D::Batch>>>,
     pub(crate) hidden: Vec<Run>,

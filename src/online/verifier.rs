@@ -234,7 +234,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                                         }
 
                                         if fieldswitching_input.contains(&dst) {
-                                            //TODO Subtract constant instead of add
+                                            //TODO(gvl) Subtract constant instead of add
                                             process_add_const::<D>(&mut wires, dst, nr_of_wires, D::Scalar::ZERO);
                                             nr_of_wires += 1;
                                         }
