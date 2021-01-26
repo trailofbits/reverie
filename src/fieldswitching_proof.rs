@@ -279,6 +279,7 @@ mod tests {
     use rand::Rng;
     use rand::rngs::ThreadRng;
     use crate::ProofGF2P8;
+    use crate::fieldswitching::preprocessing::Proof;
 
     #[test]
     fn test_random_proof_gf2p8() {
@@ -314,6 +315,7 @@ mod tests {
         println!("{:?}", impacted_output);
         println!("{:?}", impacted_input);
 
+        let preprocessed_proof1 = fieldswitching::preprocessing::Proof::<GF2P8, GF2P8>::new(conn_program.clone(), program1.clone(), program2.clone(), branches.clone(), branches.clone());
         let proof1 = ProofGF2P8::new(None, program1.clone(), branches.clone(), input, branch_index, vec![], impacted_output.clone());
         let verifier_output1 = proof1.verify(None, program1, branches.clone(), vec![], impacted_output).unwrap();
 
