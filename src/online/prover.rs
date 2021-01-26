@@ -317,7 +317,7 @@ impl<D: Domain, I: Iterator<Item=D::Scalar>> Prover<D, I> {
         debug_assert!(masks.next().is_none());
     }
 
-    fn process_add(&mut self, masks: &mut Cloned<Iter<<D as Domain>::Sharing>>, dst: usize, src1: usize, src2: usize) {
+    fn process_add(&mut self, _masks: &mut Cloned<Iter<<D as Domain>::Sharing>>, dst: usize, src1: usize, src2: usize) {
         let a_w = self.wires.get(src1);
         let b_w = self.wires.get(src2);
         self.wires.set(dst, a_w + b_w);
@@ -343,7 +343,7 @@ impl<D: Domain, I: Iterator<Item=D::Scalar>> Prover<D, I> {
                 // reconstruct masked wire and check computation
                 #[cfg(feature = "debug_eval")]
                     {
-                        let mask = masks.next().unwrap();
+                        let mask = _masks.next().unwrap();
                         #[cfg(feature = "trace")]
                         println!("  mask = {:?}, value = {:?}", mask, correct);
                         assert_eq!(correct, mask.reconstruct() + self.wires.get(dst));
@@ -452,7 +452,7 @@ impl<D: Domain, I: Iterator<Item=D::Scalar>> Prover<D, I> {
             }
     }
 
-    fn process_add_const(&mut self, masks: &mut Cloned<Iter<D::Sharing>>, dst: usize, src: usize, c: D::Scalar) {
+    fn process_add_const(&mut self, _masks: &mut Cloned<Iter<D::Sharing>>, dst: usize, src: usize, c: D::Scalar) {
         let a_w = self.wires.get(src);
         self.wires.set(dst, a_w + c);
 
@@ -478,7 +478,7 @@ impl<D: Domain, I: Iterator<Item=D::Scalar>> Prover<D, I> {
                 // reconstruct masked wire and check computation
                 #[cfg(feature = "debug_eval")]
                     {
-                        let mask = masks.next().unwrap();
+                        let mask = _masks.next().unwrap();
                         #[cfg(feature = "trace")]
                         println!("  mask = {:?}, value = {:?}", mask, correct);
                         assert_eq!(correct, mask.reconstruct() + self.wires.get(dst));
@@ -698,7 +698,7 @@ impl<D: Domain> StreamingProver<D> {
         let mut masked_branches = Vec::with_capacity(D::ONLINE_REPETITIONS);
 
         for (pp, t) in preprocessing.hidden.iter().zip(tasks.into_iter()) {
-            let (masked, proof, transcript, output) = t.await.unwrap();
+            let (masked, proof, transcript, _output) = t.await.unwrap();
             masked_branches.push((masked, proof));
 
             // RO((preprocessing, transcript))

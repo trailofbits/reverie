@@ -305,7 +305,7 @@ impl<D: Domain> PreprocessingExecution<D> {
         }
     }
 
-    fn process_add<MW: Writer<D::Sharing>>(&mut self, masks: &mut MW, dst: usize, src1: usize, src2: usize) {
+    fn process_add<MW: Writer<D::Sharing>>(&mut self, _masks: &mut MW, dst: usize, src1: usize, src2: usize) {
         self.masks
             .set(dst, self.masks.get(src1) + self.masks.get(src2));
 
@@ -314,7 +314,7 @@ impl<D: Domain> PreprocessingExecution<D> {
             #[cfg(debug_assertions)]
             #[cfg(feature = "debug_eval")]
             {
-                masks.write(self.masks.get(dst));
+                _masks.write(self.masks.get(dst));
             }
     }
 
@@ -358,7 +358,7 @@ impl<D: Domain> PreprocessingExecution<D> {
     /// usize                       : position of output bit
     /// usize                       : position of carry out
     /// Vec<Instruction<BitScalar>> : Instruction set for adder with carry based on the given wire values as input.
-    fn adder<CW: Writer<D::Batch>, MW: Writer<D::Sharing>>(&mut self, corrections: &mut CW, masks: &mut MW, ab_gamma: &mut Vec<<D as Domain>::Sharing>, mut batch_a: &mut Vec<D::Batch>, mut batch_b: &mut Vec<D::Batch>, input1: usize, input2: usize, carry_in: usize, start_new_wires: usize) -> (usize, usize) {
+    fn adder<CW: Writer<D::Batch>, MW: Writer<D::Sharing>>(&mut self, corrections: &mut CW, masks: &mut MW, ab_gamma: &mut Vec<<D as Domain>::Sharing>, batch_a: &mut Vec<D::Batch>, batch_b: &mut Vec<D::Batch>, input1: usize, input2: usize, carry_in: usize, start_new_wires: usize) -> (usize, usize) {
         self.process_add(masks, start_new_wires, input1, input2);
         self.process_add(masks, start_new_wires + 1, carry_in, start_new_wires);
         self.process_mul(corrections, masks, ab_gamma, batch_a, batch_b, start_new_wires + 2, carry_in, start_new_wires);
@@ -370,7 +370,7 @@ impl<D: Domain> PreprocessingExecution<D> {
         (start_new_wires + 1, start_new_wires + 6)
     }
 
-    fn first_adder<CW: Writer<D::Batch>, MW: Writer<D::Sharing>>(&mut self, corrections: &mut CW, masks: &mut MW, ab_gamma: &mut Vec<<D as Domain>::Sharing>, mut batch_a: &mut Vec<D::Batch>, mut batch_b: &mut Vec<D::Batch>, input1: usize, input2: usize, start_new_wires: usize) -> (usize, usize) {
+    fn first_adder<CW: Writer<D::Batch>, MW: Writer<D::Sharing>>(&mut self, corrections: &mut CW, masks: &mut MW, ab_gamma: &mut Vec<<D as Domain>::Sharing>, batch_a: &mut Vec<D::Batch>, batch_b: &mut Vec<D::Batch>, input1: usize, input2: usize, start_new_wires: usize) -> (usize, usize) {
         self.process_add(masks, start_new_wires, input1, input2);
         self.process_mul(corrections, masks, ab_gamma, batch_a, batch_b, start_new_wires + 1, input1, input2);
 
@@ -387,7 +387,7 @@ impl<D: Domain> PreprocessingExecution<D> {
     /// usize                        : position of output bit
     /// usize                        : position of carry out
     /// Vec<Instruction<BitScalar>>  : Instruction set for adder with carry based on the given wire values as input.
-    fn full_adder<CW: Writer<D::Batch>, MW: Writer<D::Sharing>>(&mut self, corrections: &mut CW, masks: &mut MW, ab_gamma: &mut Vec<<D as Domain>::Sharing>, mut batch_a: &mut Vec<D::Batch>, mut batch_b: &mut Vec<D::Batch>, start_input1: Vec<usize>, start_input2: Vec<usize>, start_new_wires: usize) -> (Vec<usize>, usize) {
+    fn full_adder<CW: Writer<D::Batch>, MW: Writer<D::Sharing>>(&mut self, corrections: &mut CW, masks: &mut MW, ab_gamma: &mut Vec<<D as Domain>::Sharing>, batch_a: &mut Vec<D::Batch>, batch_b: &mut Vec<D::Batch>, start_input1: Vec<usize>, start_input2: Vec<usize>, start_new_wires: usize) -> (Vec<usize>, usize) {
         assert_eq!(start_input1.len(), start_input2.len());
         assert!(start_input1.len() > 0);
         let mut output_bits = Vec::new();

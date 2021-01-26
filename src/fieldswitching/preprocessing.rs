@@ -1,5 +1,4 @@
 use crate::algebra::Domain;
-use std::marker::PhantomData;
 use crate::{Instruction, ConnectionInstruction, preprocessing};
 use crate::crypto::KEY_SIZE;
 use rand::rngs::OsRng;
@@ -37,8 +36,6 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
                 _ => {}
             }
         }
-        println!("{:?}", impacted_output);
-        println!("{:?}", impacted_input);
 
         let branches1: Vec<&[D::Scalar]> = branches1.iter().map(|b| &b[..]).collect();
 
@@ -111,7 +108,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             }
         }
 
-// verify pre-processing
+        // verify pre-processing
         let preprocessing_task = task::spawn(preprocessing_verification(
             Arc::new(branches1.clone()),
             Arc::new(branches2.clone()),

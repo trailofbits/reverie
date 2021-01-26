@@ -1,11 +1,10 @@
 use crate::algebra::{Domain, RingElement};
-use std::marker::PhantomData;
 use serde::{Deserialize, Serialize};
 use crate::{Instruction, ConnectionInstruction, preprocessing, online, fieldswitching};
 use async_channel::{bounded, Sender, Receiver};
 use async_std::sync::Arc;
 use async_std::task;
-use crate::fieldswitching::util::{convert_bit_domain, convert_bit};
+use crate::fieldswitching::util::convert_bit;
 
 const CHANNEL_CAPACITY: usize = 100;
 
@@ -65,9 +64,9 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             let mut input2 = Vec::new();
             for gate in conn_program {
                 match gate {
-                    ConnectionInstruction::BToA(dst, src) => {
+                    ConnectionInstruction::BToA(_dst, src) => {
                         let mut pow_two = D2::Scalar::ONE;
-                        let mut two = D2::Scalar::ONE + D2::Scalar::ONE;
+                        let two = D2::Scalar::ONE + D2::Scalar::ONE;
                         let mut next = D2::Scalar::ZERO;
                         for &_src in src.iter() {
                             next = next + convert_bit::<D, D2>(output1[_src - 4].clone()) * pow_two;
@@ -160,13 +159,13 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
         ) -> Result<online::Output<D2>, String> {
             let verifier1 = online::StreamingVerifier::new(program1.iter().cloned(), proof1);
             let result1 = verifier1.verify(bind.as_ref().map(|x| &x[..]), recv1, vec![], fieldswitching_output).await;
-            match result1 {
+            let _possible_err = match result1 {
                 Ok(out) => Ok(out
                     .check(&preprocessed1).ok_or_else(|| {
                     String::from("Online task output did not match preprocessing output")
                 })?),
                 Err(_e) => Err(String::from("Online verification task failed")),
-            };
+            }; //TODO(gvl): output err if needed
             let verifier2 = online::StreamingVerifier::new(program2.iter().cloned(), proof2);
             verifier2.verify(bind.as_ref().map(|x| &x[..]), recv2, fieldswitching_input, vec![]).await
         }

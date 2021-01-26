@@ -1,14 +1,8 @@
 pub const BATCH_SIZE: usize = 10_000_000;
 
-pub const CONTEXT_RNG_EDA: &str = "eda_seed";
-
-pub const CONTEXT_RNG_EDA_2: &str = "eda_2_seed";
-
 pub const CONTEXT_RNG_BEAVER: &str = "beaver_seed";
 
 pub const CONTEXT_RNG_INPUT_MASK: &str = "input_mask_seed";
-
-pub const CONTEXT_RNG_INPUT_2_MASK: &str = "input_2_mask_seed";
 
 pub const CONTEXT_RNG_BRANCH_MASK: &str = "branch_mask_seed";
 

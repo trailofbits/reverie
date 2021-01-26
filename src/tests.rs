@@ -1,13 +1,10 @@
 use crate::algebra::*;
 use crate::util::VecMap;
-use crate::{Instruction, ProofGF2P8, ConnectionInstruction};
+use crate::{Instruction, ConnectionInstruction};
 
 use rand::{Rng, thread_rng};
 use rand::RngCore;
 use crate::algebra::gf2::{GF2P8, BitScalar};
-use rand_core::OsRng;
-use crate::preprocessing::Proof;
-use async_std::task;
 
 pub fn random_scalar<D: Domain, R: RngCore>(rng: &mut R) -> D::Scalar {
     let mut share = vec![D::Sharing::ZERO; D::Batch::DIMENSION];
@@ -39,7 +36,7 @@ pub fn evaluate_program<D: Domain>(
 
     for step in program {
         match *step {
-            Instruction::NrOfWires(nr) => {}
+            Instruction::NrOfWires(_nr) => {}
             Instruction::Input(dst) => {
                 wires.set(dst, inputs.next().unwrap());
             }
@@ -90,7 +87,7 @@ pub fn evaluate_fieldswitching_btoa_program<D: Domain, D2: Domain>(
 
     for step in conn_program {
         match *step {
-            ConnectionInstruction::BToA(dst, src) => {
+            ConnectionInstruction::BToA(_dst, src) => {
                 let mut input = D::Scalar::ZERO;
                 let mut pow_two = D::Scalar::ONE;
                 let two = D::Scalar::ONE + D::Scalar::ONE;
@@ -102,7 +99,7 @@ pub fn evaluate_fieldswitching_btoa_program<D: Domain, D2: Domain>(
                 // wires1.set(dst, input);
                 wires1.push(input); //TODO(gvl): change order
             }
-            ConnectionInstruction::AToB(dst, src) => {
+            ConnectionInstruction::AToB(_dst, _src) => {
                 // let mut output = output1[src].clone();
                 // let mut pow_two = D::Scalar::ONE;
                 // let two = D::Scalar::ONE + D::Scalar::ONE;
@@ -119,7 +116,6 @@ pub fn evaluate_fieldswitching_btoa_program<D: Domain, D2: Domain>(
                 //     }
                 // }
             }
-            _ => {}
         }
     }
 
