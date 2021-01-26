@@ -353,39 +353,3 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use rand::{thread_rng};
-    use rand_core::{OsRng, RngCore};
-
-    use crate::algebra::gf2::{BitScalar, GF2P8};
-    use crate::tests::{connection_program, mini_program, random_scalars};
-
-    use super::*;
-
-    #[test]
-    pub fn test_integration() {
-        let mut rng = thread_rng();
-
-        let program = mini_program::<GF2P8>();
-        let program2 = mini_program::<GF2P8>();
-        let connection_program = connection_program();
-        let input = random_scalars::<GF2P8, _>(&mut rng, 4);
-
-        let branch: Vec<BitScalar> = vec![];
-        let branches: Vec<Vec<BitScalar>> = vec![branch];
-
-        // prove preprocessing
-        // pick global random seed
-        let mut seed: [u8; 32] = [0; 32];
-        OsRng.fill_bytes(&mut seed);
-
-        let branches2: Vec<&[BitScalar]> = branches.iter().map(|b| &b[..]).collect();
-
-        let proof = Proof::<GF2P8, GF2P8>::new(seed, &branches2[..], &branches2[..],connection_program.iter().cloned(), program.iter().cloned(), program2.iter().cloned());
-        assert!(task::block_on(proof.0.verify(&branches2[..],&branches2[..], connection_program.iter().cloned(), program.iter().cloned(), program2.iter().cloned())).is_some());
-        assert!(task::block_on(proof.0.proof1.verify(&branches2[..], program.iter().cloned(), vec![], vec![])).is_some());
-        assert!(task::block_on(proof.0.proof2.verify(&branches2[..], program2.iter().cloned(), vec![], vec![])).is_some());
-    }
-}
-

@@ -371,6 +371,7 @@ mod tests {
     #[test]
     fn test_preprocessing_n8() {
         let program = vec![
+            Instruction::NrOfWires(3),
             Instruction::Input(1),
             Instruction::Input(2),
             Instruction::Mul(0, 1, 2),

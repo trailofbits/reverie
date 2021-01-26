@@ -79,7 +79,6 @@ pub fn evaluate_fieldswitching_btoa_program<D: Domain, D2: Domain>(
     conn_program: &[ConnectionInstruction],
     program1: &[Instruction<D::Scalar>],
     program2: &[Instruction<D2::Scalar>],
-    inputs1: &[D::Scalar],
     inputs2: &[D2::Scalar],
     branch1: &[D::Scalar],
     branch2: &[D2::Scalar],
@@ -207,36 +206,6 @@ pub fn random_program<D: Domain, R: RngCore>(
 }
 
 #[test]
-pub fn test_integration() {
-    let mut rng = thread_rng();
-
-    let program = mini_program::<GF2P8>();
-    let input = random_scalars::<GF2P8, _>(&mut rng, 4);
-
-    let branch: Vec<BitScalar> = vec![];
-    let branches: Vec<Vec<BitScalar>> = vec![branch];
-
-    let (_wires, output) = evaluate_program::<GF2P8>(&program[..], &input[..], &branches[0][..]);
-    print!("{:?}", input);
-    print!("{:?}", output);
-
-    let proof = ProofGF2P8::new(None, program.clone(), branches.clone(), input, 0, vec![], vec![]);
-
-    // prove preprocessing
-    // pick global random seed
-    let mut seed: [u8; 32] = [0; 32];
-    OsRng.fill_bytes(&mut seed);
-
-    let branches2: Vec<&[BitScalar]> = branches.iter().map(|b| &b[..]).collect();
-
-    let proof2 = Proof::<GF2P8>::new(seed, &branches2[..], program.iter().cloned(), vec![], vec![]);
-    assert!(task::block_on(proof2.0.verify(&branches2[..], program.clone().into_iter(), vec![], vec![])).is_some());
-
-    let verifier_output = proof.verify(None, program.clone(), branches, vec![], vec![]).unwrap();
-    assert_eq!(verifier_output, output);
-}
-
-#[test]
 pub fn test_evaluate_program() {
     let mut rng = thread_rng();
 
@@ -248,9 +217,7 @@ pub fn test_evaluate_program() {
     let branch: Vec<BitScalar> = vec![];
     let branches: Vec<Vec<BitScalar>> = vec![branch];
 
-    let output = evaluate_fieldswitching_btoa_program::<GF2P8, GF2P8>(&conn_program[..], &program1[..], &program2[..], &input[..], &input[..], &branches[0][..], &branches[0][..]);
-    println!("{:?}", input);
-    println!("{:?}", output);
+    let output = evaluate_fieldswitching_btoa_program::<GF2P8, GF2P8>(&conn_program[..], &program1[..], &program2[..], &input[..], &branches[0][..], &branches[0][..]);
     assert_eq!(output, input);
 }
 

@@ -13,7 +13,6 @@ use async_std::task;
 use serde::{Deserialize, Serialize};
 
 use std::sync::Arc;
-use crate::tests::connection_program;
 
 // const CHANNEL_CAPACITY: usize = 100;
 //
@@ -298,7 +297,7 @@ mod tests {
         }
         let branch_index = rng.gen::<usize>() % num_branches;
 
-        let output = evaluate_fieldswitching_btoa_program::<GF2P8, GF2P8>(&conn_program[..], &program1[..], &program2[..], &input[..], &input[..], &branches[branch_index][..], &branches[branch_index][..]);
+        let output = evaluate_fieldswitching_btoa_program::<GF2P8, GF2P8>(&conn_program[..], &program1[..], &program2[..], &input[..], &branches[branch_index][..], &branches[branch_index][..]);
         println!("output: {:?}", output);
 
         let mut impacted_output = Vec::new();
@@ -469,79 +468,5 @@ mod tests {
         assert_eq!(&output[..], &[BitScalar::ZERO, BitScalar::ONE]);
         let (_wires, output) = evaluate_program::<GF2P8>(&add[..], &[BitScalar::ONE, BitScalar::ONE, BitScalar::ONE], &[]);
         assert_eq!(&output[..], &[BitScalar::ONE, BitScalar::ONE]);
-    }
-
-    fn prep_circuit1(circuit: Vec<Instruction<BitScalar>>, impacted_output: Vec<Vec<usize>>) -> Vec<Instruction<BitScalar>> {
-        let mut nr_of_wires_mut = 0;
-        let mut out = Vec::new();
-        let mut impacted_outs_done = Vec::new();
-        for gate in circuit {
-            match gate {
-                Instruction::NrOfWires(nr_of_wires) => {
-                    nr_of_wires_mut = nr_of_wires;
-                    out.push(gate);
-                }
-                Instruction::Output(src) => {
-                    assert_ne!(nr_of_wires_mut, 0);
-                    let mut found = false;
-                    for imp_out in impacted_output.clone() {
-                        if imp_out.contains(&src) {
-                            found = true;
-                            if !impacted_outs_done.contains(&src) {
-                                impacted_outs_done.append(&mut imp_out.clone());
-                                let mut zeroes = Vec::new();
-                                for ins in imp_out.clone() {
-                                    out.push(Instruction::Const(nr_of_wires_mut, BitScalar::ZERO));
-                                    zeroes.push(nr_of_wires_mut);
-                                    nr_of_wires_mut += 1;
-                                }
-                                let (outputs, carry_out, mut add_instructions) = full_adder(imp_out, zeroes, nr_of_wires_mut);
-                                nr_of_wires_mut = carry_out;
-                                out.append(&mut add_instructions);
-                                for outs in outputs {
-                                    out.push(Instruction::Output(outs));
-                                }
-                            }
-                            break;
-                        }
-                    }
-                    if !found {
-                        out.push(gate);
-                    }
-                }
-                _ => {
-                    assert_ne!(nr_of_wires_mut, 0);
-                    out.push(gate);
-                }
-            }
-        }
-        return out;
-    }
-
-    fn prep_circuit2(circuit: Vec<Instruction<BitScalar>>, impacted_input: Vec<usize>) -> Vec<Instruction<BitScalar>> {
-        let mut nr = 0;
-        let mut out = Vec::new();
-        for gate in circuit.clone() {
-            match gate {
-                Instruction::NrOfWires(nr_of_wires) => {
-                    nr = nr_of_wires;
-                }
-                Instruction::Input(dst) => {
-                    assert_ne!(nr, 0);
-                    if impacted_input.contains(&dst) {
-                        out.push(Instruction::Input(nr));
-                        out.push(Instruction::AddConst(dst, nr, BitScalar::ZERO)); //TODO: subtract constant
-                        nr += 1;
-                    } else {
-                        out.push(gate);
-                    }
-                }
-                _ => {
-                    assert_ne!(nr, 0);
-                    out.push(gate);
-                }
-            }
-        }
-        return out;
     }
 }

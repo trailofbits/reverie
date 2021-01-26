@@ -139,11 +139,11 @@ impl<D: Domain> PreprocessingExecution<D> {
                     nr_of_wires = nr.clone();
                 }
                 Instruction::LocalOp(dst, src) => {
-                    assert_ne!(nr_of_wires, 0);
+                    assert_ne!(nr_of_wires, 0, "Make sure to have Instruction::NrOfWires as first gate in a program");
                     self.masks.set(dst, self.masks.get(src).operation());
                 }
                 Instruction::Input(dst) => {
-                    assert_ne!(nr_of_wires, 0);
+                    assert_ne!(nr_of_wires, 0, "Make sure to have Instruction::NrOfWires as first gate in a program");
 
                     let mut new_dst = dst;
                     if fieldswitching_input.contains(&dst) {
@@ -158,33 +158,33 @@ impl<D: Domain> PreprocessingExecution<D> {
                     }
                 }
                 Instruction::Branch(dst) => {
-                    assert_ne!(nr_of_wires, 0);
+                    assert_ne!(nr_of_wires, 0, "Make sure to have Instruction::NrOfWires as first gate in a program");
                     self.masks.set(dst, self.shares.branch.next());
                 }
                 Instruction::Const(dst, _c) => {
-                    assert_ne!(nr_of_wires, 0);
+                    assert_ne!(nr_of_wires, 0, "Make sure to have Instruction::NrOfWires as first gate in a program");
                     self.masks.set(dst, D::Sharing::ZERO);
                     // We don't need to mask constant inputs because the circuit is public
                 }
                 Instruction::AddConst(dst, src, _c) => {
-                    assert_ne!(nr_of_wires, 0);
+                    assert_ne!(nr_of_wires, 0, "Make sure to have Instruction::NrOfWires as first gate in a program");
                     self.masks.set(dst, self.masks.get(src));
                 }
                 Instruction::MulConst(dst, src, c) => {
-                    assert_ne!(nr_of_wires, 0);
+                    assert_ne!(nr_of_wires, 0, "Make sure to have Instruction::NrOfWires as first gate in a program");
                     let sw = self.masks.get(src);
                     self.masks.set(dst, sw.action(c));
                 }
                 Instruction::Add(dst, src1, src2) => {
-                    assert_ne!(nr_of_wires, 0);
+                    assert_ne!(nr_of_wires, 0, "Make sure to have Instruction::NrOfWires as first gate in a program");
                     self.process_add(dst, src1, src2);
                 }
                 Instruction::Mul(dst, src1, src2) => {
-                    assert_ne!(nr_of_wires, 0);
+                    assert_ne!(nr_of_wires, 0, "Make sure to have Instruction::NrOfWires as first gate in a program");
                     self.process_mul(&mut batch_a, &mut batch_b, dst, src1, src2)
                 }
                 Instruction::Output(src) => {
-                    assert_ne!(nr_of_wires, 0);
+                    assert_ne!(nr_of_wires, 0, "Make sure to have Instruction::NrOfWires as first gate in a program");
 
                     let mut found = false;
                     let mut out_list = Vec::new();

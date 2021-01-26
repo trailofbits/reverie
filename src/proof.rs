@@ -361,6 +361,7 @@ mod tests {
             */
             TestVector {
                 program: vec![
+                    Instruction::NrOfWires(7),
                     Instruction::Input(0),
                     Instruction::Input(2),
                     Instruction::Add(6, 2, 2),
@@ -394,6 +395,7 @@ mod tests {
             },
             TestVector {
                 program: vec![
+                    Instruction::NrOfWires(35),
                     Instruction::Input(0),
                     Instruction::Branch(1),
                     Instruction::LocalOp(16, 1),
@@ -486,6 +488,7 @@ mod tests {
             },
             TestVector {
                 program: vec![
+                    Instruction::NrOfWires(213),
                     Instruction::Input(0),
                     Instruction::Output(0),
                     Instruction::MulConst(156, 0, BitScalar::ZERO),
