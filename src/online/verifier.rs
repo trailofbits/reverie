@@ -15,6 +15,8 @@ use std::sync::Arc;
 use async_channel::{Receiver, Sender};
 
 use async_std::task;
+use std::iter::Cloned;
+use std::slice::Iter;
 
 const DEFAULT_CAPACITY: usize = 1024;
 
@@ -96,6 +98,8 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
         mut self,
         bind: Option<&[u8]>,
         mut proof: Receiver<Vec<u8>>,
+        fieldswitching_input: Vec<usize>,
+        fieldswitching_output: Vec<Vec<usize>>,
     ) -> Result<Output<D>, String> {
         async fn process<D: Domain>(
             run: Run<D>,
@@ -104,6 +108,8 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                 Arc<Instructions<D>>, // next slice of program
                 Vec<u8>,              // next chunk
             )>,
+            fieldswitching_input: Vec<usize>,
+            fieldswitching_output: Vec<Vec<usize>>,
         ) -> Option<(Hash, Hash, usize, Vec<D::Scalar>)> {
             let mut wires = VecMap::new();
             let mut transcript: RingHasher<_> = RingHasher::new();
@@ -175,6 +181,8 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                             &corrections_upstream[..],
                             &mut masks,
                             &mut ab_gamma,
+                            fieldswitching_input.clone(),
+                            fieldswitching_output.clone(),
                         )?;
 
                         // consume preprocessing and execute the next chunk
@@ -182,6 +190,8 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                             let mut masks = masks.iter().cloned();
                             let mut witness = masked_witness_upstream.iter().cloned();
                             let mut ab_gamma = ab_gamma.iter().cloned();
+                            let mut nr_of_wires = 0;
+                            let mut fieldswitching_output_done = Vec::new();
 
                             // pad omitted player scalars into sharings (zero shares for all other players)
                             let mut broadcast: ShareIterator<D, _> = ShareIterator::new(
@@ -191,8 +201,11 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
 
                             for step in program.iter().cloned() {
                                 match step {
-                                    Instruction::NrOfWires(nr) => {}
+                                    Instruction::NrOfWires(nr) => {
+                                        nr_of_wires = nr;
+                                    }
                                     Instruction::LocalOp(dst, src) => {
+                                        assert_ne!(nr_of_wires, 0);
                                         let w: D::Scalar = wires.get(src);
                                         wires.set(dst, w.operation());
                                         #[cfg(feature = "trace")]
@@ -204,69 +217,92 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                                         }
                                     }
                                     Instruction::Input(dst) => {
-                                        wires.set(dst, witness.next()?);
+                                        assert_ne!(nr_of_wires, 0);
+
+                                        let mut new_dst = dst;
+                                        if fieldswitching_input.contains(&dst) {
+                                            new_dst = nr_of_wires;
+                                        }
+
+                                        wires.set(new_dst, witness.next()?);
                                         #[cfg(feature = "trace")]
                                         {
                                             println!(
                                                 "verifier-input : wire = {:?}",
-                                                wires.get(dst)
+                                                wires.get(new_dst)
                                             );
+                                        }
+
+                                        if fieldswitching_input.contains(&dst) {
+                                            //TODO Subtract constant instead of add
+                                            process_add_const::<D>(&mut wires, dst, nr_of_wires, D::Scalar::ZERO);
+                                            nr_of_wires += 1;
                                         }
                                     }
                                     Instruction::Branch(dst) => {
+                                        assert_ne!(nr_of_wires, 0);
                                         wires.set(dst, branch.next()?);
                                     }
                                     Instruction::Const(dst, c) => {
+                                        assert_ne!(nr_of_wires, 0);
                                         wires.set(dst, c);
                                     }
                                     Instruction::AddConst(dst, src, c) => {
-                                        let a_w = wires.get(src);
-                                        wires.set(dst, a_w + c);
+                                        assert_ne!(nr_of_wires, 0);
+                                        process_add_const::<D>(&mut wires, dst, src, c)
                                     }
                                     Instruction::MulConst(dst, src, c) => {
+                                        assert_ne!(nr_of_wires, 0);
                                         let sw = wires.get(src);
                                         wires.set(dst, sw * c);
                                     }
                                     Instruction::Add(dst, src1, src2) => {
-                                        let a_w = wires.get(src1);
-                                        let b_w = wires.get(src2);
-                                        wires.set(dst, a_w + b_w);
-                                        #[cfg(feature = "trace")]
-                                        {
-                                            println!(
-                                                "verifier-add   : a_w = {:?}, b_w = {:?}",
-                                                a_w, b_w,
-                                            );
-                                        }
+                                        assert_ne!(nr_of_wires, 0);
+                                        process_add::<D>(&mut wires, dst, src1, src2)
                                     }
                                     Instruction::Mul(dst, src1, src2) => {
-                                        // calculate reconstruction shares for every player
-                                        let a_w = wires.get(src1);
-                                        let b_w = wires.get(src2);
-                                        let a_m: D::Sharing = masks.next().unwrap();
-                                        let b_m: D::Sharing = masks.next().unwrap();
-                                        let ab_gamma: D::Sharing = ab_gamma.next().unwrap();
-                                        let omit_msg: D::Sharing = broadcast.next()?;
-                                        let recon =
-                                            a_m.action(b_w) + b_m.action(a_w) + ab_gamma + omit_msg;
-                                        transcript.write(recon);
-
-                                        // corrected wire
-                                        let c_w = recon.reconstruct() + a_w * b_w;
-
-                                        // reconstruct and correct share
-                                        wires.set(dst, c_w);
+                                        assert_ne!(nr_of_wires, 0);
+                                        process_mul(&mut wires, &mut transcript, &mut masks, &mut ab_gamma, &mut broadcast, dst, src1, src2)
                                     }
                                     Instruction::Output(src) => {
-                                        let recon: D::Sharing =
-                                            masks.next().unwrap() + broadcast.next()?;
-                                        transcript.write(recon);
+                                        assert_ne!(nr_of_wires, 0);
 
-                                        output.write(wires.get(src) + recon.reconstruct());
+                                        let mut found = false;
+                                        let mut out_list = Vec::new();
+                                        for imp_out in fieldswitching_output.clone() {
+                                            if imp_out.contains(&src) {
+                                                found = true;
+                                                out_list = imp_out;
+                                                break;
+                                            }
+                                        }
+                                        if found {
+                                            if !fieldswitching_output_done.contains(&src) {
+                                                fieldswitching_output_done.append(&mut out_list.clone());
+                                                let mut zeroes = Vec::new();
+                                                for _i in 0..out_list.len() {
+                                                    wires.set(nr_of_wires, D::Scalar::ZERO); //process_const
+                                                    zeroes.push(nr_of_wires);
+                                                    nr_of_wires += 1;
+                                                }
+                                                let (outs, carry_out) = full_adder(&mut wires, &mut transcript, &mut masks, &mut ab_gamma, &mut broadcast, out_list, zeroes, nr_of_wires);
+                                                nr_of_wires = carry_out;
+                                                for out in outs {
+                                                    process_output(&mut wires, &mut transcript, &mut output, &mut masks, &mut broadcast, out);
+                                                }
+                                            }
+                                        } else {
+                                            process_output(&mut wires, &mut transcript, &mut output, &mut masks, &mut broadcast, src);
+                                        }
                                     }
                                 }
                             }
 
+                            // let mut count = 0;
+                            // while (masks.next().is_some()) {
+                            //     count +=1;
+                            // }
+                            // println!("nr of masks left: {:?}", count);
                             debug_assert!(masks.next().is_none());
                         }
 
@@ -274,6 +310,109 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                     }
                 }
             }
+        }
+
+        fn process_output<D: Domain>(wires: &mut VecMap<D::Scalar>, transcript: &mut RingHasher<D::Sharing>, output: &mut Vec<D::Scalar>, masks: &mut Cloned<Iter<D::Sharing>>, broadcast: &mut ShareIterator<D, Cloned<Iter<D::Batch>>>, src: usize) {
+            let recon: D::Sharing = masks.next().unwrap() + broadcast.next().unwrap();
+            transcript.write(recon);
+
+            output.write(wires.get(src) + recon.reconstruct());
+        }
+
+        fn process_mul<D: Domain>(wires: &mut VecMap<D::Scalar>, transcript: &mut RingHasher<D::Sharing>, masks: &mut Cloned<Iter<D::Sharing>>, ab_gamma: &mut Cloned<Iter<D::Sharing>>, broadcast: &mut ShareIterator<D, Cloned<Iter<D::Batch>>>, dst: usize, src1: usize, src2: usize) {
+            // calculate reconstruction shares for every player
+            let a_w = wires.get(src1);
+            let b_w = wires.get(src2);
+            let a_m: D::Sharing = masks.next().unwrap();
+            let b_m: D::Sharing = masks.next().unwrap();
+            let ab_gamma: D::Sharing = ab_gamma.next().unwrap();
+            let omit_msg: D::Sharing = broadcast.next().unwrap();
+            let recon =
+                a_m.action(b_w) + b_m.action(a_w) + ab_gamma + omit_msg;
+            transcript.write(recon);
+
+            // corrected wire
+            let c_w = recon.reconstruct() + a_w * b_w;
+
+            // reconstruct and correct share
+            wires.set(dst, c_w);
+        }
+
+        fn process_add<D: Domain>(wires: &mut VecMap<D::Scalar>, dst: usize, src1: usize, src2: usize) {
+            let a_w = wires.get(src1);
+            let b_w = wires.get(src2);
+            wires.set(dst, a_w + b_w);
+            #[cfg(feature = "trace")]
+                {
+                    println!(
+                        "verifier-add   : a_w = {:?}, b_w = {:?}",
+                        a_w, b_w,
+                    );
+                }
+        }
+
+        fn process_add_const<D: Domain>(wires: &mut VecMap<D::Scalar>, dst: usize, src: usize, c: D::Scalar) {
+            let a_w = wires.get(src);
+            wires.set(dst, a_w + c);
+        }
+
+        /// 1 bit adder with carry
+        /// Input:
+        /// input1: usize               : position of first input
+        /// input2: usize               : position of second input
+        /// carry_in: usize             : position of carry_in
+        /// start_new_wires: usize      : free positions for added wires (start_new_wires, ...)
+        ///
+        /// Output:
+        /// usize                       : position of output bit
+        /// usize                       : position of carry out
+        /// Vec<Instruction<BitScalar>> : Instruction set for adder with carry based on the given wire values as input.
+        fn adder<D: Domain>(wires: &mut VecMap<D::Scalar>, transcript: &mut RingHasher<D::Sharing>, masks: &mut Cloned<Iter<D::Sharing>>, ab_gamma: &mut Cloned<Iter<D::Sharing>>, broadcast: &mut ShareIterator<D, Cloned<Iter<D::Batch>>>, input1: usize, input2: usize, carry_in: usize, start_new_wires: usize) -> (usize, usize) {
+            process_add::<D>(wires, start_new_wires, input1, input2);
+            process_add::<D>(wires, start_new_wires + 1, carry_in, start_new_wires);
+            process_mul(wires, transcript, masks, ab_gamma, broadcast,start_new_wires + 2, carry_in, start_new_wires);
+            process_mul(wires, transcript, masks, ab_gamma, broadcast,start_new_wires + 3, input1, input2);
+            process_mul(wires, transcript, masks, ab_gamma, broadcast,start_new_wires + 4, start_new_wires + 2, start_new_wires + 3);
+            process_add::<D>(wires, start_new_wires + 5, start_new_wires + 2, start_new_wires + 3);
+            process_add::<D>(wires, start_new_wires + 6, start_new_wires + 4, start_new_wires + 5);
+
+            (start_new_wires + 1, start_new_wires + 6)
+        }
+
+        fn first_adder<D: Domain>(wires: &mut VecMap<D::Scalar>, transcript: &mut RingHasher<D::Sharing>, masks: &mut Cloned<Iter<D::Sharing>>, ab_gamma: &mut Cloned<Iter<D::Sharing>>, broadcast: &mut ShareIterator<D, Cloned<Iter<D::Batch>>>, input1: usize, input2: usize, start_new_wires: usize) -> (usize, usize) {
+            process_add::<D>(wires, start_new_wires, input1, input2);
+            process_mul(wires, transcript, masks, ab_gamma, broadcast, start_new_wires + 1, input1, input2);
+
+            (start_new_wires, start_new_wires + 1)
+        }
+
+        /// n bit adder with carry
+        /// Input:
+        /// start_input1: Vec<usize>     : position of the first inputs
+        /// start_input2: Vec<usize>     : position of the second inputs (len(start_input1) == len(start_input2))
+        /// start_new_wires: usize       : free positions for added wires (start_new_wires, ...)
+        ///
+        /// Output:
+        /// usize                        : position of output bit
+        /// usize                        : position of carry out
+        /// Vec<Instruction<BitScalar>>  : Instruction set for adder with carry based on the given wire values as input.
+        fn full_adder<D: Domain>(wires: &mut VecMap<D::Scalar>, transcript: &mut RingHasher<D::Sharing>, masks: &mut Cloned<Iter<D::Sharing>>, ab_gamma: &mut Cloned<Iter<D::Sharing>>, broadcast: &mut ShareIterator<D, Cloned<Iter<D::Batch>>>, start_input1: Vec<usize>, start_input2: Vec<usize>, start_new_wires: usize) -> (Vec<usize>, usize) {
+            assert_eq!(start_input1.len(), start_input2.len());
+            assert!(start_input1.len() > 0);
+            let mut output_bits = Vec::new();
+            let mut start_new_wires_mut = start_new_wires.clone();
+
+            let (mut output_bit, mut carry_out) = first_adder(wires, transcript, masks, ab_gamma, broadcast, start_input1[0], start_input2[0], start_new_wires);
+            output_bits.push(output_bit);
+            for i in 1..start_input1.len() {
+                start_new_wires_mut += carry_out;
+                let (output_bit1, carry_out1) = adder(wires, transcript, masks, ab_gamma, broadcast, start_input1[i], start_input2[i], carry_out, start_new_wires_mut);
+                output_bit = output_bit1;
+                carry_out = carry_out1;
+                output_bits.push(output_bit);
+            }
+
+            (output_bits, carry_out)
         }
 
         if self.proof.runs.len() != D::ONLINE_REPETITIONS {
@@ -291,6 +430,8 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                 run,
                 sender_outputs,
                 reader_inputs,
+                fieldswitching_input.clone(),
+                fieldswitching_output.clone(),
             )));
             inputs.push(sender_inputs);
             outputs.push(reader_outputs);

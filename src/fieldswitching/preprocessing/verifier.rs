@@ -98,11 +98,6 @@ impl<D: Domain, D2: Domain> PreprocessingExecution<D, D2> {
 
         for step in program {
             match *step {
-                ConnectionInstruction::Input(dst) => {
-                    //TODO: take mask from first circuit output
-                    self.masks.set(dst, self.shares.input.next());
-                    self.masks_2.set(dst, self.shares.input_2.next());
-                }
                 ConnectionInstruction::AToB(dst, src) => {
                     self.eda_2_shares.resize(dst.len(), Vec::with_capacity(D2::Batch::DIMENSION));
                     // assign output masks and push to the deferred eda stack
@@ -137,9 +132,6 @@ impl<D: Domain, D2: Domain> PreprocessingExecution<D, D2> {
                         self.generate(&mut batch_eda, src.len());
                     }
                 }
-                ConnectionInstruction::Output(_) => {
-                    //TODO: assign mask to input of second circuit
-                }, // noop in preprocessing
             }
         }
 

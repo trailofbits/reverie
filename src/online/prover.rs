@@ -14,6 +14,8 @@ use std::sync::Arc;
 
 use async_channel::{Receiver, SendError, Sender};
 use async_std::task;
+use std::iter::Cloned;
+use std::slice::Iter;
 
 /// A type alias for a tuple of a program slice and its witness slice.
 type ProgWitSlice<D> = (Arc<Instructions<D>>, Arc<Vec<<D as Domain>::Scalar>>);
@@ -22,8 +24,8 @@ const DEFAULT_CAPACITY: usize = BATCH_SIZE;
 
 async fn feed<
     D: Domain,
-    PI: Iterator<Item = Instruction<D::Scalar>>,
-    WI: Iterator<Item = D::Scalar>,
+    PI: Iterator<Item=Instruction<D::Scalar>>,
+    WI: Iterator<Item=D::Scalar>,
 >(
     chunk: usize,
     senders: &mut [Sender<ProgWitSlice<D>>],
@@ -110,7 +112,7 @@ impl<D: Domain, W: Writer<D::Batch>> Drop for BatchExtractor<D, W> {
     }
 }
 
-struct Prover<D: Domain, I: Iterator<Item = D::Scalar>> {
+struct Prover<D: Domain, I: Iterator<Item=D::Scalar>> {
     #[cfg(test)]
     #[cfg(debug_assertions)]
     plain: VecMap<Option<D::Scalar>>,
@@ -118,7 +120,7 @@ struct Prover<D: Domain, I: Iterator<Item = D::Scalar>> {
     branch: I,
 }
 
-impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
+impl<D: Domain, I: Iterator<Item=D::Scalar>> Prover<D, I> {
     fn new(branch: I) -> Self {
         Prover {
             #[cfg(test)]
@@ -138,272 +140,407 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
         preprocessing_ab_gamma: &[D::Sharing],
         masked_witness: &mut WW,
         broadcast: &mut BW,
+        fieldswitching_input: Vec<usize>,
+        fieldswitching_output: Vec<Vec<usize>>,
     ) {
         let mut witness = witness.iter().cloned();
         let mut ab_gamma = preprocessing_ab_gamma.iter().cloned();
         let mut masks = preprocessing_masks.iter().cloned();
+        let mut nr_of_wires = 0;
+        let mut fieldswitching_output_done = Vec::new();
 
         for step in program {
             match *step {
-                Instruction::NrOfWires(nr) => {}
+                Instruction::NrOfWires(nr) => {
+                    nr_of_wires = nr.clone();
+                }
                 Instruction::LocalOp(dst, src) => {
+                    assert_ne!(nr_of_wires, 0);
                     self.wires.set(dst, self.wires.get(src).operation());
 
                     // evaluate the circuit in plain for testing
                     #[cfg(test)]
-                    #[cfg(debug_assertions)]
-                    {
-                        let correct = self.plain.get(src).unwrap().operation();
-                        self.plain.set(dst, Some(correct));
-                    }
+                        #[cfg(debug_assertions)]
+                        {
+                            let correct = self.plain.get(src).unwrap().operation();
+                            self.plain.set(dst, Some(correct));
+                        }
                 }
                 Instruction::Input(dst) => {
+                    assert_ne!(nr_of_wires, 0);
+
+                    let mut new_dst = dst;
+                    if fieldswitching_input.contains(&dst) {
+                        new_dst = nr_of_wires;
+                    }
+
                     let value: D::Scalar = witness.next().unwrap();
                     let mask: D::Sharing = masks.next().unwrap();
                     let wire = value + D::Sharing::reconstruct(&mask);
-                    self.wires.set(dst, wire);
+                    self.wires.set(new_dst, wire);
                     masked_witness.write(wire);
 
                     #[cfg(feature = "trace")]
-                    {
-                        println!(
-                            "prover-input    : Input({}) ; wire = {:?}, mask = {:?}, value = {:?}",
-                            dst, wire, mask, value
-                        );
-                    }
+                        {
+                            println!(
+                                "prover-input    : Input({}) ; wire = {:?}, mask = {:?}, value = {:?}",
+                                new_dst, wire, mask, value
+                            );
+                        }
 
                     // evaluate the circuit in plain for testing
                     #[cfg(test)]
-                    #[cfg(debug_assertions)]
-                    {
-                        assert_eq!(self.wires.get(dst) + mask.reconstruct(), value);
-                        #[cfg(feature = "trace")]
-                        println!("  mask = {:?}, value = {:?}", mask, value);
-                        self.plain.set(dst, Some(value));
+                        #[cfg(debug_assertions)]
+                        {
+                            assert_eq!(self.wires.get(new_dst) + mask.reconstruct(), value);
+                            #[cfg(feature = "trace")]
+                            println!("  mask = {:?}, value = {:?}", mask, value);
+                            self.plain.set(new_dst, Some(value));
+                        }
+
+                    if fieldswitching_input.contains(&dst) {
+                        //TODO Subtract constant instead of add
+                        self.process_add_const(&mut masks, dst, nr_of_wires, D::Scalar::ZERO);
+                        nr_of_wires += 1;
                     }
                 }
                 Instruction::Branch(dst) => {
+                    assert_ne!(nr_of_wires, 0);
                     let value: D::Scalar = self.branch.next().unwrap();
                     let mask: D::Sharing = masks.next().unwrap();
                     let wire = value + D::Sharing::reconstruct(&mask);
                     self.wires.set(dst, wire);
 
                     #[cfg(feature = "trace")]
-                    {
-                        println!(
-                            "prover-branch   : Branch({}) ; wire = {:?}, mask = {:?}, value = {:?}",
-                            dst, wire, mask, value
-                        );
-                    }
+                        {
+                            println!(
+                                "prover-branch   : Branch({}) ; wire = {:?}, mask = {:?}, value = {:?}",
+                                dst, wire, mask, value
+                            );
+                        }
 
                     // evaluate the circuit in plain for testing
                     #[cfg(test)]
-                    #[cfg(debug_assertions)]
-                    {
-                        assert_eq!(self.wires.get(dst) + mask.reconstruct(), value);
-                        #[cfg(feature = "trace")]
-                        println!("  mask = {:?}, value = {:?}", mask, value);
-                        self.plain.set(dst, Some(value));
-                    }
+                        #[cfg(debug_assertions)]
+                        {
+                            assert_eq!(self.wires.get(dst) + mask.reconstruct(), value);
+                            #[cfg(feature = "trace")]
+                            println!("  mask = {:?}, value = {:?}", mask, value);
+                            self.plain.set(dst, Some(value));
+                        }
                 }
                 Instruction::Const(dst, c) => {
-                    self.wires.set(dst, c);
-
-                    #[cfg(feature = "trace")]
-                    {
-                        println!(
-                            "prover-addconst : Const({}, {:?}) ; wire = {:?}",
-                            dst,
-                            c,
-                            self.wires.get(dst),
-                        );
-                    }
-
-                    // evaluate the circuit in plain for testing
-                    #[cfg(test)]
-                    #[cfg(debug_assertions)]
-                    {
-                        self.plain.set(dst, Some(c));
-                    }
+                    assert_ne!(nr_of_wires, 0);
+                    self.process_const(&mut masks, dst, c);
                 }
                 Instruction::AddConst(dst, src, c) => {
-                    let a_w = self.wires.get(src);
-                    self.wires.set(dst, a_w + c);
-
-                    #[cfg(feature = "trace")]
-                    {
-                        println!(
-                            "prover-addconst : AddConst({}, {}, {:?}) ; wire = {:?}",
-                            dst,
-                            src,
-                            c,
-                            self.wires.get(dst),
-                        );
-                    }
-
-                    // evaluate the circuit in plain for testing
-                    #[cfg(test)]
-                    #[cfg(debug_assertions)]
-                    {
-                        // calculate the real result
-                        let correct = self.plain.get(src).unwrap() + c;
-                        self.plain.set(dst, Some(correct));
-
-                        // reconstruct masked wire and check computation
-                        #[cfg(feature = "debug_eval")]
-                        {
-                            let mask = masks.next().unwrap();
-                            #[cfg(feature = "trace")]
-                            println!("  mask = {:?}, value = {:?}", mask, correct);
-                            assert_eq!(correct, mask.reconstruct() + self.wires.get(dst));
-                        }
-                    }
+                    assert_ne!(nr_of_wires, 0);
+                    self.process_add_const(&mut masks, dst, src, c);
                 }
                 Instruction::MulConst(dst, src, c) => {
+                    assert_ne!(nr_of_wires, 0);
                     let sw = self.wires.get(src);
                     self.wires.set(dst, sw * c);
 
                     #[cfg(feature = "trace")]
-                    {
-                        println!(
-                            "prover-mulconst : MulConst({}, {}, {:?}) ; wire = {:?}",
-                            dst,
-                            src,
-                            c,
-                            self.wires.get(dst),
-                        );
-                    }
+                        {
+                            println!(
+                                "prover-mulconst : MulConst({}, {}, {:?}) ; wire = {:?}",
+                                dst,
+                                src,
+                                c,
+                                self.wires.get(dst),
+                            );
+                        }
 
                     // evaluate the circuit in plain for testing
                     #[cfg(test)]
-                    #[cfg(debug_assertions)]
-                    {
-                        // calculate the real result
-                        let correct = self.plain.get(src).unwrap() * c;
-                        self.plain.set(dst, Some(correct));
-
-                        // reconstruct masked wire and check computation
-                        #[cfg(feature = "debug_eval")]
+                        #[cfg(debug_assertions)]
                         {
-                            let mask = masks.next().unwrap();
-                            #[cfg(feature = "trace")]
-                            println!("  mask = {:?}, value = {:?}", mask, correct);
-                            assert_eq!(correct, mask.reconstruct() + self.wires.get(dst));
+                            // calculate the real result
+                            let correct = self.plain.get(src).unwrap() * c;
+                            self.plain.set(dst, Some(correct));
+
+                            // reconstruct masked wire and check computation
+                            #[cfg(feature = "debug_eval")]
+                                {
+                                    let mask = masks.next().unwrap();
+                                    #[cfg(feature = "trace")]
+                                    println!("  mask = {:?}, value = {:?}", mask, correct);
+                                    assert_eq!(correct, mask.reconstruct() + self.wires.get(dst));
+                                }
                         }
-                    }
                 }
                 Instruction::Add(dst, src1, src2) => {
-                    let a_w = self.wires.get(src1);
-                    let b_w = self.wires.get(src2);
-                    self.wires.set(dst, a_w + b_w);
-
-                    #[cfg(feature = "trace")]
-                    {
-                        println!(
-                            "prover-add      : Add({}, {}, {}) ; wire = {:?}",
-                            dst,
-                            src1,
-                            src2,
-                            self.wires.get(dst),
-                        );
-                    }
-
-                    // evaluate the circuit in plain for testing
-                    #[cfg(test)]
-                    #[cfg(debug_assertions)]
-                    {
-                        let correct = self.plain.get(src1).unwrap() + self.plain.get(src2).unwrap();
-                        self.plain.set(dst, Some(correct));
-
-                        // reconstruct masked wire and check computation
-                        #[cfg(feature = "debug_eval")]
-                        {
-                            let mask = masks.next().unwrap();
-                            #[cfg(feature = "trace")]
-                            println!("  mask = {:?}, value = {:?}", mask, correct);
-                            assert_eq!(correct, mask.reconstruct() + self.wires.get(dst));
-                        }
-                    }
+                    assert_ne!(nr_of_wires, 0);
+                    self.process_add(&mut masks, dst, src1, src2);
                 }
                 Instruction::Mul(dst, src1, src2) => {
-                    // calculate reconstruction shares for every player
-                    let a_w = self.wires.get(src1);
-                    let b_w = self.wires.get(src2);
-                    let a_m: D::Sharing = masks.next().unwrap();
-                    let b_m: D::Sharing = masks.next().unwrap();
-                    let ab_gamma: D::Sharing = ab_gamma.next().unwrap();
-                    let recon = a_m.action(b_w) + b_m.action(a_w) + ab_gamma;
+                    assert_ne!(nr_of_wires, 0);
+                    self.process_mul(broadcast, &mut ab_gamma, &mut masks, dst, src1, src2);
+                }
+                Instruction::Output(src) => {
+                    assert_ne!(nr_of_wires, 0);
 
-                    // reconstruct
-                    broadcast.write(recon);
-
-                    // corrected wire
-                    let c_w = recon.reconstruct() + a_w * b_w;
-
-                    // reconstruct and correct share
-                    self.wires.set(dst, c_w);
-
-                    #[cfg(feature = "trace")]
-                    {
-                        println!(
-                            "prover-mul      : Mul({}, {}, {}) ; wire = {:?}",
-                            dst,
-                            src1,
-                            src2,
-                            self.wires.get(dst),
-                        );
-                    }
-
-                    // evaluate the circuit in plain for testing
-                    #[cfg(test)]
-                    #[cfg(debug_assertions)]
-                    {
-                        let correct = self.plain.get(src1).unwrap() * self.plain.get(src2).unwrap();
-                        self.plain.set(dst, Some(correct));
-
-                        // reconstruct masked wire and check computation
-                        #[cfg(feature = "debug_eval")]
-                        {
-                            let mask = masks.next().unwrap();
-                            #[cfg(feature = "trace")]
-                            println!("  mask = {:?}, value = {:?}", mask, correct);
-                            assert_eq!(correct, mask.reconstruct() + self.wires.get(dst));
+                    let mut found = false;
+                    let mut out_list = Vec::new();
+                    for imp_out in fieldswitching_output.clone() {
+                        if imp_out.contains(&src) {
+                            found = true;
+                            out_list = imp_out;
+                            break;
                         }
                     }
-                }
-                Instruction::Output(_src) => {
-                    let recon: D::Sharing = masks.next().unwrap();
-                    broadcast.write(recon);
-
-                    #[cfg(feature = "trace")]
-                    {
-                        println!(
-                            "prover-output   : Output({}) ; recon = {:?}, wire = {:?}",
-                            _src,
-                            recon,
-                            self.wires.get(_src),
-                        );
-                    }
-
-                    // check result correctly reconstructed
-                    #[cfg(test)]
-                    #[cfg(debug_assertions)]
-                    {
-                        let value: D::Scalar = self.plain.get(_src).unwrap();
-                        assert_eq!(
-                            self.wires.get(_src) + recon.reconstruct(),
-                            value,
-                            "wire-index: {}, wire-value: {:?} recon: {:?}",
-                            _src,
-                            self.wires.get(_src),
-                            recon
-                        );
+                    if found {
+                        if !fieldswitching_output_done.contains(&src) {
+                            fieldswitching_output_done.append(&mut out_list.clone());
+                            let mut zeroes = Vec::new();
+                            for _i in 0..out_list.len() {
+                                self.process_const(&mut masks, nr_of_wires, D::Scalar::ZERO);
+                                zeroes.push(nr_of_wires);
+                                nr_of_wires += 1;
+                            }
+                            let (outputs, carry_out) = self.full_adder(broadcast, &mut ab_gamma, &mut masks, out_list, zeroes, nr_of_wires);
+                            nr_of_wires = carry_out;
+                            for outs in outputs {
+                                self.process_output(broadcast, &mut masks, outs);
+                            }
+                        }
+                    } else {
+                        self.process_output(broadcast, &mut masks, src);
                     }
                 }
             }
         }
         debug_assert!(witness.next().is_none());
         debug_assert!(masks.next().is_none());
+    }
+
+    fn process_add(&mut self, masks: &mut Cloned<Iter<<D as Domain>::Sharing>>, dst: usize, src1: usize, src2: usize) {
+        let a_w = self.wires.get(src1);
+        let b_w = self.wires.get(src2);
+        self.wires.set(dst, a_w + b_w);
+
+        #[cfg(feature = "trace")]
+            {
+                println!(
+                    "prover-add      : Add({}, {}, {}) ; wire = {:?}",
+                    dst,
+                    src1,
+                    src2,
+                    self.wires.get(dst),
+                );
+            }
+
+        // evaluate the circuit in plain for testing
+        #[cfg(test)]
+            #[cfg(debug_assertions)]
+            {
+                let correct = self.plain.get(src1).unwrap() + self.plain.get(src2).unwrap();
+                self.plain.set(dst, Some(correct));
+
+                // reconstruct masked wire and check computation
+                #[cfg(feature = "debug_eval")]
+                    {
+                        let mask = masks.next().unwrap();
+                        #[cfg(feature = "trace")]
+                        println!("  mask = {:?}, value = {:?}", mask, correct);
+                        assert_eq!(correct, mask.reconstruct() + self.wires.get(dst));
+                    }
+            }
+    }
+
+    fn process_mul<BW: Writer<D::Sharing>>(&mut self, broadcast: &mut BW, ab_gamma: &mut Cloned<Iter<<D as Domain>::Sharing>>, masks: &mut Cloned<Iter<<D as Domain>::Sharing>>, dst: usize, src1: usize, src2: usize) {
+        // calculate reconstruction shares for every player
+        let a_w = self.wires.get(src1);
+        let b_w = self.wires.get(src2);
+        let a_m: D::Sharing = masks.next().unwrap();
+        let b_m: D::Sharing = masks.next().unwrap();
+        let ab_gamma: D::Sharing = ab_gamma.next().unwrap();
+        let recon = a_m.action(b_w) + b_m.action(a_w) + ab_gamma;
+
+        // reconstruct
+        broadcast.write(recon);
+
+        // corrected wire
+        let c_w = recon.reconstruct() + a_w * b_w;
+
+        // reconstruct and correct share
+        self.wires.set(dst, c_w);
+
+        #[cfg(feature = "trace")]
+            {
+                println!(
+                    "prover-mul      : Mul({}, {}, {}) ; wire = {:?}",
+                    dst,
+                    src1,
+                    src2,
+                    self.wires.get(dst),
+                );
+            }
+
+        // evaluate the circuit in plain for testing
+        #[cfg(test)]
+            #[cfg(debug_assertions)]
+            {
+                let correct = self.plain.get(src1).unwrap() * self.plain.get(src2).unwrap();
+                self.plain.set(dst, Some(correct));
+
+                // reconstruct masked wire and check computation
+                #[cfg(feature = "debug_eval")]
+                    {
+                        let mask = masks.next().unwrap();
+                        #[cfg(feature = "trace")]
+                        println!("  mask = {:?}, value = {:?}", mask, correct);
+                        assert_eq!(correct, mask.reconstruct() + self.wires.get(dst));
+                    }
+            }
+    }
+
+    fn process_const(&mut self, masks: &mut Cloned<Iter<D::Sharing>>, dst: usize, c: D::Scalar) {
+        let mask: D::Sharing = masks.next().unwrap();
+        let wire = c + D::Sharing::reconstruct(&mask);
+        self.wires.set(dst, wire);
+
+        #[cfg(feature = "trace")]
+            {
+                println!(
+                    "prover-const : Const({}, {:?}) ; wire = {:?}",
+                    dst,
+                    c,
+                    self.wires.get(dst),
+                );
+            }
+
+        // evaluate the circuit in plain for testing
+        #[cfg(test)]
+            #[cfg(debug_assertions)]
+            {
+                self.plain.set(dst, Some(c));
+            }
+    }
+
+    fn process_output<BW: Writer<D::Sharing>>(&mut self, broadcast: &mut BW, masks: &mut Cloned<Iter<D::Sharing>>, src: usize) {
+        let recon: D::Sharing = masks.next().unwrap();
+        broadcast.write(recon);
+
+        #[cfg(feature = "trace")]
+            {
+                println!(
+                    "prover-output   : Output({}) ; recon = {:?}, wire = {:?}",
+                    src,
+                    recon,
+                    self.wires.get(src),
+                );
+            }
+
+        // check result correctly reconstructed
+        #[cfg(test)]
+            #[cfg(debug_assertions)]
+            {
+                let value: D::Scalar = self.plain.get(src).unwrap();
+                assert_eq!(
+                    self.wires.get(src) + recon.reconstruct(),
+                    value,
+                    "wire-index: {}, wire-value: {:?} recon: {:?}",
+                    src,
+                    self.wires.get(src),
+                    recon
+                );
+            }
+    }
+
+    fn process_add_const(&mut self, masks: &mut Cloned<Iter<D::Sharing>>, dst: usize, src: usize, c: D::Scalar) {
+        let a_w = self.wires.get(src);
+        self.wires.set(dst, a_w + c);
+
+        #[cfg(feature = "trace")]
+            {
+                println!(
+                    "prover-addconst : AddConst({}, {}, {:?}) ; wire = {:?}",
+                    dst,
+                    src,
+                    c,
+                    self.wires.get(dst),
+                );
+            }
+
+        // evaluate the circuit in plain for testing
+        #[cfg(test)]
+            #[cfg(debug_assertions)]
+            {
+                // calculate the real result
+                let correct = self.plain.get(src).unwrap() + c;
+                self.plain.set(dst, Some(correct));
+
+                // reconstruct masked wire and check computation
+                #[cfg(feature = "debug_eval")]
+                    {
+                        let mask = masks.next().unwrap();
+                        #[cfg(feature = "trace")]
+                        println!("  mask = {:?}, value = {:?}", mask, correct);
+                        assert_eq!(correct, mask.reconstruct() + self.wires.get(dst));
+                    }
+            }
+    }
+
+    /// 1 bit adder with carry
+    /// Input:
+    /// input1: usize               : position of first input
+    /// input2: usize               : position of second input
+    /// carry_in: usize             : position of carry_in
+    /// start_new_wires: usize      : free positions for added wires (start_new_wires, ...)
+    ///
+    /// Output:
+    /// usize                       : position of output bit
+    /// usize                       : position of carry out
+    /// Vec<Instruction<BitScalar>> : Instruction set for adder with carry based on the given wire values as input.
+    fn adder<BW: Writer<D::Sharing>>(&mut self, broadcast: &mut BW, ab_gamma: &mut Cloned<Iter<D::Sharing>>, masks: &mut Cloned<Iter<D::Sharing>>, input1: usize, input2: usize, carry_in: usize, start_new_wires: usize) -> (usize, usize) {
+        self.process_add(masks, start_new_wires, input1, input2);
+        self.process_add(masks, start_new_wires + 1, carry_in, start_new_wires);
+        self.process_mul(broadcast, ab_gamma, masks, start_new_wires + 2, carry_in, start_new_wires);
+        self.process_mul(broadcast, ab_gamma, masks, start_new_wires + 3, input1, input2);
+        self.process_mul(broadcast, ab_gamma, masks, start_new_wires + 4, start_new_wires + 2, start_new_wires + 3);
+        self.process_add(masks, start_new_wires + 5, start_new_wires + 2, start_new_wires + 3);
+        self.process_add(masks, start_new_wires + 6, start_new_wires + 4, start_new_wires + 5);
+
+        (start_new_wires + 1, start_new_wires + 6)
+    }
+
+    fn first_adder<BW: Writer<D::Sharing>>(&mut self, broadcast: &mut BW, ab_gamma: &mut Cloned<Iter<D::Sharing>>, masks: &mut Cloned<Iter<D::Sharing>>, input1: usize, input2: usize, start_new_wires: usize) -> (usize, usize) {
+        self.process_add(masks, start_new_wires, input1, input2);
+        self.process_mul(broadcast, ab_gamma, masks, start_new_wires + 1, input1, input2);
+
+        (start_new_wires, start_new_wires + 1)
+    }
+
+    /// n bit adder with carry
+    /// Input:
+    /// start_input1: Vec<usize>     : position of the first inputs
+    /// start_input2: Vec<usize>     : position of the second inputs (len(start_input1) == len(start_input2))
+    /// start_new_wires: usize       : free positions for added wires (start_new_wires, ...)
+    ///
+    /// Output:
+    /// usize                        : position of output bit
+    /// usize                        : position of carry out
+    /// Vec<Instruction<BitScalar>>  : Instruction set for adder with carry based on the given wire values as input.
+    fn full_adder<BW: Writer<D::Sharing>>(&mut self, broadcast: &mut BW, ab_gamma: &mut Cloned<Iter<D::Sharing>>, masks: &mut Cloned<Iter<D::Sharing>>, start_input1: Vec<usize>, start_input2: Vec<usize>, start_new_wires: usize) -> (Vec<usize>, usize) {
+        assert_eq!(start_input1.len(), start_input2.len());
+        assert!(start_input1.len() > 0);
+        let mut output_bits = Vec::new();
+        let mut start_new_wires_mut = start_new_wires.clone();
+
+        let (mut output_bit, mut carry_out) = self.first_adder(broadcast, ab_gamma, masks, start_input1[0], start_input2[0], start_new_wires);
+        output_bits.push(output_bit);
+        for i in 1..start_input1.len() {
+            start_new_wires_mut += carry_out;
+            let (output_bit1, carry_out1) = self.adder(broadcast, ab_gamma, masks, start_input1[i], start_input2[i], carry_out, start_new_wires_mut);
+            output_bit = output_bit1;
+            carry_out = carry_out1;
+            output_bits.push(output_bit);
+        }
+
+        (output_bits, carry_out)
     }
 }
 
@@ -414,14 +551,16 @@ impl<D: Domain> StreamingProver<D> {
     /// To help ensure this Proof::new takes ownership of PreprocessedProverOutput,
     /// which prevents the programmer from accidentally re-using the output
     pub async fn new<
-        PI: Iterator<Item = Instruction<D::Scalar>>,
-        WI: Iterator<Item = D::Scalar>,
+        PI: Iterator<Item=Instruction<D::Scalar>>,
+        WI: Iterator<Item=D::Scalar>,
     >(
         bind: Option<&[u8]>, // included Fiat-Shamir transform (for signatures of knowledge)
         preprocessing: PreprocessingOutput<D>, // output of preprocessing
         branch_index: usize, // branch index (from preprocessing)
         mut program: PI,
         mut witness: WI,
+        fieldswitching_input: Vec<usize>,
+        fieldswitching_output: Vec<Vec<usize>>,
     ) -> (Proof<D>, Self) {
         assert_eq!(preprocessing.hidden.len(), D::ONLINE_REPETITIONS);
 
@@ -432,6 +571,8 @@ impl<D: Domain> StreamingProver<D> {
             branch: Arc<Vec<D::Scalar>>,
             outputs: Sender<()>,
             inputs: Receiver<ProgWitSlice<D>>,
+            fieldswitching_input: Vec<usize>,
+            fieldswitching_output: Vec<Vec<usize>>,
         ) -> Result<(Vec<u8>, MerkleSetProof, Hash), SendError<Vec<u8>>> {
             // online execution
             let mut online = Prover::<D, _>::new(branch.iter().cloned());
@@ -461,6 +602,8 @@ impl<D: Domain> StreamingProver<D> {
                                 &mut VoidWriter::new(),
                                 &mut masks,
                                 &mut ab_gamma,
+                                fieldswitching_input.clone(),
+                                fieldswitching_output.clone(),
                             );
 
                             // compute public transcript
@@ -471,6 +614,8 @@ impl<D: Domain> StreamingProver<D> {
                                 &ab_gamma[..],
                                 &mut VoidWriter::new(),
                                 &mut transcript,
+                                fieldswitching_input.clone(),
+                                fieldswitching_output.clone(),
                             );
                         }
 
@@ -511,6 +656,8 @@ impl<D: Domain> StreamingProver<D> {
                 branch.clone(),
                 send_outputs,
                 recv_inputs,
+                fieldswitching_input.clone(),
+                fieldswitching_output.clone(),
             )));
             inputs.push(send_inputs);
             outputs.push(recv_outputs);
@@ -590,13 +737,15 @@ impl<D: Domain> StreamingProver<D> {
     }
 
     pub async fn stream<
-        PI: Iterator<Item = Instruction<D::Scalar>>,
-        WI: Iterator<Item = D::Scalar>,
+        PI: Iterator<Item=Instruction<D::Scalar>>,
+        WI: Iterator<Item=D::Scalar>,
     >(
         self,
         dst: Sender<Vec<u8>>,
         mut program: PI,
         mut witness: WI,
+        fieldswitching_input: Vec<usize>,
+        fieldswitching_output: Vec<Vec<usize>>,
     ) -> Result<(), SendError<Vec<u8>>> {
         async fn process<D: Domain>(
             root: [u8; KEY_SIZE],
@@ -604,6 +753,8 @@ impl<D: Domain> StreamingProver<D> {
             branch: Arc<Vec<D::Scalar>>,
             outputs: Sender<Vec<u8>>,
             inputs: Receiver<ProgWitSlice<D>>,
+            fieldswitching_input: Vec<usize>,
+            fieldswitching_output: Vec<Vec<usize>>,
         ) -> Result<(), SendError<Vec<u8>>> {
             let mut seeds = vec![[0u8; KEY_SIZE]; D::PLAYERS];
             TreePRF::expand_full(&mut seeds, root);
@@ -642,6 +793,8 @@ impl<D: Domain> StreamingProver<D> {
                                 &mut SwitchWriter::new(&mut corrections, omitted != 0),
                                 &mut masks,
                                 &mut ab_gamma,
+                                fieldswitching_input.clone(),
+                                fieldswitching_output.clone(),
                             );
 
                             // compute public transcript
@@ -652,6 +805,8 @@ impl<D: Domain> StreamingProver<D> {
                                 &ab_gamma[..],
                                 &mut masked,
                                 &mut BatchExtractor::<D, _>::new(omitted, &mut broadcast),
+                                fieldswitching_input.clone(),
+                                fieldswitching_output.clone(),
                             );
                         }
 
@@ -691,6 +846,8 @@ impl<D: Domain> StreamingProver<D> {
                 self.branch.clone(),
                 sender_outputs,
                 reader_inputs,
+                fieldswitching_input.clone(),
+                fieldswitching_output.clone(),
             )));
             inputs.push(sender_inputs);
             outputs.push(reader_outputs);

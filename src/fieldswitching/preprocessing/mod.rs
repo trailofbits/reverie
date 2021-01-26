@@ -174,10 +174,10 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
         program2: PI2,
     ) -> Option<Output<D, D2>> {
         //TODO: spawn asynchronously
-        let option_output1 = self.proof1.verify(branches1, program1).await;
+        let option_output1 = self.proof1.verify(branches1, program1, vec![], vec![]).await;
         assert!(option_output1.is_some());
         let output1 = option_output1.unwrap();
-        let option_output2 = self.proof2.verify(branches2, program2).await;
+        let option_output2 = self.proof2.verify(branches2, program2, vec![], vec![]).await;
         assert!(option_output2.is_some());
         let output2 = option_output2.unwrap();
 
@@ -273,8 +273,8 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
         program1: PI1,
         program2: PI2,
     ) -> (Self, PreprocessingOutput<D, D2>) {
-        let (proof1, preprocessing1) = super::super::preprocessing::Proof::new(global, branches1, program1);
-        let (proof2, preprocessing2) = super::super::preprocessing::Proof::new(global, branches2, program2);
+        let (proof1, preprocessing1) = super::super::preprocessing::Proof::new(global, branches1, program1, vec![], vec![]);
+        let (proof2, preprocessing2) = super::super::preprocessing::Proof::new(global, branches2, program2, vec![], vec![]);
 
         // expand the global seed into per-repetition roots
         let mut roots: Vec<[u8; KEY_SIZE]> = vec![[0; KEY_SIZE]; D::PREPROCESSING_REPETITIONS];
@@ -384,8 +384,8 @@ mod tests {
 
         let proof = Proof::<GF2P8, GF2P8>::new(seed, &branches2[..], &branches2[..],connection_program.iter().cloned(), program.iter().cloned(), program2.iter().cloned());
         assert!(task::block_on(proof.0.verify(&branches2[..],&branches2[..], connection_program.iter().cloned(), program.iter().cloned(), program2.iter().cloned())).is_some());
-        assert!(task::block_on(proof.0.proof1.verify(&branches2[..], program.iter().cloned())).is_some());
-        assert!(task::block_on(proof.0.proof2.verify(&branches2[..], program2.iter().cloned())).is_some());
+        assert!(task::block_on(proof.0.proof1.verify(&branches2[..], program.iter().cloned(), vec![], vec![])).is_some());
+        assert!(task::block_on(proof.0.proof2.verify(&branches2[..], program2.iter().cloned(), vec![], vec![])).is_some());
     }
 }
 

@@ -150,11 +150,21 @@ pub fn random_program<D: Domain, R: RngCore>(
 
     program.push(Instruction::Input(0));
 
+    let mut largest = 0;
     while program.len() < length {
         // random source and destination indexes
         let dst: usize = rng.gen::<usize>() % memory;
         let src1: usize = assigned[rng.gen::<usize>() % assigned.len()];
         let src2: usize = assigned[rng.gen::<usize>() % assigned.len()];
+        if largest < dst {
+            largest = dst;
+        }
+        if largest < src1 {
+            largest = src1;
+        }
+        if largest < src2 {
+            largest = src2;
+        }
 
         // pick random instruction
         match rng.gen::<usize>() % 8 {
@@ -191,6 +201,7 @@ pub fn random_program<D: Domain, R: RngCore>(
             _ => unreachable!(),
         }
     }
+    program.insert(0, Instruction::NrOfWires(largest));
 
     (num_inputs, num_branch, program)
 }
@@ -209,7 +220,7 @@ pub fn test_integration() {
     print!("{:?}", input);
     print!("{:?}", output);
 
-    let proof = ProofGF2P8::new(None, program.clone(), branches.clone(), input, 0);
+    let proof = ProofGF2P8::new(None, program.clone(), branches.clone(), input, 0, vec![], vec![]);
 
     // prove preprocessing
     // pick global random seed
@@ -218,10 +229,10 @@ pub fn test_integration() {
 
     let branches2: Vec<&[BitScalar]> = branches.iter().map(|b| &b[..]).collect();
 
-    let proof2 = Proof::<GF2P8>::new(seed, &branches2[..], program.iter().cloned());
-    assert!(task::block_on(proof2.0.verify(&branches2[..], program.clone().into_iter())).is_some());
+    let proof2 = Proof::<GF2P8>::new(seed, &branches2[..], program.iter().cloned(), vec![], vec![]);
+    assert!(task::block_on(proof2.0.verify(&branches2[..], program.clone().into_iter(), vec![], vec![])).is_some());
 
-    let verifier_output = proof.verify(None, program.clone(), branches).unwrap();
+    let verifier_output = proof.verify(None, program.clone(), branches, vec![], vec![]).unwrap();
     assert_eq!(verifier_output, output);
 }
 

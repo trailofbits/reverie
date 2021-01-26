@@ -100,6 +100,8 @@ impl<D: Domain, D2: Domain, PI: Iterator<Item = ConnectionInstruction>, PI1: Ite
         mut self,
         bind: Option<&[u8]>,
         mut proof: Receiver<Vec<u8>>,
+        fieldswitching_input: Vec<usize>,
+        fieldswitching_output: Vec<Vec<usize>>,
     ) -> Result<Output<D, D2>, String> {
         async fn process<D: Domain, D2: Domain>(
             run: Run<D, D2>,
@@ -108,6 +110,8 @@ impl<D: Domain, D2: Domain, PI: Iterator<Item = ConnectionInstruction>, PI1: Ite
                 Arc<Instructions<D>>, // next slice of program
                 Vec<u8>,              // next chunk
             )>,
+            fieldswitching_input: Vec<usize>,
+            fieldswitching_output: Vec<Vec<usize>>,
         ) -> Option<(Hash, Hash, usize, Vec<D::Scalar>)> {
             let mut wires = VecMap::new();
             let mut transcript: RingHasher<_> = RingHasher::new();
@@ -179,6 +183,8 @@ impl<D: Domain, D2: Domain, PI: Iterator<Item = ConnectionInstruction>, PI1: Ite
                             &corrections_upstream[..],
                             &mut masks,
                             &mut ab_gamma,
+                            fieldswitching_input.clone(),
+                            fieldswitching_output.clone(),
                         )?;
 
                         // consume preprocessing and execute the next chunk
@@ -295,6 +301,8 @@ impl<D: Domain, D2: Domain, PI: Iterator<Item = ConnectionInstruction>, PI1: Ite
                 run,
                 sender_outputs,
                 reader_inputs,
+                fieldswitching_input.clone(),
+                fieldswitching_output.clone(),
             )));
             inputs.push(sender_inputs);
             outputs.push(reader_outputs);

@@ -188,15 +188,6 @@ impl<D: Domain, D2: Domain> PreprocessingExecution<D, D2> {
 
         for step in program {
             match *step {
-                ConnectionInstruction::Input(dst) => {
-                    //TODO: take mask from first circuit output
-                    let mask = self.shares.input.next();
-                    self.masks.set(dst, mask);
-                    masks.write(mask);
-                    let mask2 = self.shares.input_2.next();
-                    self.masks_2.set(dst, mask2);
-                    masks2.write(mask2);
-                }
                 ConnectionInstruction::AToB(dst, src) => {
                     if dst.len() > m {
                         m = dst.len()
@@ -239,9 +230,6 @@ impl<D: Domain, D2: Domain> PreprocessingExecution<D, D2> {
                     if self.eda_2_shares[0].len() == D2::Batch::DIMENSION {
                         self.generate(eda_bits, eda_composed, corrections, &mut batch_eda, src.len());
                     }
-                }
-                ConnectionInstruction::Output(src) => {
-                    masks.write(self.masks.get(src));
                 }
             }
         }

@@ -30,35 +30,25 @@ async fn feed<
     program: &mut PI,
     witness: &mut WI,
 ) -> bool {
-    // next slice of program
-    let ps = Arc::new(read_n(program, chunk));
-    if ps.len() == 0 {
-        return false;
-    }
-
-    // slice of the witness consumed by the program slice
-    let ni = count_inputs::<D>(&ps[..]);
-    let ws = Arc::new(read_n(witness, ni));
-    if ws.len() != ni {
-        return false;
-    }
-
-    // feed to workers
-    debug_assert_eq!(senders.len(), D::ONLINE_REPETITIONS);
-    for tx in senders.iter_mut() {
-        tx.send((ps.clone(), ws.clone())).await.unwrap();
-    }
+    // // next slice of program
+    // let ps = Arc::new(read_n(program, chunk));
+    // if ps.len() == 0 {
+    //     return false;
+    // }
+    //
+    // // slice of the witness consumed by the program slice
+    // let ni = count_inputs::<D>(&ps[..]);
+    // let ws = Arc::new(read_n(witness, ni));
+    // if ws.len() != ni {
+    //     return false;
+    // }
+    //
+    // // feed to workers
+    // debug_assert_eq!(senders.len(), D::ONLINE_REPETITIONS);
+    // for tx in senders.iter_mut() {
+    //     tx.send((ps.clone(), ws.clone())).await.unwrap();
+    // }
     true
-}
-
-fn count_inputs<D: Domain>(program: &[ConnectionInstruction]) -> usize {
-    let mut inputs = 0;
-    for step in program {
-        if let ConnectionInstruction::Input(_) = step {
-            inputs += 1;
-        }
-    }
-    inputs
 }
 
 pub struct StreamingProver<D: Domain, D2: Domain> {
@@ -149,31 +139,6 @@ impl<D: Domain, D2:Domain, I: Iterator<Item = D::Scalar>> Prover<D, D2, I> {
 
         for step in program {
             match *step {
-                ConnectionInstruction::Input(dst) => {
-                    let value: D::Scalar = witness.next().unwrap();
-                    let mask: D::Sharing = masks.next().unwrap();
-                    let wire = value + D::Sharing::reconstruct(&mask);
-                    self.wires.set(dst, wire);
-                    masked_witness.write(wire);
-
-                    #[cfg(feature = "trace")]
-                        {
-                            println!(
-                                "prover-input    : Input({}) ; wire = {:?}, mask = {:?}, value = {:?}",
-                                dst, wire, mask, value
-                            );
-                        }
-
-                    // evaluate the circuit in plain for testing
-                    #[cfg(test)]
-                        #[cfg(debug_assertions)]
-                        {
-                            assert_eq!(self.wires.get(dst) + mask.reconstruct(), value);
-                            #[cfg(feature = "trace")]
-                            println!("  mask = {:?}, value = {:?}", mask, value);
-                            self.plain.set(dst, Some(value));
-                        }
-                }
                 ConnectionInstruction::AToB(dst, src) => {
                     // self.eda_2_shares.resize(dst.len(), Vec::with_capacity(D2::Batch::DIMENSION));
                     // // assign output masks and push to the deferred eda stack
@@ -210,35 +175,6 @@ impl<D: Domain, D2:Domain, I: Iterator<Item = D::Scalar>> Prover<D, D2, I> {
                     // if self.eda_2_shares[0].len() == D2::Batch::DIMENSION {
                     //     self.generate(eda_bits, eda_composed, corrections, &mut batch_eda, src.len());
                     // }
-                }
-                ConnectionInstruction::Output(_src) => {
-                    let recon: D::Sharing = masks.next().unwrap();
-                    broadcast.write(recon);
-
-                    #[cfg(feature = "trace")]
-                        {
-                            println!(
-                                "prover-output   : Output({}) ; recon = {:?}, wire = {:?}",
-                                _src,
-                                recon,
-                                self.wires.get(_src),
-                            );
-                        }
-
-                    // // check result correctly reconstructed
-                    // #[cfg(test)]
-                    //     #[cfg(debug_assertions)]
-                    //     {
-                    //         let value: D::Scalar = self.plain.get(_src).unwrap();
-                    //         assert_eq!(
-                    //             self.wires.get(_src) + recon.reconstruct(),
-                    //             value,
-                    //             "wire-index: {}, wire-value: {:?} recon: {:?}",
-                    //             _src,
-                    //             self.wires.get(_src),
-                    //             recon
-                    //         );
-                    //     }
                 }
             }
         }

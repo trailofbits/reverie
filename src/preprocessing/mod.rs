@@ -105,6 +105,8 @@ impl<D: Domain> Proof<D> {
         seeds: &[[u8; KEY_SIZE]],
         branches: Arc<Vec<Vec<D::Batch>>>,
         mut program: PI,
+        fieldswitching_input: Vec<usize>,
+        fieldswitching_output: Vec<Vec<usize>>,
     ) -> Vec<(Hash, Vec<Hash>)> {
         assert!(
             branches.len() > 0,
@@ -116,6 +118,8 @@ impl<D: Domain> Proof<D> {
             branches: Arc<Vec<Vec<D::Batch>>>,
             outputs: Sender<()>,
             inputs: Receiver<Arc<Instructions<D>>>,
+            fieldswitching_input: Vec<usize>,
+            fieldswitching_output: Vec<Vec<usize>>,
         ) -> Result<(Hash, Vec<Hash>), SendError<()>> {
             let mut preprocessing: preprocessing::PreprocessingExecution<D> =
                 preprocessing::PreprocessingExecution::new(root, &branches[..]);
@@ -123,7 +127,10 @@ impl<D: Domain> Proof<D> {
             loop {
                 match inputs.recv().await {
                     Ok(program) => {
-                        preprocessing.prove(&program[..]);
+                        preprocessing.prove(&program[..],
+                                            fieldswitching_input.clone(),
+                                            fieldswitching_output.clone(),
+                        );
                         outputs.send(()).await?;
                     }
                     Err(_) => {
@@ -147,6 +154,8 @@ impl<D: Domain> Proof<D> {
                 branches.clone(),
                 send_outputs,
                 recv_inputs,
+                fieldswitching_input.clone(),
+                fieldswitching_output.clone(),
             )));
             inputs.push(send_inputs);
             outputs.push(recv_outputs);
@@ -181,6 +190,8 @@ impl<D: Domain> Proof<D> {
         &self,
         branches: &[&[D::Scalar]],
         program: PI,
+        fieldswitching_input: Vec<usize>,
+        fieldswitching_output: Vec<Vec<usize>>,
     ) -> Option<Output<D>> {
         // pack branch scalars into batches for efficiency
         let branches = Arc::new(pack_branches::<D>(branches));
@@ -216,7 +227,7 @@ impl<D: Domain> Proof<D> {
             D::PREPROCESSING_REPETITIONS - D::ONLINE_REPETITIONS
         );
 
-        let opened_results = Self::preprocess(&opened_roots[..], branches, program).await;
+        let opened_results = Self::preprocess(&opened_roots[..], branches, program, fieldswitching_input, fieldswitching_output).await;
 
         debug_assert_eq!(
             opened_results.len(),
@@ -271,6 +282,8 @@ impl<D: Domain> Proof<D> {
         global: [u8; KEY_SIZE],
         branches: &[&[D::Scalar]],
         program: PI,
+        fieldswitching_input: Vec<usize>,
+        fieldswitching_output: Vec<Vec<usize>>,
     ) -> (Self, PreprocessingOutput<D>) {
         // pack branch scalars into batches for efficiency
         let branches = Arc::new(pack_branches::<D>(branches));
@@ -280,7 +293,7 @@ impl<D: Domain> Proof<D> {
         TreePRF::expand_full(&mut roots, global);
 
         // block and wait for hashes to compute
-        let results = task::block_on(Self::preprocess(&roots[..], branches.clone(), program));
+        let results = task::block_on(Self::preprocess(&roots[..], branches.clone(), program, fieldswitching_input, fieldswitching_output));
 
         // send the pre-processing commitments to the random oracle, receive challenges
         let mut challenge_prg = {
@@ -366,8 +379,8 @@ mod tests {
         let seed: [u8; KEY_SIZE] = rng.gen();
         let branch: Vec<BitScalar> = vec![];
         let branches: Vec<&[BitScalar]> = vec![&branch];
-        let proof = Proof::<GF2P8>::new(seed, &branches[..], program.iter().cloned());
-        assert!(task::block_on(proof.0.verify(&branches[..], program.into_iter())).is_some());
+        let proof = Proof::<GF2P8>::new(seed, &branches[..], program.iter().cloned(), vec![], vec![]);
+        assert!(task::block_on(proof.0.verify(&branches[..], program.into_iter(), vec![], vec![])).is_some());
     }
 }
 
