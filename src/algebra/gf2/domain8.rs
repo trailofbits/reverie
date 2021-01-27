@@ -388,8 +388,8 @@ impl Domain for GF2P8 {
     type Sharing = BitSharing8;
 
     const PLAYERS: usize = 8;
-    const PREPROCESSING_REPETITIONS: usize = 252;
-    const ONLINE_REPETITIONS: usize = 44;
+    const PREPROCESSING_REPETITIONS: usize = 2;
+    const ONLINE_REPETITIONS: usize = 1;
 
     fn convert(dst: &mut [Self::Sharing], src: &[Self::Batch]) {
         // do a single bounds check up front

@@ -1,4 +1,146 @@
-use crate::algebra::{Domain, RingModule, RingElement};
+use crate::algebra::{Domain, RingModule, RingElement, Samplable};
+use crate::crypto::{KEY_SIZE, PRG, kdf};
+use crate::consts::{CONTEXT_RNG_EDA, CONTEXT_RNG_EDA_2};
+
+pub struct SharesGenerator<D: Domain, D2: Domain> {
+    pub eda: ShareGenerator<D>,
+    pub eda_2: ShareGenerator<D2>,
+}
+
+impl<D: Domain, D2: Domain> SharesGenerator<D, D2> {
+    pub fn new(player_seeds: &[[u8; KEY_SIZE]]) -> Self {
+        let eda_prgs: Vec<PRG> = player_seeds
+            .iter()
+            .map(|seed| PRG::new(kdf(CONTEXT_RNG_EDA, seed)))
+            .collect();
+        let eda_prgs2: Vec<PRG> = player_seeds
+            .iter()
+            .map(|seed| PRG::new(kdf(CONTEXT_RNG_EDA_2, seed)))
+            .collect();
+
+        Self {
+            eda: ShareGenerator::new(eda_prgs),
+            eda_2: ShareGenerator::new(eda_prgs2),
+        }
+    }
+}
+
+pub struct PartialSharesGenerator<D: Domain, D2: Domain> {
+    pub eda: PartialShareGenerator<D>,
+    pub eda_2: PartialShareGenerator<D2>,
+}
+
+impl<D: Domain, D2: Domain> PartialSharesGenerator<D, D2> {
+    pub fn new(player_seeds: &[[u8; KEY_SIZE]], omit: usize) -> Self {
+        let eda_prgs: Vec<PRG> = player_seeds
+            .iter()
+            .map(|seed| PRG::new(kdf(CONTEXT_RNG_EDA, seed)))
+            .collect();
+        let eda_prgs2: Vec<PRG> = player_seeds
+            .iter()
+            .map(|seed| PRG::new(kdf(CONTEXT_RNG_EDA_2, seed)))
+            .collect();
+
+        Self {
+            eda: PartialShareGenerator::new(eda_prgs, omit),
+            eda_2: PartialShareGenerator::new(eda_prgs2, omit),
+        }
+    }
+}
+
+pub struct ShareGenerator<D: Domain> {
+    batches: Vec<D::Batch>,
+    shares: Vec<D::Sharing>,
+    next: usize,
+    prgs: Vec<PRG>,
+}
+
+impl<D: Domain> ShareGenerator<D> {
+    pub fn new(prgs: Vec<PRG>) -> Self {
+        debug_assert_eq!(prgs.len(), D::PLAYERS);
+        ShareGenerator {
+            batches: vec![D::Batch::ZERO; D::PLAYERS],
+            shares: vec![D::Sharing::ZERO; D::Batch::DIMENSION],
+            next: D::Batch::DIMENSION,
+            prgs,
+        }
+    }
+
+    pub fn next(&mut self) -> D::Sharing {
+        if self.next >= D::Batch::DIMENSION {
+            debug_assert_eq!(self.next, self.shares.len());
+            for i in 0..D::PLAYERS {
+                self.batches[i] = D::Batch::gen(&mut self.prgs[i]);
+            }
+            D::convert(&mut self.shares[..], &self.batches);
+            self.next = 0;
+        }
+        let elem = self.shares[self.next];
+        self.next += 1;
+        elem
+    }
+
+    pub fn batches(&self) -> &[D::Batch] {
+        &self.batches[..]
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.next == D::Batch::DIMENSION
+    }
+
+    pub fn empty(&mut self) {
+        self.next = D::Batch::DIMENSION;
+    }
+}
+
+pub struct PartialShareGenerator<D: Domain> {
+    batches: Vec<D::Batch>,
+    shares: Vec<D::Sharing>,
+    omit: usize,
+    next: usize,
+    prgs: Vec<PRG>,
+}
+
+impl<D: Domain> PartialShareGenerator<D> {
+    pub fn new(prgs: Vec<PRG>, omit: usize) -> Self {
+        debug_assert_eq!(prgs.len(), D::PLAYERS);
+        PartialShareGenerator {
+            batches: vec![D::Batch::ZERO; D::PLAYERS],
+            shares: vec![D::Sharing::ZERO; D::Batch::DIMENSION],
+            next: D::Batch::DIMENSION,
+            prgs,
+            omit,
+        }
+    }
+
+    pub fn next(&mut self) -> D::Sharing {
+        if self.next >= self.shares.len() {
+            for i in 0..D::PLAYERS {
+                if i != self.omit {
+                    self.batches[i] = D::Batch::gen(&mut self.prgs[i]);
+                }
+            }
+            debug_assert_eq!(self.batches[self.omit], D::Batch::ZERO);
+            D::convert(&mut self.shares[..], &self.batches);
+            self.next = 0;
+        }
+        let elem = self.shares[self.next];
+        self.next += 1;
+        elem
+    }
+
+    pub fn batches(&self) -> &[D::Batch] {
+        &self.batches[..]
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.next == D::Batch::DIMENSION
+    }
+
+    pub fn empty(&mut self) {
+        self.next = D::Batch::DIMENSION;
+    }
+}
 
 pub fn convert_bit_domain<D: Domain, D2: Domain>(input: D::Batch) -> Result<D2::Batch, String> {
     debug_assert_eq!(D::Batch::DIMENSION, D2::Batch::DIMENSION);

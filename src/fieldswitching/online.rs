@@ -41,6 +41,8 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             fieldswitching_output: Vec<Vec<usize>>,
             pp_output1: preprocessing::PreprocessingOutput<D>,
             pp_output2: preprocessing::PreprocessingOutput<D2>,
+            eda_bits: Vec<Vec<D::Sharing>>,
+            eda_composed: Vec<D2::Sharing>,
         ) -> Option<(online::Proof<D>, online::Proof<D2>)> {
             let (online1, prover1) = online::StreamingProver::new(
                 bind.as_ref().map(|x| &x[..]),
@@ -50,6 +52,8 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
                 witness.clone().iter().cloned(),
                 vec![],
                 fieldswitching_output.clone(),
+                eda_bits.clone(),
+                vec![],
             )
                 .await;
             let output1 = prover1
@@ -58,6 +62,8 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
                         witness.iter().cloned(),
                         vec![],
                         fieldswitching_output.clone(),
+                        eda_bits.clone(),
+                        vec![],
                 ).await
                 .unwrap();
 
@@ -86,6 +92,8 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
                 input2.clone().iter().cloned(),
                 fieldswitching_input.clone(),
                 vec![],
+                vec![],
+                eda_composed.clone(),
             )
                 .await;
             prover2
@@ -94,6 +102,8 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
                         input2.iter().cloned(),
                         fieldswitching_input.clone(),
                         vec![],
+                        vec![],
+                        eda_composed.clone(),
                 ).await
                 .unwrap();
             Some((online1, online2))
@@ -114,6 +124,8 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             pp.fieldswitching_output,
             pp.pp_output1,
             pp.pp_output2,
+            pp.eda_bits,
+            pp.eda_composed,
         ));
 
         // read all chunks from online execution
@@ -156,9 +168,11 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             recv2: Receiver<Vec<u8>>,
             fieldswitching_input: Vec<usize>,
             fieldswitching_output: Vec<Vec<usize>>,
+            eda_bits: Vec<Vec<D::Sharing>>,
+            eda_composed: Vec<D2::Sharing>,
         ) -> Result<online::Output<D2>, String> {
             let verifier1 = online::StreamingVerifier::new(program1.iter().cloned(), proof1);
-            let result1 = verifier1.verify(bind.as_ref().map(|x| &x[..]), recv1, vec![], fieldswitching_output).await;
+            let result1 = verifier1.verify(bind.as_ref().map(|x| &x[..]), recv1, vec![], fieldswitching_output, eda_bits, vec![]).await;
             let _possible_err = match result1 {
                 Ok(out) => Ok(out
                     .check(&preprocessed1).ok_or_else(|| {
@@ -167,7 +181,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
                 Err(_e) => Err(String::from("Online verification task failed")),
             }; //TODO(gvl): output err if needed
             let verifier2 = online::StreamingVerifier::new(program2.iter().cloned(), proof2);
-            verifier2.verify(bind.as_ref().map(|x| &x[..]), recv2, fieldswitching_input, vec![]).await
+            verifier2.verify(bind.as_ref().map(|x| &x[..]), recv2, fieldswitching_input, vec![], vec![], eda_composed).await
         }
 
         // verify the online execution
@@ -184,6 +198,8 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             recv2,
             pp.fieldswitching_input.clone(),
             pp.fieldswitching_output.clone(),
+            pp.eda_bits,
+            pp.eda_composed,
         ));
 
         // send proof to the online verifier

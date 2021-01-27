@@ -138,6 +138,8 @@ impl<D: Domain, I: Iterator<Item=D::Scalar>> Prover<D, I> {
         witness: &[D::Scalar], // witness for input gates from next chunk of program
         preprocessing_masks: &[D::Sharing],
         preprocessing_ab_gamma: &[D::Sharing],
+        preprocessing_eda_bits: &[Vec<D::Sharing>],
+        preprocessing_eda_composed: &[D::Sharing],
         masked_witness: &mut WW,
         broadcast: &mut BW,
         fieldswitching_input: Vec<usize>,
@@ -147,6 +149,12 @@ impl<D: Domain, I: Iterator<Item=D::Scalar>> Prover<D, I> {
         let mut witness = witness.iter().cloned();
         let mut ab_gamma = preprocessing_ab_gamma.iter().cloned();
         let mut masks = preprocessing_masks.iter().cloned();
+        let mut eda_bits = Vec::<Cloned<Iter<D::Sharing>>>::new();
+        for eda_bit in preprocessing_eda_bits {
+            eda_bits.push(eda_bit.iter().cloned());
+        }
+        let mut eda_composed = preprocessing_eda_composed.iter().cloned();
+
         let mut nr_of_wires = 0;
         let mut fieldswitching_output_done = Vec::new();
 
@@ -201,7 +209,9 @@ impl<D: Domain, I: Iterator<Item=D::Scalar>> Prover<D, I> {
 
                     if fieldswitching_input.contains(&dst) {
                         //TODO(gvl) Subtract constant instead of add
-                        self.process_add_const(&mut masks, dst, nr_of_wires, D::Scalar::ZERO);
+                        let added = eda_composed.next().unwrap().reconstruct();
+                        println!("added composed: {:?}", added);
+                        self.process_add_const(&mut masks, dst, nr_of_wires, added); //TODO(gvl): use input instead of add_const
                         nr_of_wires += 1;
                     }
                 }
@@ -296,8 +306,10 @@ impl<D: Domain, I: Iterator<Item=D::Scalar>> Prover<D, I> {
                         if !fieldswitching_output_done.contains(&src) {
                             fieldswitching_output_done.append(&mut out_list.clone());
                             let mut zeroes = Vec::new();
-                            for _i in 0..out_list.len() {
-                                self.process_const(&mut masks, nr_of_wires, D::Scalar::ZERO);
+                            for i in 0..out_list.len() {
+                                let added = eda_bits[i].next().unwrap().reconstruct();
+                                println!("added: {:?}", added);
+                                self.process_const(&mut masks, nr_of_wires, added); //TODO(gvl): use input instead of const
                                 zeroes.push(nr_of_wires);
                                 nr_of_wires += 1;
                             }
@@ -563,6 +575,8 @@ impl<D: Domain> StreamingProver<D> {
         mut witness: WI,
         fieldswitching_input: Vec<usize>,
         fieldswitching_output: Vec<Vec<usize>>,
+        eda_bits: Vec<Vec<D::Sharing>>,
+        eda_composed: Vec<D::Sharing>,
     ) -> (Proof<D>, Self) {
         assert_eq!(preprocessing.hidden.len(), D::ONLINE_REPETITIONS);
 
@@ -575,6 +589,8 @@ impl<D: Domain> StreamingProver<D> {
             inputs: Receiver<ProgWitSlice<D>>,
             fieldswitching_input: Vec<usize>,
             fieldswitching_output: Vec<Vec<usize>>,
+            eda_bits: Vec<Vec<D::Sharing>>,
+            eda_composed: Vec<D::Sharing>,
         ) -> Result<(Vec<u8>, MerkleSetProof, Hash, Vec<D::Scalar>), SendError<Vec<u8>>> {
             // online execution
             let mut online = Prover::<D, _>::new(branch.iter().cloned());
@@ -615,6 +631,8 @@ impl<D: Domain> StreamingProver<D> {
                                 &witness[..],
                                 &masks[..],
                                 &ab_gamma[..],
+                                &eda_bits[..],
+                                &eda_composed[..],
                                 &mut VoidWriter::new(),
                                 &mut transcript,
                                 fieldswitching_input.clone(),
@@ -662,6 +680,8 @@ impl<D: Domain> StreamingProver<D> {
                 recv_inputs,
                 fieldswitching_input.clone(),
                 fieldswitching_output.clone(),
+                eda_bits.clone(),
+                eda_composed.clone(),
             )));
             inputs.push(send_inputs);
             outputs.push(recv_outputs);
@@ -750,6 +770,8 @@ impl<D: Domain> StreamingProver<D> {
         mut witness: WI,
         fieldswitching_input: Vec<usize>,
         fieldswitching_output: Vec<Vec<usize>>,
+        eda_bits: Vec<Vec<D::Sharing>>,
+        eda_composed: Vec<D::Sharing>,
     ) -> Result<Vec<D::Scalar>, SendError<Vec<u8>>> {
         async fn process<D: Domain>(
             root: [u8; KEY_SIZE],
@@ -759,6 +781,8 @@ impl<D: Domain> StreamingProver<D> {
             inputs: Receiver<ProgWitSlice<D>>,
             fieldswitching_input: Vec<usize>,
             fieldswitching_output: Vec<Vec<usize>>,
+            eda_bits: Vec<Vec<D::Sharing>>,
+            eda_composed: Vec<D::Sharing>,
         ) -> Result<Vec<D::Scalar>, SendError<Vec<u8>>> {
             let mut seeds = vec![[0u8; KEY_SIZE]; D::PLAYERS];
             TreePRF::expand_full(&mut seeds, root);
@@ -808,6 +832,8 @@ impl<D: Domain> StreamingProver<D> {
                                 &witness[..],
                                 &masks[..],
                                 &ab_gamma[..],
+                                &eda_bits[..],
+                                &eda_composed[..],
                                 &mut masked,
                                 &mut BatchExtractor::<D, _>::new(omitted, &mut broadcast),
                                 fieldswitching_input.clone(),
@@ -854,6 +880,8 @@ impl<D: Domain> StreamingProver<D> {
                 reader_inputs,
                 fieldswitching_input.clone(),
                 fieldswitching_output.clone(),
+                eda_bits.clone(),
+                eda_composed.clone(),
             )));
             inputs.push(sender_inputs);
             outputs.push(reader_outputs);

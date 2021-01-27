@@ -100,6 +100,8 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
         mut proof: Receiver<Vec<u8>>,
         fieldswitching_input: Vec<usize>,
         fieldswitching_output: Vec<Vec<usize>>,
+        eda_bits: Vec<Vec<D::Sharing>>,
+        eda_composed: Vec<D::Sharing>,
     ) -> Result<Output<D>, String> {
         async fn process<D: Domain>(
             run: Run<D>,
@@ -110,6 +112,8 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
             )>,
             fieldswitching_input: Vec<usize>,
             fieldswitching_output: Vec<Vec<usize>>,
+            preprocessing_eda_bits: Vec<Vec<D::Sharing>>,
+            preprocessing_eda_composed: Vec<D::Sharing>,
         ) -> Option<(Hash, Hash, usize, Vec<D::Scalar>)> {
             let mut wires = VecMap::new();
             let mut transcript: RingHasher<_> = RingHasher::new();
@@ -120,6 +124,11 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
             let mut preprocessing = PreprocessingExecution::<D>::new(&run.open);
             let mut masks: Vec<D::Sharing> = Vec::with_capacity(DEFAULT_CAPACITY);
             let mut ab_gamma: Vec<D::Sharing> = Vec::with_capacity(DEFAULT_CAPACITY);
+            let mut eda_bits = Vec::<Cloned<Iter<D::Sharing>>>::new();
+            for eda_bit in &preprocessing_eda_bits[..] {
+                eda_bits.push(eda_bit.iter().cloned());
+            }
+            let mut eda_composed = (&preprocessing_eda_composed[..]).iter().cloned();
             let mut broadcast_upstream: Vec<D::Batch> = Vec::with_capacity(DEFAULT_CAPACITY);
             let mut corrections_upstream: Vec<D::Batch> = Vec::with_capacity(DEFAULT_CAPACITY);
             let mut masked_witness_upstream: Vec<D::Scalar> = Vec::with_capacity(DEFAULT_CAPACITY);
@@ -235,7 +244,8 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
 
                                         if fieldswitching_input.contains(&dst) {
                                             //TODO(gvl) Subtract constant instead of add
-                                            process_add_const::<D>(&mut wires, dst, nr_of_wires, D::Scalar::ZERO);
+                                            let added = eda_composed.next().unwrap().reconstruct();
+                                            process_add_const::<D>(&mut wires, dst, nr_of_wires, added);
                                             nr_of_wires += 1;
                                         }
                                     }
@@ -280,8 +290,9 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                                             if !fieldswitching_output_done.contains(&src) {
                                                 fieldswitching_output_done.append(&mut out_list.clone());
                                                 let mut zeroes = Vec::new();
-                                                for _i in 0..out_list.len() {
-                                                    wires.set(nr_of_wires, D::Scalar::ZERO); //process_const
+                                                for i in 0..out_list.len() {
+                                                    let added = eda_bits[i].next().unwrap().reconstruct();
+                                                    wires.set(nr_of_wires, added); //process_const
                                                     zeroes.push(nr_of_wires);
                                                     nr_of_wires += 1;
                                                 }
@@ -432,6 +443,8 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                 reader_inputs,
                 fieldswitching_input.clone(),
                 fieldswitching_output.clone(),
+                eda_bits.clone(),
+                eda_composed.clone(),
             )));
             inputs.push(sender_inputs);
             outputs.push(reader_outputs);

@@ -79,6 +79,8 @@ impl<D: Domain> Proof<D> {
                 witness.clone().iter().cloned(),
                 fieldswitching_input.clone(),
                 fieldswitching_output.clone(),
+                vec![],
+                vec![],
             )
                 .await;
             prover
@@ -87,6 +89,8 @@ impl<D: Domain> Proof<D> {
                         witness.iter().cloned(),
                         fieldswitching_input.clone(),
                         fieldswitching_output.clone(),
+                        vec![],
+                        vec![],
                 ).await
                 .unwrap();
             Some(online)
@@ -151,7 +155,7 @@ impl<D: Domain> Proof<D> {
             fieldswitching_output: Vec<Vec<usize>>,
         ) -> Result<online::Output<D>, String> {
             let verifier = online::StreamingVerifier::new(program.iter().cloned(), proof);
-            verifier.verify(bind.as_ref().map(|x| &x[..]), recv, fieldswitching_input, fieldswitching_output).await
+            verifier.verify(bind.as_ref().map(|x| &x[..]), recv, fieldswitching_input, fieldswitching_output, vec![], vec![]).await
         }
 
         async fn preprocessing_verification<D: Domain>(
