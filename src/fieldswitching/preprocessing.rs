@@ -8,7 +8,7 @@ use async_std::sync::Arc;
 use async_std::task;
 use crate::fieldswitching::util::{convert_bit_domain, SharesGenerator};
 use crate::consts::CONTEXT_RNG_CORRECTION;
-use crate::util::{Writer, VoidWriter};
+use crate::util::Writer;
 
 const DEFAULT_CAPACITY: usize = 1024;
 
@@ -64,9 +64,6 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
                                       vec![],
             );
 
-        println!("{:?}", eda_bits);
-        println!("{:?}", eda_composed);
-        println!("{:?}", corrections);
         Self {
             fieldswitching_input: execution.fieldswitching_input,
             fieldswitching_output: execution.fieldswitching_output,

@@ -210,7 +210,6 @@ impl<D: Domain, I: Iterator<Item=D::Scalar>> Prover<D, I> {
                     if fieldswitching_input.contains(&dst) {
                         //TODO(gvl) Subtract constant instead of add
                         let added = eda_composed.next().unwrap().reconstruct();
-                        println!("added composed: {:?}", added);
                         self.process_add_const(&mut masks, dst, nr_of_wires, added); //TODO(gvl): use input instead of add_const
                         nr_of_wires += 1;
                     }
@@ -308,7 +307,6 @@ impl<D: Domain, I: Iterator<Item=D::Scalar>> Prover<D, I> {
                             let mut zeroes = Vec::new();
                             for i in 0..out_list.len() {
                                 let added = eda_bits[i].next().unwrap().reconstruct();
-                                println!("added: {:?}", added);
                                 self.process_const(&mut masks, nr_of_wires, added); //TODO(gvl): use input instead of const
                                 zeroes.push(nr_of_wires);
                                 nr_of_wires += 1;
