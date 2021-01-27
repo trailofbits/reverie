@@ -185,7 +185,8 @@ impl<D: Domain, D2: Domain> PreprocessingExecution<D, D2> {
         eda_composed: &mut Vec<D2::Sharing>,
         corrections: &mut CW, // player 0 corrections
         batch_eda: &mut Vec<Vec<D::Batch>>,
-        len: usize) {
+        len: usize,
+    ) {
         debug_assert_eq!(self.eda_composed_shares.len(), D2::Batch::DIMENSION);
         debug_assert!(self.shares.eda_2.is_empty());
 
@@ -208,7 +209,7 @@ impl<D: Domain, D2: Domain> PreprocessingExecution<D, D2> {
                 self.scratch2[j][i] = self.scratch2[j][i] + batch_eda[j][i];
             }
             eda_out = eda_out + corr;
-            self.scratch[i] = corr + self.shares.eda.batches()[i];
+            self.scratch[i] = corr;
         }
 
         let two = D2::Batch::ONE + D2::Batch::ONE;
@@ -227,17 +228,6 @@ impl<D: Domain, D2: Domain> PreprocessingExecution<D, D2> {
 
         // correct eda (in parallel)
         self.scratch[0] = self.scratch[0] + delta;
-
-        #[cfg(test)]
-            {
-                let mut eda_comp = D2::Batch::ZERO;
-                let mut eda_composed_recons = D2::Batch::ZERO;
-                for i in 0..D2::PLAYERS {
-                    eda_comp = eda_comp + self.shares.eda.batches()[i];
-                    eda_composed_recons = eda_composed_recons + self.scratch[i];
-                }
-                assert_eq!(arith + eda_comp, eda_composed_recons);
-            }
 
         // transpose into shares
         if eda_bits.len() != len {
