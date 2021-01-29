@@ -6,8 +6,8 @@ use std::io;
 
 use crate::util::*;
 
-use rand_chacha::ChaCha12Rng;
 use rand_chacha::rand_core::{RngCore as _, SeedableRng};
+use rand_chacha::ChaCha12Rng;
 use rand_core::{self, RngCore};
 
 use serde::de::{Deserializer, SeqAccess, Visitor};
