@@ -14,7 +14,7 @@ use std::time::Duration;
 use sysinfo::SystemExt;
 
 const SLEEP_TIME: Duration = Duration::from_millis(2000);
-const FREE_MB: u64 = 100;
+const FREE_MB: u64 = 512;
 
 pub const fn log2(x: usize) -> usize {
     (mem::size_of::<usize>() * 8) - (x.leading_zeros() as usize) - 1
@@ -34,7 +34,7 @@ pub fn wait_for_mem() {
             break;
         }
         if !printed {
-            println!("System has fewer than {}MB of memory available. Waiting for current tasks to finish before scheduling more...", FREE_MB);
+            println!("System only has {} kB of memory available. Waiting until {} MB is available before scheduling more tasks...", available_mem, FREE_MB);
             printed = true;
         }
         std::thread::sleep(SLEEP_TIME);
