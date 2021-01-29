@@ -312,6 +312,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                 let _ = rx.recv().await;
             }
 
+            wait_for_mem();
             // schedule a new task and wait for all works to complete one
             scheduled += feed::<D, _>(BATCH_SIZE, &mut inputs[..], &mut self.program, &mut proof)
                 .await

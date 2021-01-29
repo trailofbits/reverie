@@ -163,6 +163,7 @@ impl<D: Domain> Proof<D> {
                 let _ = rx.recv().await;
             }
             scheduled -= 1;
+            wait_for_mem();
             scheduled += feed::<D, _>(&mut inputs[..], &mut program).await as usize;
         }
 

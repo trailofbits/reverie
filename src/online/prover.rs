@@ -529,6 +529,7 @@ impl<D: Domain> StreamingProver<D> {
             scheduled -= 1;
 
             // schedule a new task
+            wait_for_mem();
             scheduled += feed::<D, _, _>(BATCH_SIZE, &mut inputs[..], &mut program, &mut witness)
                 .await as usize;
 
@@ -712,6 +713,7 @@ impl<D: Domain> StreamingProver<D> {
                 dst.send(output.unwrap()).await?; // can fail
             }
 
+            wait_for_mem();
             // schedule a new task and wait for all works to complete one
             scheduled += feed::<D, _, _>(BATCH_SIZE, &mut inputs[..], &mut program, &mut witness)
                 .await as usize;
