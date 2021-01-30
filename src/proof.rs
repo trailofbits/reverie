@@ -68,7 +68,7 @@ impl<D: Domain> Proof<D> {
             pp_output: preprocessing::PreprocessingOutput<D>,
         ) -> Option<online::Proof<D>> {
             let (online, prover) = online::StreamingProver::new(
-                bind.as_ref().map(|x| &x[..]),
+                bind,
                 pp_output,
                 branch_index,
                 program.clone().iter().cloned(),

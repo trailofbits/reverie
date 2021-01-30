@@ -416,9 +416,9 @@ impl<D: Domain> StreamingProver<D> {
         PI: Iterator<Item = Instruction<D::Scalar>>,
         WI: Iterator<Item = D::Scalar>,
     >(
-        bind: Option<&[u8]>, // included Fiat-Shamir transform (for signatures of knowledge)
+        bind: Option<Vec<u8>>, // included Fiat-Shamir transform (for signatures of knowledge)
         preprocessing: PreprocessingOutput<D>, // output of preprocessing
-        branch_index: usize, // branch index (from preprocessing)
+        branch_index: usize,   // branch index (from preprocessing)
         mut program: PI,
         mut witness: WI,
     ) -> (Proof<D>, Self) {
@@ -486,6 +486,62 @@ impl<D: Domain> StreamingProver<D> {
             }
         }
 
+        async fn extract_output<D: Domain>(
+            bind: Option<Vec<u8>>,
+            preprocessing: PreprocessingOutput<D>,
+            branch: Arc<Vec<<D as Domain>::Scalar>>,
+            tasks: Vec<
+                task::JoinHandle<Result<(Vec<u8>, MerkleSetProof, Hash), SendError<Vec<u8>>>>,
+            >,
+        ) -> (Proof<D>, StreamingProver<D>) {
+            // extract which players to omit in every run (Fiat-Shamir)
+            let mut oracle =
+                RandomOracle::new(CONTEXT_ORACLE_ONLINE, bind.as_ref().map(|x| &x[..]));
+            let mut masked_branches = Vec::with_capacity(D::ONLINE_REPETITIONS);
+
+            for (pp, t) in preprocessing.hidden.iter().zip(tasks.into_iter()) {
+                let (masked, proof, transcript) = t.await.unwrap();
+                masked_branches.push((masked, proof));
+
+                // RO((preprocessing, transcript))
+                oracle.feed(pp.union.as_bytes());
+                oracle.feed(transcript.as_bytes());
+            }
+
+            let omitted: Vec<usize> =
+                random_vector(&mut oracle.query(), D::PLAYERS, D::ONLINE_REPETITIONS);
+
+            debug_assert_eq!(omitted.len(), D::ONLINE_REPETITIONS);
+
+            (
+                Proof {
+                    // omit player from TreePRF and provide pre-processing commitment
+                    runs: omitted
+                        .iter()
+                        .cloned()
+                        .zip(preprocessing.hidden.iter())
+                        .zip(masked_branches.into_iter())
+                        .map(|((omit, run), (branch, proof))| {
+                            let tree = TreePRF::new(D::PLAYERS, run.seed);
+                            Run {
+                                proof,
+                                branch,
+                                commitment: run.commitments[omit].clone(),
+                                open: tree.puncture(omit),
+                                _ph: PhantomData,
+                            }
+                        })
+                        .collect(),
+                    _ph: PhantomData,
+                },
+                StreamingProver {
+                    branch,
+                    omitted,
+                    preprocessing,
+                },
+            )
+        }
+
         // unpack selected branch into scalars again
         let branch_batches = &preprocessing.branches[branch_index][..];
         let mut branch = Vec::with_capacity(branch_batches.len() * D::Batch::DIMENSION);
@@ -515,6 +571,8 @@ impl<D: Domain> StreamingProver<D> {
             outputs.push(recv_outputs);
         }
 
+        let extraction_task = task::spawn(extract_output::<D>(bind, preprocessing, branch, tasks));
+
         // schedule up to 2 tasks immediately (for better performance)
         let mut scheduled = 0;
 
@@ -542,51 +600,7 @@ impl<D: Domain> StreamingProver<D> {
         // close input writers
         inputs.clear();
 
-        // extract which players to omit in every run (Fiat-Shamir)
-        let mut oracle = RandomOracle::new(CONTEXT_ORACLE_ONLINE, bind);
-        let mut masked_branches = Vec::with_capacity(D::ONLINE_REPETITIONS);
-
-        for (pp, t) in preprocessing.hidden.iter().zip(tasks.into_iter()) {
-            let (masked, proof, transcript) = t.await.unwrap();
-            masked_branches.push((masked, proof));
-
-            // RO((preprocessing, transcript))
-            oracle.feed(pp.union.as_bytes());
-            oracle.feed(transcript.as_bytes());
-        }
-
-        let omitted: Vec<usize> =
-            random_vector(&mut oracle.query(), D::PLAYERS, D::ONLINE_REPETITIONS);
-
-        debug_assert_eq!(omitted.len(), D::ONLINE_REPETITIONS);
-
-        (
-            Proof {
-                // omit player from TreePRF and provide pre-processing commitment
-                runs: omitted
-                    .iter()
-                    .cloned()
-                    .zip(preprocessing.hidden.iter())
-                    .zip(masked_branches.into_iter())
-                    .map(|((omit, run), (branch, proof))| {
-                        let tree = TreePRF::new(D::PLAYERS, run.seed);
-                        Run {
-                            proof,
-                            branch,
-                            commitment: run.commitments[omit].clone(),
-                            open: tree.puncture(omit),
-                            _ph: PhantomData,
-                        }
-                    })
-                    .collect(),
-                _ph: PhantomData,
-            },
-            StreamingProver {
-                branch,
-                omitted,
-                preprocessing,
-            },
-        )
+        extraction_task.await
     }
 
     pub async fn stream<
