@@ -673,6 +673,12 @@ impl<D: Domain> StreamingProver<D> {
             }
         }
 
+        async fn wait_for_all(tasks: Vec<task::JoinHandle<Result<(), SendError<Vec<u8>>>>>) {
+            for t in tasks {
+                t.await.unwrap();
+            }
+        }
+
         // create async parallel task for every repetition
         let mut tasks = Vec::with_capacity(D::ONLINE_REPETITIONS);
         let mut inputs = Vec::with_capacity(D::ONLINE_REPETITIONS);
@@ -695,6 +701,8 @@ impl<D: Domain> StreamingProver<D> {
             inputs.push(sender_inputs);
             outputs.push(reader_outputs);
         }
+
+        let tasks_finished = task::spawn(wait_for_all(tasks));
 
         // schedule up to 2 tasks immediately (for better performance)
         let mut scheduled = 0;
@@ -721,9 +729,7 @@ impl<D: Domain> StreamingProver<D> {
 
         // wait for tasks to finish
         inputs.clear();
-        for t in tasks {
-            t.await.unwrap();
-        }
+        tasks_finished.await;
         Ok(())
     }
 }
