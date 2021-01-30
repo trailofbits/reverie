@@ -130,7 +130,7 @@ impl<D: Domain> Proof<D> {
             recv: Receiver<Vec<u8>>,
         ) -> Result<online::Output<D>, String> {
             let verifier = online::StreamingVerifier::new(program.iter().cloned(), proof);
-            verifier.verify(bind.as_ref().map(|x| &x[..]), recv).await
+            verifier.verify(bind, recv).await
         }
 
         async fn preprocessing_verification<D: Domain>(
