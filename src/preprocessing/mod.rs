@@ -133,6 +133,16 @@ impl<D: Domain> Proof<D> {
             }
         }
 
+        async fn collect_commitments<D: Domain>(
+            mut tasks: Vec<task::JoinHandle<Result<(Hash, Vec<Hash>), SendError<()>>>>,
+        ) -> Vec<(Hash, Vec<Hash>)> {
+            let mut results: Vec<(Hash, Vec<Hash>)> = Vec::new();
+            for t in tasks.drain(..) {
+                results.push(t.await.unwrap());
+            }
+            results
+        }
+
         // create async parallel task for every repetition
         let mut tasks = Vec::with_capacity(D::PREPROCESSING_REPETITIONS);
         let mut inputs: Vec<Sender<Arc<Instructions<D>>>> =
@@ -151,6 +161,7 @@ impl<D: Domain> Proof<D> {
             inputs.push(send_inputs);
             outputs.push(recv_outputs);
         }
+        let commitments = task::spawn(collect_commitments::<D>(tasks));
 
         // schedule up to 2 tasks immediately (for better performance)
         let mut scheduled = 0;
@@ -171,11 +182,7 @@ impl<D: Domain> Proof<D> {
         inputs.clear();
 
         // collect final commitments
-        let mut results: Vec<(Hash, Vec<Hash>)> = Vec::with_capacity(D::PREPROCESSING_REPETITIONS);
-        for t in tasks.into_iter() {
-            results.push(t.await.unwrap());
-        }
-        results
+        commitments.await
     }
 
     pub async fn verify<PI: Iterator<Item = Instruction<D::Scalar>>>(
