@@ -34,8 +34,8 @@ mod tests {
         let preprocessed_proof = fieldswitching::preprocessing::Proof::<GF2P8, GF2P8>::new(conn_program.clone(), program1.clone(), program2.clone(), branches.clone(), branches.clone());
         let proof = task::block_on(fieldswitching::online::Proof::<GF2P8, GF2P8>::new(None, conn_program.clone(), program1.clone(), program2.clone(), input.clone(), branch_index, preprocessed_proof.clone()));
 
-        let (proof_output1, proof_output2) = task::block_on(preprocessed_proof.verify(program1.clone(), program2.clone(), branches.clone(), branches.clone())).unwrap();
-        let verifier_output = task::block_on(proof.verify(None, program1.clone(), program2.clone(), proof_output1, proof_output2, preprocessed_proof)).unwrap();
+        let proof_output = task::block_on(preprocessed_proof.verify(conn_program.clone(), program1.clone(), program2.clone(), branches.clone(), branches.clone())).unwrap();
+        let verifier_output = task::block_on(proof.verify(None, program1.clone(), program2.clone(), proof_output, preprocessed_proof)).unwrap();
         assert_eq!(verifier_output, output);
     }
 

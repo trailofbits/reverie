@@ -77,6 +77,7 @@ pub struct PreprocessingOutput<D: Domain> {
     pub(crate) hidden: Vec<Run>,
 }
 
+#[derive(Clone)]
 pub struct Output<D: Domain> {
     pub(crate) hidden: Vec<Hash>,
     _ph: PhantomData<D>,

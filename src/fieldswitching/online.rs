@@ -153,8 +153,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
                         bind: Option<Vec<u8>>,
                         program1: Vec<Instruction<D::Scalar>>,
                         program2: Vec<Instruction<D2::Scalar>>,
-                        preprocessed1: preprocessing::Output<D>,
-                        preprocessed2: preprocessing::Output<D2>,
+                        preprocessed: fieldswitching::preprocessing::Output<D, D2>,
                         pp: fieldswitching::preprocessing::Proof<D, D2>,
     ) -> Result<Vec<D2::Scalar>, String> {
         async fn online_verification<D: Domain, D2: Domain>(
@@ -163,25 +162,23 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             program2: Arc<Vec<Instruction<D2::Scalar>>>,
             proof1: online::Proof<D>,
             proof2: online::Proof<D2>,
-            preprocessed1: preprocessing::Output<D>,
+            preprocessed: fieldswitching::preprocessing::Output<D, D2>,
             recv1: Receiver<Vec<u8>>,
             recv2: Receiver<Vec<u8>>,
             fieldswitching_input: Vec<usize>,
             fieldswitching_output: Vec<Vec<usize>>,
-            eda_bits: Vec<Vec<D::Sharing>>,
-            eda_composed: Vec<D2::Sharing>,
         ) -> Result<online::Output<D2>, String> {
             let verifier1 = online::StreamingVerifier::new(program1.iter().cloned(), proof1);
-            let result1 = verifier1.verify(bind.as_ref().map(|x| &x[..]), recv1, vec![], fieldswitching_output, eda_bits, vec![]).await;
+            let result1 = verifier1.verify(bind.as_ref().map(|x| &x[..]), recv1, vec![], fieldswitching_output, preprocessed.eda_bits, vec![]).await;
             let _possible_err = match result1 {
                 Ok(out) => Ok(out
-                    .check(&preprocessed1).ok_or_else(|| {
+                    .check(&preprocessed.output1).ok_or_else(|| {
                     String::from("Online task output did not match preprocessing output")
                 })?),
                 Err(_e) => Err(String::from("Online verification task failed")),
             }; //TODO(gvl): output err if needed
             let verifier2 = online::StreamingVerifier::new(program2.iter().cloned(), proof2);
-            verifier2.verify(bind.as_ref().map(|x| &x[..]), recv2, fieldswitching_input, vec![], vec![], eda_composed).await
+            verifier2.verify(bind.as_ref().map(|x| &x[..]), recv2, fieldswitching_input, vec![], vec![], preprocessed.eda_composed).await
         }
 
         // verify the online execution
@@ -193,13 +190,11 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             Arc::new(program2.clone()),
             self.online1.clone(),
             self.online2.clone(),
-            preprocessed1,
+            preprocessed.clone(),
             recv1,
             recv2,
             pp.fieldswitching_input.clone(),
             pp.fieldswitching_output.clone(),
-            pp.eda_bits,
-            pp.eda_composed,
         ));
 
         // send proof to the online verifier
@@ -218,7 +213,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
 
         match task_online.await {
             //TODO(gvl): both preprocessed checking
-            Ok(out) => Ok(out.check(&preprocessed2).ok_or_else(|| {
+            Ok(out) => Ok(out.check(&preprocessed.output2).ok_or_else(|| {
                 String::from("Online task output did not match preprocessing output")
             })?),
             Err(_e) => Err(String::from("Online verification task failed")),
