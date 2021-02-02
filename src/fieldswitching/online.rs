@@ -1,13 +1,13 @@
 use crate::algebra::{Domain, RingElement};
-use serde::{Deserialize, Serialize};
-use crate::{Instruction, ConnectionInstruction, preprocessing, online, fieldswitching};
-use async_channel::{bounded, Sender, Receiver};
+use crate::consts::CONTEXT_ORACLE_ONLINE;
+use crate::fieldswitching::util::convert_bit;
+use crate::online::StreamingVerifier;
+use crate::oracle::RandomOracle;
+use crate::{fieldswitching, online, preprocessing, ConnectionInstruction, Instruction};
+use async_channel::{bounded, Receiver, Sender};
 use async_std::sync::Arc;
 use async_std::task;
-use crate::fieldswitching::util::convert_bit;
-use crate::oracle::RandomOracle;
-use crate::consts::CONTEXT_ORACLE_ONLINE;
-use crate::online::StreamingVerifier;
+use serde::{Deserialize, Serialize};
 use std::iter::Cloned;
 use std::slice::Iter;
 
@@ -49,7 +49,8 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             eda_bits: Vec<Vec<D::Sharing>>,
             eda_composed: Vec<D2::Sharing>,
         ) -> Option<(online::Proof<D>, online::Proof<D2>)> {
-            let mut oracle = RandomOracle::new(CONTEXT_ORACLE_ONLINE, bind.as_ref().map(|x| &x[..]));
+            let mut oracle =
+                RandomOracle::new(CONTEXT_ORACLE_ONLINE, bind.as_ref().map(|x| &x[..]));
 
             let (branch_1, masked_branches_1, output1) = online::StreamingProver::new_round_1(
                 pp_output1.clone(),
@@ -61,7 +62,8 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
                 eda_bits.clone(),
                 vec![],
                 &mut oracle,
-            ).await;
+            )
+            .await;
 
             let mut input2 = Vec::new();
             for gate in conn_program {
@@ -90,32 +92,47 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
                 vec![],
                 eda_composed.clone(),
                 &mut oracle,
-            ).await;
+            )
+            .await;
 
             let omitted = online::StreamingProver::<D>::get_challenge(&mut oracle);
 
-            let (online1, prover1) = online::StreamingProver::new_round_3(pp_output1, branch_1, masked_branches_1, omitted.clone());
-            let (online2, prover2) = online::StreamingProver::new_round_3(pp_output2, branch_2, masked_branches_2, omitted.clone());
+            let (online1, prover1) = online::StreamingProver::new_round_3(
+                pp_output1,
+                branch_1,
+                masked_branches_1,
+                omitted.clone(),
+            );
+            let (online2, prover2) = online::StreamingProver::new_round_3(
+                pp_output2,
+                branch_2,
+                masked_branches_2,
+                omitted.clone(),
+            );
 
             prover1
-                .stream(send1,
-                        program1.iter().cloned(),
-                        witness.iter().cloned(),
-                        vec![],
-                        fieldswitching_output.clone(),
-                        eda_bits.clone(),
-                        vec![],
-                ).await
+                .stream(
+                    send1,
+                    program1.iter().cloned(),
+                    witness.iter().cloned(),
+                    vec![],
+                    fieldswitching_output.clone(),
+                    eda_bits.clone(),
+                    vec![],
+                )
+                .await
                 .unwrap();
             prover2
-                .stream(send2,
-                        program2.iter().cloned(),
-                        input2.iter().cloned(),
-                        fieldswitching_input.clone(),
-                        vec![],
-                        vec![],
-                        eda_composed.clone(),
-                ).await
+                .stream(
+                    send2,
+                    program2.iter().cloned(),
+                    input2.iter().cloned(),
+                    fieldswitching_input.clone(),
+                    vec![],
+                    vec![],
+                    eda_composed.clone(),
+                )
+                .await
                 .unwrap();
             Some((online1, online2))
         }
@@ -160,12 +177,13 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
         }
     }
 
-    pub async fn verify(&self,
-                        bind: Option<Vec<u8>>,
-                        program1: Vec<Instruction<D::Scalar>>,
-                        program2: Vec<Instruction<D2::Scalar>>,
-                        preprocessed: fieldswitching::preprocessing::Output<D, D2>,
-                        pp: fieldswitching::preprocessing::Proof<D, D2>,
+    pub async fn verify(
+        &self,
+        bind: Option<Vec<u8>>,
+        program1: Vec<Instruction<D::Scalar>>,
+        program2: Vec<Instruction<D2::Scalar>>,
+        preprocessed: fieldswitching::preprocessing::Output<D, D2>,
+        pp: fieldswitching::preprocessing::Proof<D, D2>,
     ) -> Result<Vec<D2::Scalar>, String> {
         async fn online_verification<D: Domain, D2: Domain>(
             bind: Option<Vec<u8>>,
@@ -179,24 +197,51 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             fieldswitching_input: Vec<usize>,
             fieldswitching_output: Vec<Vec<usize>>,
         ) -> Result<online::Output<D2>, String> {
-            let mut oracle = RandomOracle::new(CONTEXT_ORACLE_ONLINE, bind.as_ref().map(|x| &x[..]));
+            let mut oracle =
+                RandomOracle::new(CONTEXT_ORACLE_ONLINE, bind.as_ref().map(|x| &x[..]));
 
             let verifier1 = online::StreamingVerifier::new(program1.iter().cloned(), proof1);
-            let (omitted1, _result1) = match verifier1.verify_round_1(recv1, vec![], fieldswitching_output, preprocessed.eda_bits, vec![], &mut oracle).await {
+            let (omitted1, _result1) = match verifier1
+                .verify_round_1(
+                    recv1,
+                    vec![],
+                    fieldswitching_output,
+                    preprocessed.eda_bits,
+                    vec![],
+                    &mut oracle,
+                )
+                .await
+            {
                 Ok(out) => out,
                 Err(e) => return Err(e),
             };
 
             let verifier2 = online::StreamingVerifier::new(program2.iter().cloned(), proof2);
-            let (omitted2, result2) = match verifier2.verify_round_1(recv2, fieldswitching_input, vec![], vec![], preprocessed.eda_composed, &mut oracle).await {
+            let (omitted2, result2) = match verifier2
+                .verify_round_1(
+                    recv2,
+                    fieldswitching_input,
+                    vec![],
+                    vec![],
+                    preprocessed.eda_composed,
+                    &mut oracle,
+                )
+                .await
+            {
                 Ok(out) => out,
                 Err(e) => return Err(e),
             };
 
-            if !<StreamingVerifier<D, Cloned<Iter<Instruction<D::Scalar>>>>>::verify_omitted(&mut oracle, omitted1) {
+            if !<StreamingVerifier<D, Cloned<Iter<Instruction<D::Scalar>>>>>::verify_omitted(
+                &mut oracle,
+                omitted1,
+            ) {
                 return Err(String::from("omitted values for proof 1 are incorrect"));
             }
-            if !<StreamingVerifier<D2, Cloned<Iter<Instruction<D2::Scalar>>>>>::verify_omitted(&mut oracle, omitted2) {
+            if !<StreamingVerifier<D2, Cloned<Iter<Instruction<D2::Scalar>>>>>::verify_omitted(
+                &mut oracle,
+                omitted2,
+            ) {
                 return Err(String::from("omitted values for proof 2 are incorrect"));
             }
 

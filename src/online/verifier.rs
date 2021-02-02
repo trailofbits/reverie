@@ -105,22 +105,39 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
     ) -> Result<Output<D>, String> {
         let mut oracle = RandomOracle::new(CONTEXT_ORACLE_ONLINE, bind);
 
-        let (omitted, out) = match self.verify_round_1(proof, fieldswitching_input, fieldswitching_output, eda_bits, eda_composed, &mut oracle).await {
+        let (omitted, out) = match self
+            .verify_round_1(
+                proof,
+                fieldswitching_input,
+                fieldswitching_output,
+                eda_bits,
+                eda_composed,
+                &mut oracle,
+            )
+            .await
+        {
             Ok(out) => out,
-            Err(e) => return Err(e)
+            Err(e) => return Err(e),
         };
 
         if !<StreamingVerifier<D, PI>>::verify_omitted(&mut oracle, omitted) {
             return Err(String::from(
                 "Omitted shares did not match expected omissions",
-            ))
+            ));
         }
 
         Ok(out)
     }
 
-    pub async fn verify_round_1(mut self, mut proof: Receiver<Vec<u8>>, fieldswitching_input: Vec<usize>, fieldswitching_output: Vec<Vec<usize>>, eda_bits: Vec<Vec<D::Sharing>>, eda_composed: Vec<D::Sharing>, oracle: &mut RandomOracle) -> Result<(Vec<usize>, Output<D>), String> {
-
+    pub async fn verify_round_1(
+        mut self,
+        mut proof: Receiver<Vec<u8>>,
+        fieldswitching_input: Vec<usize>,
+        fieldswitching_output: Vec<Vec<usize>>,
+        eda_bits: Vec<Vec<D::Sharing>>,
+        eda_composed: Vec<D::Sharing>,
+        oracle: &mut RandomOracle,
+    ) -> Result<(Vec<usize>, Output<D>), String> {
         async fn process<D: Domain>(
             run: Run<D>,
             outputs: Sender<()>,
@@ -236,12 +253,12 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                                         let w: D::Scalar = wires.get(src);
                                         wires.set(dst, w.operation());
                                         #[cfg(feature = "trace")]
-                                            {
-                                                println!(
-                                                    "verifier-perm  : wire = {:?}",
-                                                    wires.get(dst)
-                                                );
-                                            }
+                                        {
+                                            println!(
+                                                "verifier-perm  : wire = {:?}",
+                                                wires.get(dst)
+                                            );
+                                        }
                                     }
                                     Instruction::Input(dst) => {
                                         assert_ne!(nr_of_wires, 0);
@@ -253,17 +270,22 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
 
                                         wires.set(new_dst, witness.next()?);
                                         #[cfg(feature = "trace")]
-                                            {
-                                                println!(
-                                                    "verifier-input : wire = {:?}",
-                                                    wires.get(new_dst)
-                                                );
-                                            }
+                                        {
+                                            println!(
+                                                "verifier-input : wire = {:?}",
+                                                wires.get(new_dst)
+                                            );
+                                        }
 
                                         if fieldswitching_input.contains(&dst) {
                                             //TODO(gvl) Subtract constant instead of add
                                             let added = eda_composed.next().unwrap().reconstruct();
-                                            process_add_const::<D>(&mut wires, dst, nr_of_wires, added);
+                                            process_add_const::<D>(
+                                                &mut wires,
+                                                dst,
+                                                nr_of_wires,
+                                                added,
+                                            );
                                             nr_of_wires += 1;
                                         }
                                     }
@@ -290,7 +312,16 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                                     }
                                     Instruction::Mul(dst, src1, src2) => {
                                         assert_ne!(nr_of_wires, 0);
-                                        process_mul(&mut wires, &mut transcript, &mut masks, &mut ab_gamma, &mut broadcast, dst, src1, src2)
+                                        process_mul(
+                                            &mut wires,
+                                            &mut transcript,
+                                            &mut masks,
+                                            &mut ab_gamma,
+                                            &mut broadcast,
+                                            dst,
+                                            src1,
+                                            src2,
+                                        )
                                     }
                                     Instruction::Output(src) => {
                                         assert_ne!(nr_of_wires, 0);
@@ -306,22 +337,47 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                                         }
                                         if found {
                                             if !fieldswitching_output_done.contains(&src) {
-                                                fieldswitching_output_done.append(&mut out_list.clone());
+                                                fieldswitching_output_done
+                                                    .append(&mut out_list.clone());
                                                 let mut zeroes = Vec::new();
                                                 for i in 0..out_list.len() {
-                                                    let added = eda_bits[i].next().unwrap().reconstruct();
+                                                    let added =
+                                                        eda_bits[i].next().unwrap().reconstruct();
                                                     wires.set(nr_of_wires, added); //process_const
                                                     zeroes.push(nr_of_wires);
                                                     nr_of_wires += 1;
                                                 }
-                                                let (outs, carry_out) = full_adder(&mut wires, &mut transcript, &mut masks, &mut ab_gamma, &mut broadcast, out_list, zeroes, nr_of_wires);
+                                                let (outs, carry_out) = full_adder(
+                                                    &mut wires,
+                                                    &mut transcript,
+                                                    &mut masks,
+                                                    &mut ab_gamma,
+                                                    &mut broadcast,
+                                                    out_list,
+                                                    zeroes,
+                                                    nr_of_wires,
+                                                );
                                                 nr_of_wires = carry_out;
                                                 for out in outs {
-                                                    process_output(&mut wires, &mut transcript, &mut output, &mut masks, &mut broadcast, out);
+                                                    process_output(
+                                                        &mut wires,
+                                                        &mut transcript,
+                                                        &mut output,
+                                                        &mut masks,
+                                                        &mut broadcast,
+                                                        out,
+                                                    );
                                                 }
                                             }
                                         } else {
-                                            process_output(&mut wires, &mut transcript, &mut output, &mut masks, &mut broadcast, src);
+                                            process_output(
+                                                &mut wires,
+                                                &mut transcript,
+                                                &mut output,
+                                                &mut masks,
+                                                &mut broadcast,
+                                                src,
+                                            );
                                         }
                                     }
                                 }
@@ -341,14 +397,30 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
             }
         }
 
-        fn process_output<D: Domain>(wires: &mut VecMap<D::Scalar>, transcript: &mut RingHasher<D::Sharing>, output: &mut Vec<D::Scalar>, masks: &mut Cloned<Iter<D::Sharing>>, broadcast: &mut ShareIterator<D, Cloned<Iter<D::Batch>>>, src: usize) {
+        fn process_output<D: Domain>(
+            wires: &mut VecMap<D::Scalar>,
+            transcript: &mut RingHasher<D::Sharing>,
+            output: &mut Vec<D::Scalar>,
+            masks: &mut Cloned<Iter<D::Sharing>>,
+            broadcast: &mut ShareIterator<D, Cloned<Iter<D::Batch>>>,
+            src: usize,
+        ) {
             let recon: D::Sharing = masks.next().unwrap() + broadcast.next().unwrap();
             transcript.write(recon);
 
             output.write(wires.get(src) + recon.reconstruct());
         }
 
-        fn process_mul<D: Domain>(wires: &mut VecMap<D::Scalar>, transcript: &mut RingHasher<D::Sharing>, masks: &mut Cloned<Iter<D::Sharing>>, ab_gamma: &mut Cloned<Iter<D::Sharing>>, broadcast: &mut ShareIterator<D, Cloned<Iter<D::Batch>>>, dst: usize, src1: usize, src2: usize) {
+        fn process_mul<D: Domain>(
+            wires: &mut VecMap<D::Scalar>,
+            transcript: &mut RingHasher<D::Sharing>,
+            masks: &mut Cloned<Iter<D::Sharing>>,
+            ab_gamma: &mut Cloned<Iter<D::Sharing>>,
+            broadcast: &mut ShareIterator<D, Cloned<Iter<D::Batch>>>,
+            dst: usize,
+            src1: usize,
+            src2: usize,
+        ) {
             // calculate reconstruction shares for every player
             let a_w = wires.get(src1);
             let b_w = wires.get(src2);
@@ -356,8 +428,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
             let b_m: D::Sharing = masks.next().unwrap();
             let ab_gamma: D::Sharing = ab_gamma.next().unwrap();
             let omit_msg: D::Sharing = broadcast.next().unwrap();
-            let recon =
-                a_m.action(b_w) + b_m.action(a_w) + ab_gamma + omit_msg;
+            let recon = a_m.action(b_w) + b_m.action(a_w) + ab_gamma + omit_msg;
             transcript.write(recon);
 
             // corrected wire
@@ -367,20 +438,27 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
             wires.set(dst, c_w);
         }
 
-        fn process_add<D: Domain>(wires: &mut VecMap<D::Scalar>, dst: usize, src1: usize, src2: usize) {
+        fn process_add<D: Domain>(
+            wires: &mut VecMap<D::Scalar>,
+            dst: usize,
+            src1: usize,
+            src2: usize,
+        ) {
             let a_w = wires.get(src1);
             let b_w = wires.get(src2);
             wires.set(dst, a_w + b_w);
             #[cfg(feature = "trace")]
-                {
-                    println!(
-                        "verifier-add   : a_w = {:?}, b_w = {:?}",
-                        a_w, b_w,
-                    );
-                }
+            {
+                println!("verifier-add   : a_w = {:?}, b_w = {:?}", a_w, b_w,);
+            }
         }
 
-        fn process_add_const<D: Domain>(wires: &mut VecMap<D::Scalar>, dst: usize, src: usize, c: D::Scalar) {
+        fn process_add_const<D: Domain>(
+            wires: &mut VecMap<D::Scalar>,
+            dst: usize,
+            src: usize,
+            c: D::Scalar,
+        ) {
             let a_w = wires.get(src);
             wires.set(dst, a_w + c);
         }
@@ -396,21 +474,86 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
         /// usize                       : position of output bit
         /// usize                       : position of carry out
         /// Vec<Instruction<BitScalar>> : Instruction set for adder with carry based on the given wire values as input.
-        fn adder<D: Domain>(wires: &mut VecMap<D::Scalar>, transcript: &mut RingHasher<D::Sharing>, masks: &mut Cloned<Iter<D::Sharing>>, ab_gamma: &mut Cloned<Iter<D::Sharing>>, broadcast: &mut ShareIterator<D, Cloned<Iter<D::Batch>>>, input1: usize, input2: usize, carry_in: usize, start_new_wires: usize) -> (usize, usize) {
+        fn adder<D: Domain>(
+            wires: &mut VecMap<D::Scalar>,
+            transcript: &mut RingHasher<D::Sharing>,
+            masks: &mut Cloned<Iter<D::Sharing>>,
+            ab_gamma: &mut Cloned<Iter<D::Sharing>>,
+            broadcast: &mut ShareIterator<D, Cloned<Iter<D::Batch>>>,
+            input1: usize,
+            input2: usize,
+            carry_in: usize,
+            start_new_wires: usize,
+        ) -> (usize, usize) {
             process_add::<D>(wires, start_new_wires, input1, input2);
             process_add::<D>(wires, start_new_wires + 1, carry_in, start_new_wires);
-            process_mul(wires, transcript, masks, ab_gamma, broadcast,start_new_wires + 2, carry_in, start_new_wires);
-            process_mul(wires, transcript, masks, ab_gamma, broadcast,start_new_wires + 3, input1, input2);
-            process_mul(wires, transcript, masks, ab_gamma, broadcast,start_new_wires + 4, start_new_wires + 2, start_new_wires + 3);
-            process_add::<D>(wires, start_new_wires + 5, start_new_wires + 2, start_new_wires + 3);
-            process_add::<D>(wires, start_new_wires + 6, start_new_wires + 4, start_new_wires + 5);
+            process_mul(
+                wires,
+                transcript,
+                masks,
+                ab_gamma,
+                broadcast,
+                start_new_wires + 2,
+                carry_in,
+                start_new_wires,
+            );
+            process_mul(
+                wires,
+                transcript,
+                masks,
+                ab_gamma,
+                broadcast,
+                start_new_wires + 3,
+                input1,
+                input2,
+            );
+            process_mul(
+                wires,
+                transcript,
+                masks,
+                ab_gamma,
+                broadcast,
+                start_new_wires + 4,
+                start_new_wires + 2,
+                start_new_wires + 3,
+            );
+            process_add::<D>(
+                wires,
+                start_new_wires + 5,
+                start_new_wires + 2,
+                start_new_wires + 3,
+            );
+            process_add::<D>(
+                wires,
+                start_new_wires + 6,
+                start_new_wires + 4,
+                start_new_wires + 5,
+            );
 
             (start_new_wires + 1, start_new_wires + 6)
         }
 
-        fn first_adder<D: Domain>(wires: &mut VecMap<D::Scalar>, transcript: &mut RingHasher<D::Sharing>, masks: &mut Cloned<Iter<D::Sharing>>, ab_gamma: &mut Cloned<Iter<D::Sharing>>, broadcast: &mut ShareIterator<D, Cloned<Iter<D::Batch>>>, input1: usize, input2: usize, start_new_wires: usize) -> (usize, usize) {
+        fn first_adder<D: Domain>(
+            wires: &mut VecMap<D::Scalar>,
+            transcript: &mut RingHasher<D::Sharing>,
+            masks: &mut Cloned<Iter<D::Sharing>>,
+            ab_gamma: &mut Cloned<Iter<D::Sharing>>,
+            broadcast: &mut ShareIterator<D, Cloned<Iter<D::Batch>>>,
+            input1: usize,
+            input2: usize,
+            start_new_wires: usize,
+        ) -> (usize, usize) {
             process_add::<D>(wires, start_new_wires, input1, input2);
-            process_mul(wires, transcript, masks, ab_gamma, broadcast, start_new_wires + 1, input1, input2);
+            process_mul(
+                wires,
+                transcript,
+                masks,
+                ab_gamma,
+                broadcast,
+                start_new_wires + 1,
+                input1,
+                input2,
+            );
 
             (start_new_wires, start_new_wires + 1)
         }
@@ -425,17 +568,45 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
         /// usize                        : position of output bit
         /// usize                        : position of carry out
         /// Vec<Instruction<BitScalar>>  : Instruction set for adder with carry based on the given wire values as input.
-        fn full_adder<D: Domain>(wires: &mut VecMap<D::Scalar>, transcript: &mut RingHasher<D::Sharing>, masks: &mut Cloned<Iter<D::Sharing>>, ab_gamma: &mut Cloned<Iter<D::Sharing>>, broadcast: &mut ShareIterator<D, Cloned<Iter<D::Batch>>>, start_input1: Vec<usize>, start_input2: Vec<usize>, start_new_wires: usize) -> (Vec<usize>, usize) {
+        fn full_adder<D: Domain>(
+            wires: &mut VecMap<D::Scalar>,
+            transcript: &mut RingHasher<D::Sharing>,
+            masks: &mut Cloned<Iter<D::Sharing>>,
+            ab_gamma: &mut Cloned<Iter<D::Sharing>>,
+            broadcast: &mut ShareIterator<D, Cloned<Iter<D::Batch>>>,
+            start_input1: Vec<usize>,
+            start_input2: Vec<usize>,
+            start_new_wires: usize,
+        ) -> (Vec<usize>, usize) {
             assert_eq!(start_input1.len(), start_input2.len());
             assert!(start_input1.len() > 0);
             let mut output_bits = Vec::new();
             let mut start_new_wires_mut = start_new_wires.clone();
 
-            let (mut output_bit, mut carry_out) = first_adder(wires, transcript, masks, ab_gamma, broadcast, start_input1[0], start_input2[0], start_new_wires);
+            let (mut output_bit, mut carry_out) = first_adder(
+                wires,
+                transcript,
+                masks,
+                ab_gamma,
+                broadcast,
+                start_input1[0],
+                start_input2[0],
+                start_new_wires,
+            );
             output_bits.push(output_bit);
             for i in 1..start_input1.len() {
                 start_new_wires_mut += carry_out;
-                let (output_bit1, carry_out1) = adder(wires, transcript, masks, ab_gamma, broadcast, start_input1[i], start_input2[i], carry_out, start_new_wires_mut);
+                let (output_bit1, carry_out1) = adder(
+                    wires,
+                    transcript,
+                    masks,
+                    ab_gamma,
+                    broadcast,
+                    start_input1[i],
+                    start_input2[i],
+                    carry_out,
+                    start_new_wires_mut,
+                );
                 output_bit = output_bit1;
                 carry_out = carry_out1;
                 output_bits.push(output_bit);
@@ -527,7 +698,11 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
 
     pub fn verify_omitted(oracle: &mut RandomOracle, omitted: Vec<usize>) -> bool {
         // verify opening indexes
-        let should_omit = random_vector(&mut oracle.clone().query(), D::PLAYERS, D::ONLINE_REPETITIONS);
+        let should_omit = random_vector(
+            &mut oracle.clone().query(),
+            D::PLAYERS,
+            D::ONLINE_REPETITIONS,
+        );
         if omitted[..] != should_omit {
             return false;
         }

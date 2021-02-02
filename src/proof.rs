@@ -34,8 +34,8 @@ pub struct Proof<D: Domain> {
 }
 
 impl<D: Domain> Proof<D>
-    where
-        D: Serialize,
+where
+    D: Serialize,
 {
     pub fn serialize(&self) -> Vec<u8> {
         bincode::serialize(self).unwrap()
@@ -43,8 +43,8 @@ impl<D: Domain> Proof<D>
 }
 
 impl<'de, D: Domain> Proof<D>
-    where
-        D: Deserialize<'de>,
+where
+    D: Deserialize<'de>,
 {
     pub fn deserialize(&self, bytes: &'de [u8]) -> Option<Self> {
         bincode::deserialize(bytes).ok()
@@ -82,16 +82,18 @@ impl<D: Domain> Proof<D> {
                 vec![],
                 vec![],
             )
-                .await;
+            .await;
             prover
-                .stream(send,
-                        program.iter().cloned(),
-                        witness.iter().cloned(),
-                        fieldswitching_input.clone(),
-                        fieldswitching_output.clone(),
-                        vec![],
-                        vec![],
-                ).await
+                .stream(
+                    send,
+                    program.iter().cloned(),
+                    witness.iter().cloned(),
+                    fieldswitching_input.clone(),
+                    fieldswitching_output.clone(),
+                    vec![],
+                    vec![],
+                )
+                .await
                 .unwrap();
             Some(online)
         }
@@ -103,13 +105,13 @@ impl<D: Domain> Proof<D> {
         OsRng.fill_bytes(&mut seed);
 
         // prove preprocessing
-        let (preprocessing, pp_output) =
-            preprocessing::Proof::new(seed,
-                                      &branches[..],
-                                      program.iter().cloned(),
-                                      fieldswitching_input.clone(),
-                                      fieldswitching_output.clone(),
-            );
+        let (preprocessing, pp_output) = preprocessing::Proof::new(
+            seed,
+            &branches[..],
+            program.iter().cloned(),
+            fieldswitching_input.clone(),
+            fieldswitching_output.clone(),
+        );
 
         // create prover for online phase
         let (send, recv) = bounded(CHANNEL_CAPACITY);
@@ -155,7 +157,16 @@ impl<D: Domain> Proof<D> {
             fieldswitching_output: Vec<Vec<usize>>,
         ) -> Result<online::Output<D>, String> {
             let verifier = online::StreamingVerifier::new(program.iter().cloned(), proof);
-            verifier.verify(bind.as_ref().map(|x| &x[..]), recv, fieldswitching_input, fieldswitching_output, vec![], vec![]).await
+            verifier
+                .verify(
+                    bind.as_ref().map(|x| &x[..]),
+                    recv,
+                    fieldswitching_input,
+                    fieldswitching_output,
+                    vec![],
+                    vec![],
+                )
+                .await
         }
 
         async fn preprocessing_verification<D: Domain>(
@@ -166,11 +177,14 @@ impl<D: Domain> Proof<D> {
             fieldswitching_output: Vec<Vec<usize>>,
         ) -> Option<preprocessing::Output<D>> {
             let branches: Vec<&[D::Scalar]> = branches.iter().map(|b| &b[..]).collect();
-            proof.verify(&branches[..],
-                         program.iter().cloned(),
-                         fieldswitching_input.clone(),
-                         fieldswitching_output.clone(),
-            ).await
+            proof
+                .verify(
+                    &branches[..],
+                    program.iter().cloned(),
+                    fieldswitching_input.clone(),
+                    fieldswitching_output.clone(),
+                )
+                .await
         }
 
         // verify pre-processing
@@ -271,7 +285,13 @@ impl<D: Domain> Proof<D> {
         fieldswitching_input: Vec<usize>,
         fieldswitching_output: Vec<Vec<usize>>,
     ) -> Result<Vec<D::Scalar>, String> {
-        task::block_on(self.verify_async(bind, Arc::new(branches), Arc::new(program), fieldswitching_input, fieldswitching_output))
+        task::block_on(self.verify_async(
+            bind,
+            Arc::new(branches),
+            Arc::new(program),
+            fieldswitching_input,
+            fieldswitching_output,
+        ))
     }
 }
 
@@ -316,7 +336,8 @@ mod tests {
 
         let branch_index = rng.gen::<usize>() % num_branches;
 
-        let (_wires, output) = evaluate_program::<D>(&program[..], &input[..], &branches[branch_index][..]);
+        let (_wires, output) =
+            evaluate_program::<D>(&program[..], &input[..], &branches[branch_index][..]);
 
         (program, input, branches, branch_index, output)
     }
@@ -682,7 +703,13 @@ mod tests {
                 vec![],
             );
             let verifier_output = proof
-                .verify(None, test.program.clone(), test.branches.clone(), vec![], vec![])
+                .verify(
+                    None,
+                    test.program.clone(),
+                    test.branches.clone(),
+                    vec![],
+                    vec![],
+                )
                 .unwrap();
             assert_eq!(verifier_output, output);
         }
@@ -694,9 +721,18 @@ mod tests {
     fn test_random_proof_gf2p8() {
         for _ in 0..10 {
             let (program, input, branches, branch_index, output) = random_instance::<GF2P8>();
-            let proof =
-                ProofGF2P8::new(None, program.clone(), branches.clone(), input, branch_index, vec![], vec![]);
-            let verifier_output = proof.verify(None, program, branches, vec![], vec![]).unwrap();
+            let proof = ProofGF2P8::new(
+                None,
+                program.clone(),
+                branches.clone(),
+                input,
+                branch_index,
+                vec![],
+                vec![],
+            );
+            let verifier_output = proof
+                .verify(None, program, branches, vec![], vec![])
+                .unwrap();
             assert_eq!(verifier_output, output);
         }
     }
@@ -707,9 +743,18 @@ mod tests {
     fn test_random_proof_gf2p64() {
         for _ in 0..10 {
             let (program, input, branches, branch_index, output) = random_instance::<GF2P64>();
-            let proof =
-                ProofGF2P64::new(None, program.clone(), branches.clone(), input, branch_index, vec![], vec![]);
-            let verifier_output = proof.verify(None, program, branches, vec![], vec![]).unwrap();
+            let proof = ProofGF2P64::new(
+                None,
+                program.clone(),
+                branches.clone(),
+                input,
+                branch_index,
+                vec![],
+                vec![],
+            );
+            let verifier_output = proof
+                .verify(None, program, branches, vec![], vec![])
+                .unwrap();
             assert_eq!(verifier_output, output);
         }
     }
@@ -720,9 +765,18 @@ mod tests {
     fn test_random_proof_gf2p64_64() {
         for _ in 0..10 {
             let (program, input, branches, branch_index, output) = random_instance::<GF2P64_64>();
-            let proof =
-                ProofGF2P64_64::new(None, program.clone(), branches.clone(), input, branch_index, vec![], vec![]);
-            let verifier_output = proof.verify(None, program, branches, vec![], vec![]).unwrap();
+            let proof = ProofGF2P64_64::new(
+                None,
+                program.clone(),
+                branches.clone(),
+                input,
+                branch_index,
+                vec![],
+                vec![],
+            );
+            let verifier_output = proof
+                .verify(None, program, branches, vec![], vec![])
+                .unwrap();
             assert_eq!(verifier_output, output);
         }
     }
@@ -733,9 +787,18 @@ mod tests {
     fn test_random_proof_gf2p64_85() {
         for _ in 0..10 {
             let (program, input, branches, branch_index, output) = random_instance::<GF2P64_85>();
-            let proof =
-                ProofGF2P64_85::new(None, program.clone(), branches.clone(), input, branch_index, vec![], vec![]);
-            let verifier_output = proof.verify(None, program, branches, vec![], vec![]).unwrap();
+            let proof = ProofGF2P64_85::new(
+                None,
+                program.clone(),
+                branches.clone(),
+                input,
+                branch_index,
+                vec![],
+                vec![],
+            );
+            let verifier_output = proof
+                .verify(None, program, branches, vec![], vec![])
+                .unwrap();
             assert_eq!(verifier_output, output);
         }
     }

@@ -174,11 +174,17 @@ impl<D: Domain> PreprocessingExecution<D> {
                     nr_of_wires = nr;
                 }
                 Instruction::LocalOp(dst, src) => {
-                    assert_ne!(nr_of_wires, 0, "Make sure to have Instruction::NrOfWires as first gate in a program");
+                    assert_ne!(
+                        nr_of_wires, 0,
+                        "Make sure to have Instruction::NrOfWires as first gate in a program"
+                    );
                     self.masks.set(dst, self.masks.get(src).operation());
                 }
                 Instruction::Branch(dst) => {
-                    assert_ne!(nr_of_wires, 0, "Make sure to have Instruction::NrOfWires as first gate in a program");
+                    assert_ne!(
+                        nr_of_wires, 0,
+                        "Make sure to have Instruction::NrOfWires as first gate in a program"
+                    );
                     // check if need for new batch of branch masks
                     let mask = self.shares.branch.next();
 
@@ -186,7 +192,10 @@ impl<D: Domain> PreprocessingExecution<D> {
                     self.masks.set(dst, mask);
                 }
                 Instruction::Input(dst) => {
-                    assert_ne!(nr_of_wires, 0, "Make sure to have Instruction::NrOfWires as first gate in a program");
+                    assert_ne!(
+                        nr_of_wires, 0,
+                        "Make sure to have Instruction::NrOfWires as first gate in a program"
+                    );
 
                     let mut new_dst = dst;
                     if fieldswitching_input.contains(&dst) {
@@ -205,17 +214,26 @@ impl<D: Domain> PreprocessingExecution<D> {
                     }
                 }
                 Instruction::Const(dst, _c) => {
-                    assert_ne!(nr_of_wires, 0, "Make sure to have Instruction::NrOfWires as first gate in a program");
+                    assert_ne!(
+                        nr_of_wires, 0,
+                        "Make sure to have Instruction::NrOfWires as first gate in a program"
+                    );
                     self.masks.set(dst, D::Sharing::ZERO);
                     // We don't need to mask constant inputs because the circuit is public
                 }
                 Instruction::AddConst(dst, src, _c) => {
-                    assert_ne!(nr_of_wires, 0, "Make sure to have Instruction::NrOfWires as first gate in a program");
+                    assert_ne!(
+                        nr_of_wires, 0,
+                        "Make sure to have Instruction::NrOfWires as first gate in a program"
+                    );
                     // noop in pre-processing
                     self.masks.set(dst, self.masks.get(src));
                 }
                 Instruction::MulConst(dst, src, c) => {
-                    assert_ne!(nr_of_wires, 0, "Make sure to have Instruction::NrOfWires as first gate in a program");
+                    assert_ne!(
+                        nr_of_wires, 0,
+                        "Make sure to have Instruction::NrOfWires as first gate in a program"
+                    );
                     // resolve input
                     let sw = self.masks.get(src);
 
@@ -223,15 +241,33 @@ impl<D: Domain> PreprocessingExecution<D> {
                     self.masks.set(dst, sw.action(c));
                 }
                 Instruction::Add(dst, src1, src2) => {
-                    assert_ne!(nr_of_wires, 0, "Make sure to have Instruction::NrOfWires as first gate in a program");
+                    assert_ne!(
+                        nr_of_wires, 0,
+                        "Make sure to have Instruction::NrOfWires as first gate in a program"
+                    );
                     self.process_add(dst, src1, src2);
                 }
                 Instruction::Mul(dst, src1, src2) => {
-                    assert_ne!(nr_of_wires, 0, "Make sure to have Instruction::NrOfWires as first gate in a program");
-                    self.process_mul(&mut corrections, masks, ab_gamma, &mut batch_a, &mut batch_b, dst, src1, src2)?;
+                    assert_ne!(
+                        nr_of_wires, 0,
+                        "Make sure to have Instruction::NrOfWires as first gate in a program"
+                    );
+                    self.process_mul(
+                        &mut corrections,
+                        masks,
+                        ab_gamma,
+                        &mut batch_a,
+                        &mut batch_b,
+                        dst,
+                        src1,
+                        src2,
+                    )?;
                 }
                 Instruction::Output(src) => {
-                    assert_ne!(nr_of_wires, 0, "Make sure to have Instruction::NrOfWires as first gate in a program");
+                    assert_ne!(
+                        nr_of_wires, 0,
+                        "Make sure to have Instruction::NrOfWires as first gate in a program"
+                    );
 
                     let mut found = false;
                     let mut out_list = Vec::new();
@@ -251,7 +287,16 @@ impl<D: Domain> PreprocessingExecution<D> {
                                 zeroes.push(nr_of_wires);
                                 nr_of_wires += 1;
                             }
-                            let (outputs, carry_out) = self.full_adder(&mut corrections, masks, ab_gamma, &mut batch_a, &mut batch_b, out_list, zeroes, nr_of_wires);
+                            let (outputs, carry_out) = self.full_adder(
+                                &mut corrections,
+                                masks,
+                                ab_gamma,
+                                &mut batch_a,
+                                &mut batch_b,
+                                out_list,
+                                zeroes,
+                                nr_of_wires,
+                            );
                             nr_of_wires = carry_out;
                             for outs in outputs {
                                 masks.write(self.masks.get(outs));
@@ -280,7 +325,17 @@ impl<D: Domain> PreprocessingExecution<D> {
             .set(dst, self.masks.get(src1) + self.masks.get(src2));
     }
 
-    fn process_mul(&mut self, mut corrections: &mut Cloned<Iter<<D as Domain>::Batch>>, masks: &mut Vec<<D as Domain>::Sharing>, ab_gamma: &mut Vec<<D as Domain>::Sharing>, mut batch_a: &mut Vec<D::Batch>, mut batch_b: &mut Vec<D::Batch>, dst: usize, src1: usize, src2: usize) -> Option<()> {
+    fn process_mul(
+        &mut self,
+        mut corrections: &mut Cloned<Iter<<D as Domain>::Batch>>,
+        masks: &mut Vec<<D as Domain>::Sharing>,
+        ab_gamma: &mut Vec<<D as Domain>::Sharing>,
+        mut batch_a: &mut Vec<D::Batch>,
+        mut batch_b: &mut Vec<D::Batch>,
+        dst: usize,
+        src1: usize,
+        src2: usize,
+    ) -> Option<()> {
         // push the input masks to the stack
         let mask_a = self.masks.get(src1);
         let mask_b = self.masks.get(src2);
@@ -314,21 +369,86 @@ impl<D: Domain> PreprocessingExecution<D> {
     /// usize                       : position of output bit
     /// usize                       : position of carry out
     /// Vec<Instruction<BitScalar>> : Instruction set for adder with carry based on the given wire values as input.
-    fn adder(&mut self, corrections: &mut Cloned<Iter<<D as Domain>::Batch>>, masks: &mut Vec<<D as Domain>::Sharing>, ab_gamma: &mut Vec<<D as Domain>::Sharing>, batch_a: &mut Vec<D::Batch>, batch_b: &mut Vec<D::Batch>, input1: usize, input2: usize, carry_in: usize, start_new_wires: usize) -> (usize, usize) {
+    fn adder(
+        &mut self,
+        corrections: &mut Cloned<Iter<<D as Domain>::Batch>>,
+        masks: &mut Vec<<D as Domain>::Sharing>,
+        ab_gamma: &mut Vec<<D as Domain>::Sharing>,
+        batch_a: &mut Vec<D::Batch>,
+        batch_b: &mut Vec<D::Batch>,
+        input1: usize,
+        input2: usize,
+        carry_in: usize,
+        start_new_wires: usize,
+    ) -> (usize, usize) {
         self.process_add(start_new_wires, input1, input2);
         self.process_add(start_new_wires + 1, carry_in, start_new_wires);
-        self.process_mul(corrections, masks, ab_gamma, batch_a, batch_b, start_new_wires + 2, carry_in, start_new_wires);
-        self.process_mul(corrections, masks, ab_gamma, batch_a, batch_b, start_new_wires + 3, input1, input2);
-        self.process_mul(corrections, masks, ab_gamma, batch_a, batch_b, start_new_wires + 4, start_new_wires + 2, start_new_wires + 3);
-        self.process_add(start_new_wires + 5, start_new_wires + 2, start_new_wires + 3);
-        self.process_add(start_new_wires + 6, start_new_wires + 4, start_new_wires + 5);
+        self.process_mul(
+            corrections,
+            masks,
+            ab_gamma,
+            batch_a,
+            batch_b,
+            start_new_wires + 2,
+            carry_in,
+            start_new_wires,
+        );
+        self.process_mul(
+            corrections,
+            masks,
+            ab_gamma,
+            batch_a,
+            batch_b,
+            start_new_wires + 3,
+            input1,
+            input2,
+        );
+        self.process_mul(
+            corrections,
+            masks,
+            ab_gamma,
+            batch_a,
+            batch_b,
+            start_new_wires + 4,
+            start_new_wires + 2,
+            start_new_wires + 3,
+        );
+        self.process_add(
+            start_new_wires + 5,
+            start_new_wires + 2,
+            start_new_wires + 3,
+        );
+        self.process_add(
+            start_new_wires + 6,
+            start_new_wires + 4,
+            start_new_wires + 5,
+        );
 
         (start_new_wires + 1, start_new_wires + 6)
     }
 
-    fn first_adder(&mut self, corrections: &mut Cloned<Iter<<D as Domain>::Batch>>, masks: &mut Vec<<D as Domain>::Sharing>, ab_gamma: &mut Vec<<D as Domain>::Sharing>, batch_a: &mut Vec<D::Batch>, batch_b: &mut Vec<D::Batch>, input1: usize, input2: usize, start_new_wires: usize) -> (usize, usize) {
+    fn first_adder(
+        &mut self,
+        corrections: &mut Cloned<Iter<<D as Domain>::Batch>>,
+        masks: &mut Vec<<D as Domain>::Sharing>,
+        ab_gamma: &mut Vec<<D as Domain>::Sharing>,
+        batch_a: &mut Vec<D::Batch>,
+        batch_b: &mut Vec<D::Batch>,
+        input1: usize,
+        input2: usize,
+        start_new_wires: usize,
+    ) -> (usize, usize) {
         self.process_add(start_new_wires, input1, input2);
-        self.process_mul(corrections, masks, ab_gamma, batch_a, batch_b, start_new_wires + 1, input1, input2);
+        self.process_mul(
+            corrections,
+            masks,
+            ab_gamma,
+            batch_a,
+            batch_b,
+            start_new_wires + 1,
+            input1,
+            input2,
+        );
 
         (start_new_wires, start_new_wires + 1)
     }
@@ -343,17 +463,46 @@ impl<D: Domain> PreprocessingExecution<D> {
     /// usize                        : position of output bit
     /// usize                        : position of carry out
     /// Vec<Instruction<BitScalar>>  : Instruction set for adder with carry based on the given wire values as input.
-    fn full_adder(&mut self, corrections: &mut Cloned<Iter<<D as Domain>::Batch>>, masks: &mut Vec<<D as Domain>::Sharing>, ab_gamma: &mut Vec<<D as Domain>::Sharing>, batch_a: &mut Vec<D::Batch>,  batch_b: &mut Vec<D::Batch>, start_input1: Vec<usize>, start_input2: Vec<usize>, start_new_wires: usize) -> (Vec<usize>, usize) {
+    fn full_adder(
+        &mut self,
+        corrections: &mut Cloned<Iter<<D as Domain>::Batch>>,
+        masks: &mut Vec<<D as Domain>::Sharing>,
+        ab_gamma: &mut Vec<<D as Domain>::Sharing>,
+        batch_a: &mut Vec<D::Batch>,
+        batch_b: &mut Vec<D::Batch>,
+        start_input1: Vec<usize>,
+        start_input2: Vec<usize>,
+        start_new_wires: usize,
+    ) -> (Vec<usize>, usize) {
         assert_eq!(start_input1.len(), start_input2.len());
         assert!(start_input1.len() > 0);
         let mut output_bits = Vec::new();
         let mut start_new_wires_mut = start_new_wires.clone();
 
-        let (mut output_bit, mut carry_out) = self.first_adder(corrections, masks, ab_gamma, batch_a, batch_b, start_input1[0], start_input2[0], start_new_wires);
+        let (mut output_bit, mut carry_out) = self.first_adder(
+            corrections,
+            masks,
+            ab_gamma,
+            batch_a,
+            batch_b,
+            start_input1[0],
+            start_input2[0],
+            start_new_wires,
+        );
         output_bits.push(output_bit);
         for i in 1..start_input1.len() {
             start_new_wires_mut += carry_out;
-            let (output_bit1, carry_out1) = self.adder(corrections, masks, ab_gamma, batch_a, batch_b, start_input1[i], start_input2[i], carry_out, start_new_wires_mut);
+            let (output_bit1, carry_out1) = self.adder(
+                corrections,
+                masks,
+                ab_gamma,
+                batch_a,
+                batch_b,
+                start_input1[i],
+                start_input2[i],
+                carry_out,
+                start_new_wires_mut,
+            );
             output_bit = output_bit1;
             carry_out = carry_out1;
             output_bits.push(output_bit);

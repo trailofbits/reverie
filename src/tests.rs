@@ -1,10 +1,10 @@
 use crate::algebra::*;
 use crate::util::VecMap;
-use crate::{Instruction, ConnectionInstruction};
+use crate::{ConnectionInstruction, Instruction};
 
-use rand::{Rng, thread_rng};
+use crate::algebra::gf2::{BitScalar, GF2P8};
 use rand::RngCore;
-use crate::algebra::gf2::{GF2P8, BitScalar};
+use rand::{thread_rng, Rng};
 
 pub fn random_scalar<D: Domain, R: RngCore>(rng: &mut R) -> D::Scalar {
     let mut share = vec![D::Sharing::ZERO; D::Batch::DIMENSION];
@@ -83,7 +83,6 @@ pub fn evaluate_fieldswitching_btoa_program<D: Domain, D2: Domain>(
     let (out_wires, output1) = evaluate_program::<D2>(program2, inputs2, branch2);
 
     let mut wires1 = Vec::new();
-
 
     for step in conn_program {
         match *step {
@@ -213,7 +212,14 @@ pub fn test_evaluate_program() {
     let branch: Vec<BitScalar> = vec![];
     let branches: Vec<Vec<BitScalar>> = vec![branch];
 
-    let output = evaluate_fieldswitching_btoa_program::<GF2P8, GF2P8>(&conn_program[..], &program1[..], &program2[..], &input[..], &branches[0][..], &branches[0][..]);
+    let output = evaluate_fieldswitching_btoa_program::<GF2P8, GF2P8>(
+        &conn_program[..],
+        &program1[..],
+        &program2[..],
+        &input[..],
+        &branches[0][..],
+        &branches[0][..],
+    );
     assert_eq!(output, input);
 }
 
