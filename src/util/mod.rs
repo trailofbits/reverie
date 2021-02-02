@@ -9,13 +9,9 @@ pub use vec::VecMap;
 pub use writer::*;
 
 use std::mem;
-use std::time::Duration;
 
 use std::cmp::max;
 use sysinfo::SystemExt;
-
-const SLEEP_TIME: Duration = Duration::from_millis(2000);
-const FREE_MB: u64 = 512;
 
 pub const fn log2(x: usize) -> usize {
     (mem::size_of::<usize>() * 8) - (x.leading_zeros() as usize) - 1
@@ -30,7 +26,7 @@ pub fn wait_for_mem() {
 }
 
 pub fn chunks_to_fit_in_memory(ngates: Option<usize>, ncopies: usize) -> usize {
-    let mut ngate = 0;
+    let ngate: u64;
     match ngates {
         None => {
             return 1;
@@ -42,7 +38,10 @@ pub fn chunks_to_fit_in_memory(ngates: Option<usize>, ncopies: usize) -> usize {
     let mut system = sysinfo::System::new();
     system.refresh_all();
     let available_bytes = system.get_available_memory() * 1000;
-    let estimated_bytes = max(available_bytes, (ncopies as u64) * (300 * ngate - 38_400_000));
+    let estimated_bytes = max(
+        available_bytes,
+        (ncopies as u64) * (300 * ngate - 38_400_000),
+    );
     ((estimated_bytes + available_bytes - 1) / available_bytes) as usize
 }
 
