@@ -11,6 +11,7 @@ pub use writer::*;
 use std::mem;
 use std::time::Duration;
 
+use std::cmp::max;
 use sysinfo::SystemExt;
 
 const SLEEP_TIME: Duration = Duration::from_millis(2000);
@@ -25,20 +26,24 @@ pub fn read_n<T, I: Iterator<Item = T>>(src: &mut I, n: usize) -> Vec<T> {
 }
 
 pub fn wait_for_mem() {
-    let mut printed: bool = false;
-    let mut system = sysinfo::System::new();
-    loop {
-        system.refresh_all();
-        let available_mem = system.get_available_memory();
-        if available_mem > (FREE_MB * 1000) {
-            break;
+    unimplemented!("Use chunks_to_fit_in_memory instead!");
+}
+
+pub fn chunks_to_fit_in_memory(ngates: Option<usize>, ncopies: usize) -> usize {
+    let mut ngate = 0;
+    match ngates {
+        None => {
+            return 1;
         }
-        if !printed {
-            println!("System only has {} kB of memory available. Waiting until {} MB is available before scheduling more tasks...", available_mem, FREE_MB);
-            printed = true;
+        Some(n) => {
+            ngate = n as u64;
         }
-        std::thread::sleep(SLEEP_TIME);
     }
+    let mut system = sysinfo::System::new();
+    system.refresh_all();
+    let available_bytes = system.get_available_memory() * 1000;
+    let estimated_bytes = max(available_bytes, (ncopies as u64) * (300 * ngate - 38_400_000));
+    ((estimated_bytes + available_bytes - 1) / available_bytes) as usize
 }
 
 #[cfg(test)]
