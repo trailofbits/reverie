@@ -196,6 +196,21 @@ impl<D: Domain> Proof<D> {
         fieldswitching_input: Vec<usize>,
         fieldswitching_output: Vec<Vec<usize>>,
     ) -> Option<Output<D>> {
+        let mut oracle = RandomOracle::new(CONTEXT_ORACLE_PREPROCESSING, None);
+
+        let (hidden, output) = match self.verify_round_1(branches, program, fieldswitching_input, fieldswitching_output, &mut oracle).await {
+            Some(out) => out,
+            None => return None
+        };
+
+        if !<Proof<D>>::verify_challenge(&mut oracle, hidden) {
+            return None;
+        }
+
+        Some(output)
+    }
+
+    pub async fn verify_round_1<PI: Iterator<Item=Instruction<D::Scalar>>>(&self, branches: &[&[<D as Domain>::Scalar]], program: PI, fieldswitching_input: Vec<usize>, fieldswitching_output: Vec<Vec<usize>>, oracle: &mut RandomOracle) -> Option<(Vec<usize>, Output<D>)> {
         // pack branch scalars into batches for efficiency
         let branches = Arc::new(pack_branches::<D>(branches));
 
@@ -252,15 +267,18 @@ impl<D: Domain> Proof<D> {
         }
 
         debug_assert_eq!(hashes.len(), D::PREPROCESSING_REPETITIONS);
+        for hash in hashes.iter() {
+            oracle.feed(hash.as_bytes());
+        }
+        Some((hidden, Output {
+            hidden: self.hidden.to_vec(),
+            _ph: PhantomData,
+        }))
+    }
 
+    pub fn verify_challenge(oracle: &mut RandomOracle, hidden: Vec<usize>) -> bool {
         // feed to the Random-Oracle
-        let mut challenge_prg = {
-            let mut oracle = RandomOracle::new(CONTEXT_ORACLE_PREPROCESSING, None);
-            for hash in hashes.iter() {
-                oracle.feed(hash.as_bytes());
-            }
-            oracle.query()
-        };
+        let mut challenge_prg = oracle.clone().query();
 
         // accept if the hidden indexes where computed correctly (Fiat-Shamir transform)
         let subset: Vec<usize> = random_subset(
@@ -268,14 +286,8 @@ impl<D: Domain> Proof<D> {
             D::PREPROCESSING_REPETITIONS,
             D::ONLINE_REPETITIONS,
         );
-        if hidden[..] == subset[..] {
-            Some(Output {
-                hidden: self.hidden.to_vec(),
-                _ph: PhantomData,
-            })
-        } else {
-            None
-        }
+        let x = hidden[..] == subset[..];
+        x
     }
 
     /// Create a new pre-processing proof.
@@ -288,33 +300,16 @@ impl<D: Domain> Proof<D> {
         fieldswitching_input: Vec<usize>,
         fieldswitching_output: Vec<Vec<usize>>,
     ) -> (Self, PreprocessingOutput<D>) {
-        // pack branch scalars into batches for efficiency
-        let branches = Arc::new(pack_branches::<D>(branches));
+        let mut oracle = RandomOracle::new(CONTEXT_ORACLE_PREPROCESSING, None);
 
-        // expand the global seed into per-repetition roots
-        let mut roots: Vec<[u8; KEY_SIZE]> = vec![[0; KEY_SIZE]; D::PREPROCESSING_REPETITIONS];
-        TreePRF::expand_full(&mut roots, global);
+        let (branches, roots, results) = <Proof<D>>::new_round_1(global, branches, program, fieldswitching_input, fieldswitching_output, &mut oracle);
 
-        // block and wait for hashes to compute
-        let results = task::block_on(Self::preprocess(&roots[..], branches.clone(), program, fieldswitching_input, fieldswitching_output));
+        let hidden = <Proof<D>>::get_challenge(&mut oracle);
 
-        // send the pre-processing commitments to the random oracle, receive challenges
-        let mut challenge_prg = {
-            let mut oracle = RandomOracle::new(CONTEXT_ORACLE_PREPROCESSING, None);
-            for (hash, _) in results.iter() {
-                oracle.feed(hash.as_bytes());
-            }
-            oracle.query()
-        };
+        <Proof<D>>::new_round_3(global, branches, roots, results, hidden)
+    }
 
-        // interpret the oracle response as a subset of indexes to hide
-        // (implicitly: which executions to open)
-        let hidden: Vec<usize> = random_subset(
-            &mut challenge_prg,
-            D::PREPROCESSING_REPETITIONS,
-            D::ONLINE_REPETITIONS,
-        );
-
+    pub fn new_round_3(global: [u8; 32], branches: Arc<Vec<Vec<<D as Domain>::Batch>>>, roots: Vec<[u8; 32]>, results: Vec<(Hash, Vec<Hash>)>, hidden: Vec<usize>) -> (Proof<D>, PreprocessingOutput<D>) {
         // puncture the prf at the hidden indexes
         // (implicitly: pass the randomness for all other executions to the verifier)
         let mut tree: TreePRF = TreePRF::new(D::PREPROCESSING_REPETITIONS, global);
@@ -361,6 +356,35 @@ impl<D: Domain> Proof<D> {
                 hidden: hidden_runs,
             },
         )
+    }
+
+    pub(crate) fn get_challenge(oracle: &mut RandomOracle) -> Vec<usize> {
+// interpret the oracle response as a subset of indexes to hide
+        // (implicitly: which executions to open)
+        let hidden: Vec<usize> = random_subset(
+            &mut oracle.clone().query(),
+            D::PREPROCESSING_REPETITIONS,
+            D::ONLINE_REPETITIONS,
+        );
+        hidden
+    }
+
+    pub  fn new_round_1<PI: Iterator<Item=Instruction<D::Scalar>>>(global: [u8; 32], branches: &[&[<D as Domain>::Scalar]], program: PI, fieldswitching_input: Vec<usize>, fieldswitching_output: Vec<Vec<usize>>, oracle: &mut RandomOracle) -> (Arc<Vec<Vec<<D as Domain>::Batch>>>, Vec<[u8; 32]>, Vec<(Hash, Vec<Hash>)>) {
+// pack branch scalars into batches for efficiency
+        let branches = Arc::new(pack_branches::<D>(branches));
+
+        // expand the global seed into per-repetition roots
+        let mut roots: Vec<[u8; KEY_SIZE]> = vec![[0; KEY_SIZE]; D::PREPROCESSING_REPETITIONS];
+        TreePRF::expand_full(&mut roots, global);
+
+        // block and wait for hashes to compute
+        let results = task::block_on(Self::preprocess(&roots[..], branches.clone(), program, fieldswitching_input, fieldswitching_output));
+
+        // send the pre-processing commitments to the random oracle, receive challenges
+        for (hash, _) in results.iter() {
+            oracle.feed(hash.as_bytes());
+        }
+        (branches, roots, results)
     }
 }
 

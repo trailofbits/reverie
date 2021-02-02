@@ -569,8 +569,8 @@ impl<D: Domain> StreamingProver<D> {
         bind: Option<&[u8]>, // included Fiat-Shamir transform (for signatures of knowledge)
         preprocessing: PreprocessingOutput<D>, // output of preprocessing
         branch_index: usize, // branch index (from preprocessing)
-        mut program: PI,
-        mut witness: WI,
+        program: PI,
+        witness: WI,
         fieldswitching_input: Vec<usize>,
         fieldswitching_output: Vec<Vec<usize>>,
         eda_bits: Vec<Vec<D::Sharing>>,

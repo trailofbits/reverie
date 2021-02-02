@@ -182,13 +182,13 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             let mut oracle = RandomOracle::new(CONTEXT_ORACLE_ONLINE, bind.as_ref().map(|x| &x[..]));
 
             let verifier1 = online::StreamingVerifier::new(program1.iter().cloned(), proof1);
-            let (mut omitted1, _result1) = match verifier1.verify_round_1(recv1, vec![], fieldswitching_output, preprocessed.eda_bits, vec![], &mut oracle).await {
+            let (omitted1, _result1) = match verifier1.verify_round_1(recv1, vec![], fieldswitching_output, preprocessed.eda_bits, vec![], &mut oracle).await {
                 Ok(out) => out,
                 Err(e) => return Err(e),
             };
 
             let verifier2 = online::StreamingVerifier::new(program2.iter().cloned(), proof2);
-            let (mut omitted2, result2) = match verifier2.verify_round_1(recv2, fieldswitching_input, vec![], vec![], preprocessed.eda_composed, &mut oracle).await {
+            let (omitted2, result2) = match verifier2.verify_round_1(recv2, fieldswitching_input, vec![], vec![], preprocessed.eda_composed, &mut oracle).await {
                 Ok(out) => out,
                 Err(e) => return Err(e),
             };

@@ -95,9 +95,9 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
     }
 
     pub async fn verify(
-        mut self,
+        self,
         bind: Option<&[u8]>,
-        mut proof: Receiver<Vec<u8>>,
+        proof: Receiver<Vec<u8>>,
         fieldswitching_input: Vec<usize>,
         fieldswitching_output: Vec<Vec<usize>>,
         eda_bits: Vec<Vec<D::Sharing>>,
@@ -105,7 +105,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
     ) -> Result<Output<D>, String> {
         let mut oracle = RandomOracle::new(CONTEXT_ORACLE_ONLINE, bind);
 
-        let (mut omitted, out) = match self.verify_round_1(proof, fieldswitching_input, fieldswitching_output, eda_bits, eda_composed, &mut oracle).await {
+        let (omitted, out) = match self.verify_round_1(proof, fieldswitching_input, fieldswitching_output, eda_bits, eda_composed, &mut oracle).await {
             Ok(out) => out,
             Err(e) => return Err(e)
         };
@@ -525,7 +525,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
         Ok((omitted, Output { pp_hashes, result }))
     }
 
-    pub fn verify_omitted(mut oracle: &mut RandomOracle, omitted: Vec<usize>) -> bool {
+    pub fn verify_omitted(oracle: &mut RandomOracle, omitted: Vec<usize>) -> bool {
         // verify opening indexes
         let should_omit = random_vector(&mut oracle.clone().query(), D::PLAYERS, D::ONLINE_REPETITIONS);
         if omitted[..] != should_omit {
