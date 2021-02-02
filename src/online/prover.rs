@@ -577,7 +577,29 @@ impl<D: Domain> StreamingProver<D> {
         eda_composed: Vec<D::Sharing>,
     ) -> (Proof<D>, Self) {
         assert_eq!(preprocessing.hidden.len(), D::ONLINE_REPETITIONS);
+        let mut oracle = RandomOracle::new(CONTEXT_ORACLE_ONLINE, bind);
 
+        let (branch, masked_branches, _output) = <StreamingProver<D>>::new_round_1(preprocessing.clone(), branch_index, program, witness, fieldswitching_input, fieldswitching_output, eda_bits, eda_composed, &mut oracle).await;
+
+        let omitted = <StreamingProver<D>>::get_challenge(&mut oracle);
+
+        <StreamingProver<D>>::new_round_3(preprocessing, branch, masked_branches, omitted)
+    }
+
+    pub async fn new_round_1<
+        PI: Iterator<Item=Instruction<D::Scalar>>,
+        WI: Iterator<Item=D::Scalar>
+    >(
+        preprocessing: PreprocessingOutput<D>,
+        branch_index: usize,
+        mut program: PI,
+        mut witness: WI,
+        fieldswitching_input: Vec<usize>,
+        fieldswitching_output: Vec<Vec<usize>>,
+        eda_bits: Vec<Vec<<D as Domain>::Sharing>>,
+        eda_composed: Vec<<D as Domain>::Sharing>,
+        oracle: &mut RandomOracle
+    ) -> (Arc<Vec<<D as Domain>::Scalar>>, Vec<(Vec<u8>, MerkleSetProof)>, Vec<D::Scalar>) {
         async fn process<D: Domain>(
             root: [u8; KEY_SIZE],
             branches: Arc<Vec<Vec<D::Batch>>>,
@@ -712,23 +734,34 @@ impl<D: Domain> StreamingProver<D> {
         inputs.clear();
 
         // extract which players to omit in every run (Fiat-Shamir)
-        let mut oracle = RandomOracle::new(CONTEXT_ORACLE_ONLINE, bind);
         let mut masked_branches = Vec::with_capacity(D::ONLINE_REPETITIONS);
+        let mut output = Vec::new();
 
         for (pp, t) in preprocessing.hidden.iter().zip(tasks.into_iter()) {
             let (masked, proof, transcript, _output) = t.await.unwrap();
+            output = _output;
             masked_branches.push((masked, proof));
 
             // RO((preprocessing, transcript))
             oracle.feed(pp.union.as_bytes());
             oracle.feed(transcript.as_bytes());
         }
+        (branch, masked_branches, output)
+    }
 
+    pub fn get_challenge(oracle: &mut RandomOracle) -> Vec<usize> {
         let omitted: Vec<usize> =
-            random_vector(&mut oracle.query(), D::PLAYERS, D::ONLINE_REPETITIONS);
+            random_vector(&mut oracle.clone().query(), D::PLAYERS, D::ONLINE_REPETITIONS);
 
         debug_assert_eq!(omitted.len(), D::ONLINE_REPETITIONS);
+        omitted
+    }
 
+    pub fn new_round_3(preprocessing: PreprocessingOutput<D>,
+                       branch: Arc<Vec<<D as Domain>::Scalar>>,
+                       masked_branches: Vec<(Vec<u8>, MerkleSetProof)>,
+                       omitted: Vec<usize>
+    ) -> (Proof<D>, StreamingProver<D>) {
         (
             Proof {
                 // omit player from TreePRF and provide pre-processing commitment

@@ -103,6 +103,24 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
         eda_bits: Vec<Vec<D::Sharing>>,
         eda_composed: Vec<D::Sharing>,
     ) -> Result<Output<D>, String> {
+        let mut oracle = RandomOracle::new(CONTEXT_ORACLE_ONLINE, bind);
+
+        let (mut omitted, out) = match self.verify_round_1(proof, fieldswitching_input, fieldswitching_output, eda_bits, eda_composed, &mut oracle).await {
+            Ok(out) => out,
+            Err(e) => return Err(e)
+        };
+
+        if !<StreamingVerifier<D, PI>>::verify_omitted(&mut oracle, omitted) {
+            return Err(String::from(
+                "Omitted shares did not match expected omissions",
+            ))
+        }
+
+        Ok(out)
+    }
+
+    pub async fn verify_round_1(mut self, mut proof: Receiver<Vec<u8>>, fieldswitching_input: Vec<usize>, fieldswitching_output: Vec<Vec<usize>>, eda_bits: Vec<Vec<D::Sharing>>, eda_composed: Vec<D::Sharing>, oracle: &mut RandomOracle) -> Result<(Vec<usize>, Output<D>), String> {
+
         async fn process<D: Domain>(
             run: Run<D>,
             outputs: Sender<()>,
@@ -218,12 +236,12 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                                         let w: D::Scalar = wires.get(src);
                                         wires.set(dst, w.operation());
                                         #[cfg(feature = "trace")]
-                                        {
-                                            println!(
-                                                "verifier-perm  : wire = {:?}",
-                                                wires.get(dst)
-                                            );
-                                        }
+                                            {
+                                                println!(
+                                                    "verifier-perm  : wire = {:?}",
+                                                    wires.get(dst)
+                                                );
+                                            }
                                     }
                                     Instruction::Input(dst) => {
                                         assert_ne!(nr_of_wires, 0);
@@ -235,12 +253,12 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
 
                                         wires.set(new_dst, witness.next()?);
                                         #[cfg(feature = "trace")]
-                                        {
-                                            println!(
-                                                "verifier-input : wire = {:?}",
-                                                wires.get(new_dst)
-                                            );
-                                        }
+                                            {
+                                                println!(
+                                                    "verifier-input : wire = {:?}",
+                                                    wires.get(new_dst)
+                                                );
+                                            }
 
                                         if fieldswitching_input.contains(&dst) {
                                             //TODO(gvl) Subtract constant instead of add
@@ -479,7 +497,6 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
 
         // collect transcript hashes from all executions
         let mut result: Vec<D::Scalar> = vec![];
-        let mut oracle = RandomOracle::new(CONTEXT_ORACLE_ONLINE, bind);
         let mut omitted: Vec<usize> = Vec::with_capacity(D::ONLINE_REPETITIONS);
         let mut pp_hashes: Vec<Hash> = Vec::with_capacity(D::ONLINE_REPETITIONS);
         {
@@ -502,18 +519,21 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
             }
         }
 
-        // verify opening indexes
-        let should_omit = random_vector(&mut oracle.query(), D::PLAYERS, D::ONLINE_REPETITIONS);
-        if omitted[..] != should_omit {
-            return Err(String::from(
-                "Omitted shares did not match expected omissions",
-            ));
-        }
-
         debug_assert_eq!(pp_hashes.len(), D::ONLINE_REPETITIONS);
-        debug_assert_eq!(should_omit.len(), D::ONLINE_REPETITIONS);
 
         // return output to verify against pre-processing
-        Ok(Output { pp_hashes, result })
+        Ok((omitted, Output { pp_hashes, result }))
+    }
+
+    pub fn verify_omitted(mut oracle: &mut RandomOracle, omitted: Vec<usize>) -> bool {
+        // verify opening indexes
+        let should_omit = random_vector(&mut oracle.clone().query(), D::PLAYERS, D::ONLINE_REPETITIONS);
+        if omitted[..] != should_omit {
+            return false;
+        }
+
+        debug_assert_eq!(should_omit.len(), D::ONLINE_REPETITIONS);
+
+        true
     }
 }
