@@ -26,21 +26,21 @@ pub fn wait_for_mem() {
 }
 
 pub fn chunks_to_fit_in_memory(ngates: Option<usize>, ncopies: usize) -> usize {
-    let ngate: u64;
+    let ngate: i64;
     match ngates {
         None => {
             return 1;
         }
         Some(n) => {
-            ngate = n as u64;
+            ngate = n as i64;
         }
     }
     let mut system = sysinfo::System::new();
     system.refresh_all();
-    let available_bytes = system.get_available_memory() * 1000;
+    let available_bytes = (system.get_available_memory() * 1000) as i64;
     let estimated_bytes = max(
         available_bytes,
-        (ncopies as u64) * (300 * ngate - 38_400_000),
+        (ncopies as i64) * (300 * ngate - 38_400_000),
     );
     ((estimated_bytes + available_bytes - 1) / available_bytes) as usize
 }
