@@ -23,9 +23,12 @@ pub struct PreprocessingExecution<D: Domain> {
 
     // Beaver multiplication state
     corrections_prg: Vec<PRG>,
-    corrections: RingHasher<D::Batch>, // player 0 corrections
-    share_a: Vec<D::Sharing>,          // beta sharings (from input)
-    share_b: Vec<D::Sharing>,          // alpha sharings (from input)
+    corrections: RingHasher<D::Batch>,
+    // player 0 corrections
+    share_a: Vec<D::Sharing>,
+    // beta sharings (from input)
+    share_b: Vec<D::Sharing>,
+    // alpha sharings (from input)
     _ph: PhantomData<D>,
 }
 
@@ -138,7 +141,7 @@ impl<D: Domain> PreprocessingExecution<D> {
 
             match *step {
                 Instruction::NrOfWires(nr) => {
-                    nr_of_wires = nr.clone();
+                    nr_of_wires = nr;
                 }
                 Instruction::LocalOp(dst, src) => {
                     assert_ne!(
@@ -224,24 +227,22 @@ impl<D: Domain> PreprocessingExecution<D> {
                             break;
                         }
                     }
-                    if found {
-                        if !fieldswitching_output_done.contains(&src) {
-                            fieldswitching_output_done.append(&mut out_list.clone());
-                            let mut zeroes = Vec::new();
-                            for _i in 0..out_list.len() {
-                                self.masks.set(nr_of_wires, D::Sharing::ZERO); //process_const
-                                zeroes.push(nr_of_wires);
-                                nr_of_wires += 1;
-                            }
-                            let (_outputs, carry_out) = self.full_adder(
-                                &mut batch_a,
-                                &mut batch_b,
-                                out_list,
-                                zeroes,
-                                nr_of_wires,
-                            );
-                            nr_of_wires = carry_out;
+                    if found && !fieldswitching_output_done.contains(&src) {
+                        fieldswitching_output_done.append(&mut out_list.clone());
+                        let mut zeroes = Vec::new();
+                        for _i in 0..out_list.len() {
+                            self.masks.set(nr_of_wires, D::Sharing::ZERO); //process_const
+                            zeroes.push(nr_of_wires);
+                            nr_of_wires += 1;
                         }
+                        let (_outputs, carry_out) = self.full_adder(
+                            &mut batch_a,
+                            &mut batch_b,
+                            out_list,
+                            zeroes,
+                            nr_of_wires,
+                        );
+                        nr_of_wires = carry_out;
                     }
                 }
             }
@@ -368,9 +369,9 @@ impl<D: Domain> PreprocessingExecution<D> {
         start_new_wires: usize,
     ) -> (Vec<usize>, usize) {
         assert_eq!(start_input1.len(), start_input2.len());
-        assert!(start_input1.len() > 0);
+        assert!(!start_input1.is_empty());
         let mut output_bits = Vec::new();
-        let mut start_new_wires_mut = start_new_wires.clone();
+        let mut start_new_wires_mut = start_new_wires;
 
         let (mut output_bit, mut carry_out) = self.first_adder(
             batch_a,

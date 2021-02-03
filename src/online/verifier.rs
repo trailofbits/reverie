@@ -579,9 +579,9 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
             start_new_wires: usize,
         ) -> (Vec<usize>, usize) {
             assert_eq!(start_input1.len(), start_input2.len());
-            assert!(start_input1.len() > 0);
+            assert!(!start_input1.is_empty());
             let mut output_bits = Vec::new();
-            let mut start_new_wires_mut = start_new_wires.clone();
+            let mut start_new_wires_mut = start_new_wires;
 
             let (mut output_bit, mut carry_out) = first_adder(
                 wires,
@@ -684,7 +684,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                     ));
                 }
                 omitted.push(omit);
-                println!("verifier transcript feed: {:?}", transcript);
+                // println!("verifier transcript feed: {:?}", transcript);
                 oracle.feed(preprocessing.as_bytes());
                 oracle.feed(transcript.as_bytes());
                 pp_hashes.push(preprocessing);

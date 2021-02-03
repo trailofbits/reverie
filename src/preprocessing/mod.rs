@@ -1,4 +1,4 @@
-mod util;
+pub(crate) mod util;
 
 #[allow(clippy::module_inception)]
 pub mod preprocessing;
@@ -313,8 +313,7 @@ impl<D: Domain> Proof<D> {
             D::PREPROCESSING_REPETITIONS,
             D::ONLINE_REPETITIONS,
         );
-        let x = hidden[..] == subset[..];
-        x
+        hidden[..] == subset[..]
     }
 
     /// Create a new pre-processing proof.

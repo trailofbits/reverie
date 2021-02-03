@@ -475,9 +475,9 @@ impl<D: Domain> PreprocessingExecution<D> {
         start_new_wires: usize,
     ) -> (Vec<usize>, usize) {
         assert_eq!(start_input1.len(), start_input2.len());
-        assert!(start_input1.len() > 0);
+        assert!(!start_input1.is_empty());
         let mut output_bits = Vec::new();
-        let mut start_new_wires_mut = start_new_wires.clone();
+        let mut start_new_wires_mut = start_new_wires;
 
         let (mut output_bit, mut carry_out) = self.first_adder(
             corrections,

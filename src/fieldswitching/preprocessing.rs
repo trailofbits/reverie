@@ -408,7 +408,7 @@ impl<D: Domain, D2: Domain> PreprocessingExecution<D, D2> {
         let mut m = 1;
         let mut batch_eda = vec![vec![D::Batch::ZERO; D::PLAYERS]; m];
 
-        for gate in conn_program.clone() {
+        for gate in conn_program {
             match gate {
                 ConnectionInstruction::BToA(dst, src) => {
                     self.fieldswitching_output.push(src.to_vec());
@@ -424,7 +424,7 @@ impl<D: Domain, D2: Domain> PreprocessingExecution<D, D2> {
                     // push the input masks to the deferred eda stack
                     for (pos, &_src) in src.iter().enumerate() {
                         let mask = self.shares.eda_2.next();
-                        self.eda_bits_shares[pos].push(mask.clone());
+                        self.eda_bits_shares[pos].push(mask);
                     }
 
                     // assign mask to output
@@ -441,7 +441,7 @@ impl<D: Domain, D2: Domain> PreprocessingExecution<D, D2> {
                         );
                     }
                 }
-                _ => {}
+                ConnectionInstruction::AToB(_dst, _src) => {}
             }
         }
 

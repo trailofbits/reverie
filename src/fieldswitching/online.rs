@@ -22,7 +22,7 @@ pub struct Proof<D: Domain, D2: Domain> {
 }
 
 impl<D: Domain, D2: Domain> Proof<D, D2> {
-    pub(crate) async fn new(
+    pub async fn new(
         bind: Option<Vec<u8>>,
         conn_program: Vec<ConnectionInstruction>,
         program1: Vec<Instruction<D::Scalar>>,
@@ -71,12 +71,12 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
                         let two = D2::Scalar::ONE + D2::Scalar::ONE;
                         let mut next = D2::Scalar::ZERO;
                         for &_src in src.iter() {
-                            next = next + convert_bit::<D, D2>(output1[_src - 4].clone()) * pow_two;
+                            next = next + convert_bit::<D, D2>(output1[_src - 4]) * pow_two;
                             pow_two = two * pow_two;
                         }
                         input2.push(next);
                     }
-                    _ => {}
+                    ConnectionInstruction::AToB(_dst, _src) => {}
                 }
             }
 

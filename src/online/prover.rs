@@ -161,7 +161,7 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
         for step in program {
             match *step {
                 Instruction::NrOfWires(nr) => {
-                    nr_of_wires = nr.clone();
+                    nr_of_wires = nr;
                 }
                 Instruction::LocalOp(dst, src) => {
                     assert_ne!(nr_of_wires, 0);
@@ -634,9 +634,9 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
         start_new_wires: usize,
     ) -> (Vec<usize>, usize) {
         assert_eq!(start_input1.len(), start_input2.len());
-        assert!(start_input1.len() > 0);
+        assert!(!start_input1.is_empty());
         let mut output_bits = Vec::new();
-        let mut start_new_wires_mut = start_new_wires.clone();
+        let mut start_new_wires_mut = start_new_wires;
 
         let (mut output_bit, mut carry_out) = self.first_adder(
             broadcast,
@@ -869,7 +869,7 @@ impl<D: Domain> StreamingProver<D> {
             masked_branches.push((masked, proof));
 
             // RO((preprocessing, transcript))
-            println!("transcript feed: {:?}", transcript);
+            // println!("transcript feed: {:?}", transcript);
             oracle.feed(pp.union.as_bytes());
             oracle.feed(transcript.as_bytes());
         }
