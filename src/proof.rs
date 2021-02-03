@@ -90,7 +90,7 @@ impl<D: Domain> Proof<D> {
 
         // prove preprocessing
         let (preprocessing, pp_output) =
-            preprocessing::Proof::new(seed, &branches[..], program.iter().cloned());
+            preprocessing::Proof::new(seed, &branches[..], program.clone());
 
         // create prover for online phase
         let (send, recv) = bounded(CHANNEL_CAPACITY);
@@ -139,7 +139,7 @@ impl<D: Domain> Proof<D> {
             proof: preprocessing::Proof<D>,
         ) -> Option<preprocessing::Output<D>> {
             let branches: Vec<&[D::Scalar]> = branches.iter().map(|b| &b[..]).collect();
-            proof.verify(&branches[..], program.iter().cloned()).await
+            proof.verify(&branches[..], program).await
         }
 
         // verify pre-processing

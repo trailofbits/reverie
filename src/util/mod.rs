@@ -22,7 +22,11 @@ pub fn read_n<T, I: Iterator<Item = T>>(src: &mut I, n: usize) -> Vec<T> {
 }
 
 pub fn wait_for_mem() {
-    unimplemented!("Use chunks_to_fit_in_memory instead!");
+    // unimplemented!("Use chunks_to_fit_in_memory instead!");
+}
+
+pub fn ceil_divide(x: usize, divided_by: usize) -> usize {
+    ((x + divided_by) - 1) / divided_by
 }
 
 pub fn chunks_to_fit_in_memory(ngates: Option<usize>, ncopies: usize) -> usize {
@@ -42,7 +46,7 @@ pub fn chunks_to_fit_in_memory(ngates: Option<usize>, ncopies: usize) -> usize {
         available_bytes,
         (ncopies as i64) * (300 * ngate - 38_400_000),
     );
-    ((estimated_bytes + available_bytes - 1) / available_bytes) as usize
+    ceil_divide(estimated_bytes as usize, available_bytes as usize)
 }
 
 #[cfg(test)]
