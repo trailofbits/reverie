@@ -148,7 +148,7 @@ impl<D: Domain> Proof<D> {
 
         let chunk_size = ceil_divide(
             inputs.len(),
-            chunks_to_fit_in_memory(Some(program.len()), inputs.len()),
+            chunks_to_fit_in_memory(program.len(), inputs.len()),
         );
         let input_chunks = inputs.chunks_mut(chunk_size);
         let output_chunks = outputs.chunks_mut(chunk_size);
