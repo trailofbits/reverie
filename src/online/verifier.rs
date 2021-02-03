@@ -18,31 +18,9 @@ use async_std::task;
 
 const DEFAULT_CAPACITY: usize = 1024;
 
-// TODO(ww): Figure out a reasonable type alias for `senders` below.
-#[allow(clippy::type_complexity)]
-async fn feed<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>>(
-    chunk: usize,
-    senders: &mut [Sender<(Arc<Instructions<D>>, Vec<u8>)>],
-    program: &mut PI,
-    chunks: &mut Receiver<Vec<u8>>,
-) -> Option<bool> {
-    // next slice of program
-    let ps = Arc::new(read_n(program, chunk));
-    if ps.len() == 0 {
-        return Some(false);
-    }
-
-    // feed to workers
-    for sender in senders {
-        let chunk = chunks.recv().await.ok()?;
-        sender.send((ps.clone(), chunk)).await.unwrap();
-    }
-    Some(true)
-}
-
-pub struct StreamingVerifier<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> {
+pub struct StreamingVerifier<D: Domain> {
     proof: Proof<D>,
-    program: PI,
+    program: Arc<Vec<Instruction<D::Scalar>>>,
     _ph: PhantomData<D>,
 }
 
@@ -83,8 +61,8 @@ impl<D: Domain, I: Iterator<Item = D::Batch>> Iterator for ShareIterator<D, I> {
     }
 }
 
-impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D, PI> {
-    pub fn new(program: PI, proof: Proof<D>) -> Self {
+impl<D: Domain> StreamingVerifier<D> {
+    pub fn new(program: Arc<Vec<Instruction<D::Scalar>>>, proof: Proof<D>) -> Self {
         StreamingVerifier {
             program,
             proof,
@@ -93,9 +71,9 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
     }
 
     pub async fn verify(
-        mut self,
+        self,
         bind: Option<Vec<u8>>,
-        mut proof: Receiver<Vec<u8>>,
+        proof: Receiver<Vec<u8>>,
     ) -> Result<Output<D>, String> {
         async fn process<D: Domain>(
             run: Run<D>,
@@ -340,29 +318,24 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
 
         let collection_task = task::spawn(collect_transcript_hashes::<D>(bind, tasks));
 
-        // schedule up to 2 tasks immediately (for better performance)
-        let mut scheduled = 0;
-        scheduled += feed::<D, _>(BATCH_SIZE, &mut inputs[..], &mut self.program, &mut proof)
-            .await
-            .ok_or_else(|| String::from("Failed to schedule tasks"))? as usize;
-        scheduled += feed::<D, _>(BATCH_SIZE, &mut inputs[..], &mut self.program, &mut proof)
-            .await
-            .ok_or_else(|| String::from("Failed to schedule tasks"))? as usize;
+        let chunk_size = ceil_divide(
+            inputs.len(),
+            chunks_to_fit_in_memory(self.program.len(), inputs.len()),
+        );
+        let input_chunks = inputs.chunks_mut(chunk_size);
+        let output_chunks = outputs.chunks_mut(chunk_size);
 
-        // wait for all scheduled tasks to complete
-        while scheduled > 0 {
-            scheduled -= 1;
-            // wait for output from every task in order (to avoid one task racing a head)
-            for rx in outputs.iter_mut() {
-                let _ = rx.recv().await;
+        for (inputs_chunk, outputs_chunk) in input_chunks.zip(output_chunks) {
+            // feed to workers
+            for sender in inputs_chunk {
+                let chunk = proof.recv().await.unwrap();
+                sender
+                    .send((self.program.clone(), chunk)).await.unwrap();
             }
 
-            wait_for_mem();
-            // schedule a new task and wait for all works to complete one
-            scheduled += feed::<D, _>(BATCH_SIZE, &mut inputs[..], &mut self.program, &mut proof)
-                .await
-                .ok_or_else(|| String::from("Failed to schedule tasks"))?
-                as usize;
+            for rx in outputs_chunk.iter_mut() {
+                let _ = rx.recv().await;
+            }
         }
 
         // wait for tasks to finish

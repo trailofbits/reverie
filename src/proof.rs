@@ -126,7 +126,7 @@ impl<D: Domain> Proof<D> {
             proof: online::Proof<D>,
             recv: Receiver<Vec<u8>>,
         ) -> Result<online::Output<D>, String> {
-            let verifier = online::StreamingVerifier::new(program.iter().cloned(), proof);
+            let verifier = online::StreamingVerifier::new(program, proof);
             verifier.verify(bind, recv).await
         }
 

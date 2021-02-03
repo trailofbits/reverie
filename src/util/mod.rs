@@ -16,14 +16,6 @@ pub const fn log2(x: usize) -> usize {
     (mem::size_of::<usize>() * 8) - (x.leading_zeros() as usize) - 1
 }
 
-pub fn read_n<T, I: Iterator<Item = T>>(src: &mut I, n: usize) -> Vec<T> {
-    src.take(n).collect()
-}
-
-pub fn wait_for_mem() {
-    // unimplemented!("Use chunks_to_fit_in_memory instead!");
-}
-
 pub fn ceil_divide(x: usize, divided_by: usize) -> usize {
     ((x + divided_by) - 1) / divided_by
 }
