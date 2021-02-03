@@ -20,47 +20,6 @@ type ProgWitSlice<D> = (Arc<Instructions<D>>, Arc<Vec<<D as Domain>::Scalar>>);
 
 const DEFAULT_CAPACITY: usize = BATCH_SIZE;
 
-async fn feed<
-    D: Domain,
-    PI: Iterator<Item = Instruction<D::Scalar>>,
-    WI: Iterator<Item = D::Scalar>,
->(
-    chunk: usize,
-    senders: &mut [Sender<ProgWitSlice<D>>],
-    program: &mut PI,
-    witness: &mut WI,
-) -> bool {
-    // next slice of program
-    let ps = Arc::new(read_n(program, chunk));
-    if ps.len() == 0 {
-        return false;
-    }
-
-    // slice of the witness consumed by the program slice
-    let ni = count_inputs::<D>(&ps[..]);
-    let ws = Arc::new(read_n(witness, ni));
-    if ws.len() != ni {
-        return false;
-    }
-
-    // feed to workers
-    debug_assert_eq!(senders.len(), D::ONLINE_REPETITIONS);
-    for tx in senders.iter_mut() {
-        tx.send((ps.clone(), ws.clone())).await.unwrap();
-    }
-    true
-}
-
-fn count_inputs<D: Domain>(program: &[Instruction<D::Scalar>]) -> usize {
-    let mut inputs = 0;
-    for step in program {
-        if let Instruction::Input(_) = step {
-            inputs += 1;
-        }
-    }
-    inputs
-}
-
 pub struct StreamingProver<D: Domain> {
     branch: Arc<Vec<D::Scalar>>,
     preprocessing: PreprocessingOutput<D>,
@@ -412,15 +371,12 @@ impl<D: Domain> StreamingProver<D> {
     /// It is crucial for zero-knowledge that the pre-processing output is not reused!
     /// To help ensure this Proof::new takes ownership of PreprocessedProverOutput,
     /// which prevents the programmer from accidentally re-using the output
-    pub async fn new<
-        PI: Iterator<Item = Instruction<D::Scalar>>,
-        WI: Iterator<Item = D::Scalar>,
-    >(
+    pub async fn new(
         bind: Option<Vec<u8>>, // included Fiat-Shamir transform (for signatures of knowledge)
         preprocessing: PreprocessingOutput<D>, // output of preprocessing
         branch_index: usize,   // branch index (from preprocessing)
-        mut program: PI,
-        mut witness: WI,
+        program: Arc<Vec<Instruction<D::Scalar>>>,
+        witness: Arc<Vec<D::Scalar>>,
     ) -> (Proof<D>, Self) {
         assert_eq!(preprocessing.hidden.len(), D::ONLINE_REPETITIONS);
 
@@ -554,7 +510,7 @@ impl<D: Domain> StreamingProver<D> {
 
         // create async parallel task for every repetition
         let mut tasks = Vec::with_capacity(D::ONLINE_REPETITIONS);
-        let mut inputs = Vec::with_capacity(D::ONLINE_REPETITIONS);
+        let mut inputs: Vec<Sender<ProgWitSlice<D>>> = Vec::with_capacity(D::ONLINE_REPETITIONS);
         let mut outputs = Vec::with_capacity(D::ONLINE_REPETITIONS);
         for run in preprocessing.hidden.iter() {
             let (send_inputs, recv_inputs) = async_channel::bounded(2);
@@ -573,26 +529,23 @@ impl<D: Domain> StreamingProver<D> {
 
         let extraction_task = task::spawn(extract_output::<D>(bind, preprocessing, branch, tasks));
 
-        // schedule up to 2 tasks immediately (for better performance)
-        let mut scheduled = 0;
+        let chunk_size = ceil_divide(
+            inputs.len(),
+            chunks_to_fit_in_memory(program.len(), inputs.len()),
+        );
+        let input_chunks = inputs.chunks_mut(chunk_size);
+        let output_chunks = outputs.chunks_mut(chunk_size);
 
-        scheduled +=
-            feed::<D, _, _>(BATCH_SIZE, &mut inputs[..], &mut program, &mut witness).await as usize;
+        for (inputs_chunk, outputs_chunk) in input_chunks.zip(output_chunks) {
+            // feed to workers
+            for sender in inputs_chunk {
+                sender
+                    .send((program.clone(), witness.clone()))
+                    .await
+                    .unwrap();
+            }
 
-        scheduled +=
-            feed::<D, _, _>(BATCH_SIZE, &mut inputs[..], &mut program, &mut witness).await as usize;
-
-        // wait for all scheduled tasks to complete
-        while scheduled > 0 {
-            scheduled -= 1;
-
-            // schedule a new task
-            wait_for_mem();
-            scheduled += feed::<D, _, _>(BATCH_SIZE, &mut inputs[..], &mut program, &mut witness)
-                .await as usize;
-
-            // wait for output from every task to avoid one task racing a head
-            for rx in outputs.iter_mut() {
+            for rx in outputs_chunk.iter_mut() {
                 let _ = rx.recv().await;
             }
         }
@@ -603,14 +556,11 @@ impl<D: Domain> StreamingProver<D> {
         extraction_task.await
     }
 
-    pub async fn stream<
-        PI: Iterator<Item = Instruction<D::Scalar>>,
-        WI: Iterator<Item = D::Scalar>,
-    >(
+    pub async fn stream(
         self,
         dst: Sender<Vec<u8>>,
-        mut program: PI,
-        mut witness: WI,
+        program: Arc<Vec<Instruction<D::Scalar>>>,
+        witness: Arc<Vec<D::Scalar>>,
     ) -> Result<(), SendError<Vec<u8>>> {
         async fn process<D: Domain>(
             root: [u8; KEY_SIZE],
@@ -718,27 +668,26 @@ impl<D: Domain> StreamingProver<D> {
 
         let tasks_finished = task::spawn(wait_for_all(tasks));
 
-        // schedule up to 2 tasks immediately (for better performance)
-        let mut scheduled = 0;
-        scheduled +=
-            feed::<D, _, _>(BATCH_SIZE, &mut inputs[..], &mut program, &mut witness).await as usize;
-        scheduled +=
-            feed::<D, _, _>(BATCH_SIZE, &mut inputs[..], &mut program, &mut witness).await as usize;
+        let chunk_size = ceil_divide(
+            inputs.len(),
+            chunks_to_fit_in_memory(program.len(), inputs.len()),
+        );
+        let input_chunks = inputs.chunks_mut(chunk_size);
+        let output_chunks = outputs.chunks_mut(chunk_size);
 
-        // wait for all scheduled tasks to complete
-        while scheduled > 0 {
-            scheduled -= 1;
+        for (inputs_chunk, outputs_chunk) in input_chunks.zip(output_chunks) {
+            // feed to workers
+            for sender in inputs_chunk {
+                sender
+                    .send((program.clone(), witness.clone()))
+                    .await
+                    .unwrap();
+            }
 
-            // wait for output from every task in order (to avoid one task racing a head)
-            for rx in outputs.iter_mut() {
+            for rx in outputs_chunk.iter_mut() {
                 let output = rx.recv().await;
                 dst.send(output.unwrap()).await?; // can fail
             }
-
-            wait_for_mem();
-            // schedule a new task and wait for all works to complete one
-            scheduled += feed::<D, _, _>(BATCH_SIZE, &mut inputs[..], &mut program, &mut witness)
-                .await as usize;
         }
 
         // wait for tasks to finish

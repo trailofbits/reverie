@@ -71,14 +71,11 @@ impl<D: Domain> Proof<D> {
                 bind,
                 pp_output,
                 branch_index,
-                program.clone().iter().cloned(),
-                witness.clone().iter().cloned(),
+                program.clone(),
+                witness.clone(),
             )
             .await;
-            prover
-                .stream(send, program.iter().cloned(), witness.iter().cloned())
-                .await
-                .unwrap();
+            prover.stream(send, program, witness).await.unwrap();
             Some(online)
         }
 
