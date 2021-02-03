@@ -684,6 +684,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                     ));
                 }
                 omitted.push(omit);
+                println!("verifier transcript feed: {:?}", transcript);
                 oracle.feed(preprocessing.as_bytes());
                 oracle.feed(transcript.as_bytes());
                 pp_hashes.push(preprocessing);

@@ -57,7 +57,7 @@ impl<D: Domain> Proof<D> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone)] //TODO(gvl): remove Clone
 pub struct Run {
     pub(crate) seed: [u8; KEY_SIZE], // root seed
     pub(crate) union: Hash,
@@ -71,13 +71,13 @@ pub struct Run {
 ///
 /// For this reason PreprocessingOutput does not implement Copy/Clone
 /// and the online phase takes ownership of the struct, nor does it expose any fields.
-#[derive(Clone)]
+#[derive(Clone)] //TODO(gvl): remove clone
 pub struct PreprocessingOutput<D: Domain> {
     pub(crate) branches: Arc<Vec<Vec<D::Batch>>>,
     pub(crate) hidden: Vec<Run>,
 }
 
-#[derive(Clone)]
+#[derive(Clone)] //TODO(gvl): remove clone
 pub struct Output<D: Domain> {
     pub(crate) hidden: Vec<Hash>,
     _ph: PhantomData<D>,

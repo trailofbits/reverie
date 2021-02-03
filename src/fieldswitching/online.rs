@@ -17,8 +17,6 @@ const CHANNEL_CAPACITY: usize = 100;
 pub struct Proof<D: Domain, D2: Domain> {
     online1: online::Proof<D>,
     online2: online::Proof<D2>,
-    preprocessing1: preprocessing::Proof<D>,
-    preprocessing2: preprocessing::Proof<D2>,
     chunks1: Vec<Vec<u8>>,
     chunks2: Vec<Vec<u8>>,
 }
@@ -31,7 +29,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
         program2: Vec<Instruction<D2::Scalar>>,
         witness: Vec<D::Scalar>,
         branch_index: usize,
-        pp: fieldswitching::preprocessing::Proof<D, D2>,
+        pp: fieldswitching::preprocessing::PreprocessingOutput<D, D2>,
     ) -> Self {
         async fn online_proof<D: Domain, D2: Domain>(
             send1: Sender<Vec<u8>>,
@@ -98,13 +96,13 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             let omitted = online::StreamingProver::<D>::get_challenge(&mut oracle);
 
             let (online1, prover1) = online::StreamingProver::new_round_3(
-                pp_output1,
+                pp_output1.clone(),
                 branch_1,
                 masked_branches_1,
                 omitted.clone(),
             );
             let (online2, prover2) = online::StreamingProver::new_round_3(
-                pp_output2,
+                pp_output2.clone(),
                 branch_2,
                 masked_branches_2,
                 omitted.clone(),
@@ -137,41 +135,49 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             Some((online1, online2))
         }
         // create prover for online phase
-        let (send1, recv1) = bounded(CHANNEL_CAPACITY);
-        let (send2, recv2) = bounded(CHANNEL_CAPACITY);
-        let prover_task = task::spawn(online_proof(
-            send1,
-            send2,
-            bind,
-            conn_program.clone(),
-            Arc::new(program1.clone()),
-            Arc::new(program2.clone()),
-            branch_index,
-            Arc::new(witness.clone()),
-            pp.fieldswitching_input,
-            pp.fieldswitching_output,
-            pp.pp_output1,
-            pp.pp_output2,
-            pp.eda_bits,
-            pp.eda_composed,
-        ));
-
-        // read all chunks from online execution
+        let mut prover_tasks = Vec::new();
         let mut chunks1 = Vec::with_capacity(D::ONLINE_REPETITIONS);
-        while let Ok(chunk) = recv1.recv().await {
-            chunks1.push(chunk)
-        }
         let mut chunks2 = Vec::with_capacity(D2::ONLINE_REPETITIONS);
-        while let Ok(chunk) = recv2.recv().await {
-            chunks2.push(chunk)
+
+        for run in pp.hidden {
+            let (send1, recv1) = bounded(CHANNEL_CAPACITY);
+            let (send2, recv2) = bounded(CHANNEL_CAPACITY);
+            prover_tasks.push(task::spawn(online_proof(
+                send1,
+                send2,
+                bind.clone(),
+                conn_program.clone(),
+                Arc::new(program1.clone()),
+                Arc::new(program2.clone()),
+                branch_index,
+                Arc::new(witness.clone()),
+                run.fieldswitching_input.clone(),
+                run.fieldswitching_output.clone(),
+                pp.pp_output1.clone(),
+                pp.pp_output2.clone(),
+                run.eda_bits.clone(),
+                run.eda_composed.clone(),
+            )));
+            // read all chunks from online execution
+            chunks1.clear();
+            chunks2.clear();
+            while let Ok(chunk) = recv1.recv().await {
+                chunks1.push(chunk)
+            }
+            while let Ok(chunk) = recv2.recv().await {
+                chunks2.push(chunk)
+            }
         }
 
-        let (online1, online2) = prover_task.await.unwrap();
+        let l = prover_tasks.len();
+        let t = &mut prover_tasks[l - 1];
+        // TODO(gvl):
+        // for mut t in prover_tasks {
+        let (online1, online2) = t.await.unwrap();
+        // }
         Self {
             online1,
             online2,
-            preprocessing1: pp.preprocessing1,
-            preprocessing2: pp.preprocessing2,
             chunks1,
             chunks2,
         }
@@ -183,7 +189,6 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
         program1: Vec<Instruction<D::Scalar>>,
         program2: Vec<Instruction<D2::Scalar>>,
         preprocessed: fieldswitching::preprocessing::Output<D, D2>,
-        pp: fieldswitching::preprocessing::Proof<D, D2>,
     ) -> Result<Vec<D2::Scalar>, String> {
         async fn online_verification<D: Domain, D2: Domain>(
             bind: Option<Vec<u8>>,
@@ -194,8 +199,6 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             preprocessed: fieldswitching::preprocessing::Output<D, D2>,
             recv1: Receiver<Vec<u8>>,
             recv2: Receiver<Vec<u8>>,
-            fieldswitching_input: Vec<usize>,
-            fieldswitching_output: Vec<Vec<usize>>,
         ) -> Result<online::Output<D2>, String> {
             let mut oracle =
                 RandomOracle::new(CONTEXT_ORACLE_ONLINE, bind.as_ref().map(|x| &x[..]));
@@ -205,8 +208,8 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
                 .verify_round_1(
                     recv1,
                     vec![],
-                    fieldswitching_output,
-                    preprocessed.eda_bits,
+                    preprocessed.fieldswitching_output.clone(),
+                    preprocessed.eda_bits.clone(),
                     vec![],
                     &mut oracle,
                 )
@@ -220,10 +223,10 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             let (omitted2, result2) = match verifier2
                 .verify_round_1(
                     recv2,
-                    fieldswitching_input,
+                    preprocessed.fieldswitching_input.clone(),
                     vec![],
                     vec![],
-                    preprocessed.eda_composed,
+                    preprocessed.eda_composed.clone(),
                     &mut oracle,
                 )
                 .await
@@ -251,6 +254,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
         // verify the online execution
         let (send1, recv1) = bounded(CHANNEL_CAPACITY);
         let (send2, recv2) = bounded(CHANNEL_CAPACITY);
+
         let task_online = task::spawn(online_verification(
             bind,
             Arc::new(program1.clone()),
@@ -260,8 +264,6 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             preprocessed.clone(),
             recv1,
             recv2,
-            pp.fieldswitching_input.clone(),
-            pp.fieldswitching_output.clone(),
         ));
 
         // send proof to the online verifier
@@ -283,7 +285,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             Ok(out) => Ok(out.check(&preprocessed.output2).ok_or_else(|| {
                 String::from("Online task output did not match preprocessing output")
             })?),
-            Err(_e) => Err(String::from("Online verification task failed")),
+            Err(e) => Err(String::from("Online verification task failed: ") + e.as_str()),
         }
     }
 }

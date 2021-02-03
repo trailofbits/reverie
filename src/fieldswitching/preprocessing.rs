@@ -1,9 +1,8 @@
 use crate::algebra::{Domain, RingElement, RingModule, Samplable};
 use crate::consts::{CONTEXT_ORACLE_PREPROCESSING, CONTEXT_RNG_CORRECTION};
-use crate::crypto::{kdf, RingHasher, TreePRF, KEY_SIZE, PRG};
+use crate::crypto::{kdf, Hash, Hasher, RingHasher, TreePRF, KEY_SIZE, PRG};
 use crate::fieldswitching::util::{convert_bit_domain, SharesGenerator};
 use crate::oracle::RandomOracle;
-use crate::preprocessing::PreprocessingOutput;
 use crate::util::Writer;
 use crate::{preprocessing, ConnectionInstruction, Instruction};
 use async_std::sync::Arc;
@@ -13,25 +12,38 @@ use rand::RngCore;
 
 const DEFAULT_CAPACITY: usize = 1024;
 
-#[derive(Clone)]
 pub struct Proof<D: Domain, D2: Domain> {
+    pub hidden: Vec<Hash>,
+    pub random: TreePRF,
+    pub preprocessing1: preprocessing::Proof<D>,
+    pub preprocessing2: preprocessing::Proof<D2>,
+}
+
+pub struct PreprocessingOutput<D: Domain, D2: Domain> {
+    pub(crate) hidden: Vec<Run<D, D2>>,
+    pub(crate) pp_output1: preprocessing::PreprocessingOutput<D>,
+    pub(crate) pp_output2: preprocessing::PreprocessingOutput<D2>,
+}
+
+#[derive(Clone)] //TODO(gvl): remove clone
+pub struct Run<D: Domain, D2: Domain> {
     pub(crate) fieldswitching_input: Vec<usize>,
     pub(crate) fieldswitching_output: Vec<Vec<usize>>,
     pub(crate) eda_bits: Vec<Vec<D::Sharing>>,
     pub(crate) eda_composed: Vec<D2::Sharing>,
-    pub(crate) random: TreePRF,
-    pub(crate) preprocessing1: preprocessing::Proof<D>,
-    pub(crate) pp_output1: PreprocessingOutput<D>,
-    pub(crate) preprocessing2: preprocessing::Proof<D2>,
-    pub(crate) pp_output2: PreprocessingOutput<D2>,
+    pub(crate) seed: [u8; KEY_SIZE], // root seed
+    pub(crate) union: Hash,
+    pub(crate) commitments: Vec<Hash>, // preprocessing commitment for every player
 }
 
-#[derive(Clone)]
+#[derive(Clone)] //TODO(gvl): remove clone
 pub struct Output<D: Domain, D2: Domain> {
-    pub(crate) eda_bits: Vec<Vec<D::Sharing>>,
-    pub(crate) eda_composed: Vec<D2::Sharing>,
-    pub(crate) output1: preprocessing::Output<D>,
-    pub(crate) output2: preprocessing::Output<D2>,
+    pub(crate) fieldswitching_input: Vec<usize>,
+    pub(crate) fieldswitching_output: Vec<Vec<usize>>,
+    pub eda_bits: Vec<Vec<D::Sharing>>, //TODO(gvl): remove
+    pub eda_composed: Vec<D2::Sharing>, //TODO(gvl): remove
+    pub output1: preprocessing::Output<D>,
+    pub output2: preprocessing::Output<D2>,
 }
 
 impl<D: Domain, D2: Domain> Proof<D, D2> {
@@ -41,7 +53,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
         program2: Vec<Instruction<D2::Scalar>>,
         branches1: Vec<Vec<D::Scalar>>,
         branches2: Vec<Vec<D2::Scalar>>,
-    ) -> Self {
+    ) -> (Self, PreprocessingOutput<D, D2>) {
         // pick global random seed
         let mut root_seed: [u8; KEY_SIZE] = [0; KEY_SIZE];
         OsRng.fill_bytes(&mut root_seed);
@@ -50,30 +62,37 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
         let mut global_seeds: Vec<[u8; KEY_SIZE]> = vec![[0u8; KEY_SIZE]; 3];
         TreePRF::expand_full(&mut global_seeds, root_seed);
 
-        let mut eda_bits = Vec::with_capacity(DEFAULT_CAPACITY);
-        let mut eda_composed = Vec::with_capacity(DEFAULT_CAPACITY);
-
         // expand the global seed into per-repetition roots
         let mut fieldswitching_exec_roots: Vec<[u8; KEY_SIZE]> =
             vec![[0; KEY_SIZE]; D::PREPROCESSING_REPETITIONS];
         TreePRF::expand_full(&mut fieldswitching_exec_roots, global_seeds[0]);
 
-        let mut fieldswitching_input = vec![];
-        let mut fieldswitching_output = vec![];
+        let mut fieldswitching_input = Vec::new();
+        let mut fieldswitching_output = Vec::new();
+        let mut results = Vec::new();
         //TODO(gvl): async and parallelized
         for seed in fieldswitching_exec_roots.iter().cloned() {
+            let mut eda_bits = Vec::with_capacity(DEFAULT_CAPACITY);
+            let mut eda_composed = Vec::with_capacity(DEFAULT_CAPACITY);
             let mut execution = PreprocessingExecution::<D, D2>::new(seed);
             let mut corrections = Vec::with_capacity(DEFAULT_CAPACITY);
-            eda_bits.clear();
-            eda_composed.clear();
             execution.process(
                 &conn_program[..],
                 &mut corrections,
                 &mut eda_bits,
                 &mut eda_composed,
             );
-            fieldswitching_input = execution.fieldswitching_input;
-            fieldswitching_output = execution.fieldswitching_output;
+            fieldswitching_input = execution.fieldswitching_input.clone();
+            fieldswitching_output = execution.fieldswitching_output.clone();
+            results.push(Run {
+                fieldswitching_input: execution.fieldswitching_input,
+                fieldswitching_output: execution.fieldswitching_output,
+                eda_bits: eda_bits.clone(),
+                eda_composed: eda_composed.clone(),
+                seed,
+                union: Hasher::new().finalize(),
+                commitments: vec![],
+            });
         }
 
         let branches1: Vec<&[D::Scalar]> = branches1.iter().map(|b| &b[..]).collect();
@@ -85,7 +104,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             &branches1[..],
             program1.iter().cloned(),
             vec![],
-            fieldswitching_output.clone(),
+            fieldswitching_output,
             &mut oracle,
         );
 
@@ -96,7 +115,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             global_seeds[2],
             &branches2[..],
             program2.iter().cloned(),
-            fieldswitching_input.clone(),
+            fieldswitching_input,
             vec![],
             &mut oracle,
         );
@@ -118,23 +137,41 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             hidden.clone(),
         );
 
+        let mut hidden_runs: Vec<Run<D, D2>> = Vec::with_capacity(D::ONLINE_REPETITIONS);
+        let mut hidden_hashes: Vec<Hash> = Vec::with_capacity(D::ONLINE_REPETITIONS);
+        let mut results1 = results.clone().into_iter().enumerate();
         let mut tree: TreePRF = TreePRF::new(D::PREPROCESSING_REPETITIONS, global_seeds[0]);
-        //TODO: puncture:
-        // for i in hidden.iter().cloned() {
-        //     tree = tree.puncture(i);
-        // }
 
-        Self {
-            fieldswitching_input,
-            fieldswitching_output,
-            eda_bits,
-            eda_composed,
-            random: tree,
-            preprocessing1,
-            pp_output1,
-            preprocessing2,
-            pp_output2,
+        for i in hidden.iter().cloned() {
+            tree = tree.puncture(i);
+            // find the matching result
+            let result = loop {
+                let (j, elem) = results1.next().unwrap();
+                if i == j {
+                    break elem;
+                }
+            };
+
+            // add to the preprocessing output
+            hidden_runs.push(result.clone());
+
+            // add to the preprocessing proof
+            hidden_hashes.push(result.union.clone());
         }
+
+        (
+            Self {
+                hidden: hidden_hashes,
+                random: tree,
+                preprocessing1,
+                preprocessing2,
+            },
+            PreprocessingOutput {
+                hidden: results,
+                pp_output1,
+                pp_output2,
+            },
+        )
     }
 
     pub(crate) async fn verify(
@@ -154,8 +191,6 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             program2: Arc<Vec<Instruction<D2::Scalar>>>,
             proof1: preprocessing::Proof<D>,
             proof2: preprocessing::Proof<D2>,
-            fieldswitching_input: Vec<usize>,
-            fieldswitching_output: Vec<Vec<usize>>,
         ) -> Option<Output<D, D2>> {
             let mut eda_bits = Vec::with_capacity(DEFAULT_CAPACITY);
             let mut eda_composed = Vec::with_capacity(DEFAULT_CAPACITY);
@@ -172,12 +207,13 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             let branches1: Vec<&[D::Scalar]> = branches1.iter().map(|b| &b[..]).collect();
             let branches2: Vec<&[D2::Scalar]> = branches2.iter().map(|b| &b[..]).collect();
             let mut oracle = RandomOracle::new(CONTEXT_ORACLE_PREPROCESSING, None);
+
             let output1 = proof1
                 .verify_round_1(
                     &branches1[..],
                     program1.iter().cloned(),
                     vec![],
-                    fieldswitching_output.clone(),
+                    execution.fieldswitching_output.clone(),
                     &mut oracle,
                 )
                 .await;
@@ -185,27 +221,28 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
                 .verify_round_1(
                     &branches2[..],
                     program2.iter().cloned(),
-                    fieldswitching_input.clone(),
+                    execution.fieldswitching_input.clone(),
                     vec![],
                     &mut oracle,
                 )
                 .await;
 
             if output1.is_some() && output2.is_some() {
-                preprocessing::Proof::<D>::verify_challenge(
-                    &mut oracle,
-                    output1.clone().unwrap().0,
-                );
-                preprocessing::Proof::<D2>::verify_challenge(
-                    &mut oracle,
-                    output2.clone().unwrap().0,
-                );
+                let output1 = output1.unwrap();
+                let output2 = output2.unwrap();
+                if !preprocessing::Proof::<D>::verify_challenge(&mut oracle, output1.0)
+                    || !preprocessing::Proof::<D2>::verify_challenge(&mut oracle, output2.0)
+                {
+                    return None;
+                }
 
                 Some(Output {
+                    fieldswitching_input: execution.fieldswitching_input,
+                    fieldswitching_output: execution.fieldswitching_output,
                     eda_bits,
                     eda_composed,
-                    output1: output1.clone().unwrap().1,
-                    output2: output2.clone().unwrap().1,
+                    output1: output1.1,
+                    output2: output2.1,
                 })
             } else {
                 None
@@ -219,18 +256,18 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
         // verify pre-processing
         let mut tasks = vec![];
         for seed in roots.iter().cloned() {
-            tasks.push(task::spawn(preprocessing_verification(
-                seed.unwrap(),
-                Arc::new(branches1.clone()),
-                Arc::new(branches2.clone()),
-                Arc::new(conn_program.clone()),
-                Arc::new(program1.clone()),
-                Arc::new(program2.clone()),
-                self.preprocessing1.clone(),
-                self.preprocessing2.clone(),
-                self.fieldswitching_input.clone(),
-                self.fieldswitching_output.clone(),
-            )));
+            if seed.is_some() {
+                tasks.push(task::spawn(preprocessing_verification(
+                    seed.unwrap(),
+                    Arc::new(branches1.clone()),
+                    Arc::new(branches2.clone()),
+                    Arc::new(conn_program.clone()),
+                    Arc::new(program1.clone()),
+                    Arc::new(program2.clone()),
+                    self.preprocessing1.clone(),
+                    self.preprocessing2.clone(),
+                )));
+            }
         }
 
         let mut result = Err(String::from("No tasks were started"));

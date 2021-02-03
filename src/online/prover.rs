@@ -869,6 +869,7 @@ impl<D: Domain> StreamingProver<D> {
             masked_branches.push((masked, proof));
 
             // RO((preprocessing, transcript))
+            println!("transcript feed: {:?}", transcript);
             oracle.feed(pp.union.as_bytes());
             oracle.feed(transcript.as_bytes());
         }
@@ -933,7 +934,7 @@ impl<D: Domain> StreamingProver<D> {
         fieldswitching_output: Vec<Vec<usize>>,
         eda_bits: Vec<Vec<D::Sharing>>,
         eda_composed: Vec<D::Sharing>,
-    ) -> Result<Vec<D::Scalar>, SendError<Vec<u8>>> {
+    ) -> Result<(), SendError<Vec<u8>>> {
         async fn process<D: Domain>(
             root: [u8; KEY_SIZE],
             omitted: usize,
@@ -944,7 +945,7 @@ impl<D: Domain> StreamingProver<D> {
             fieldswitching_output: Vec<Vec<usize>>,
             eda_bits: Vec<Vec<D::Sharing>>,
             eda_composed: Vec<D::Sharing>,
-        ) -> Result<Vec<D::Scalar>, SendError<Vec<u8>>> {
+        ) -> Result<(), SendError<Vec<u8>>> {
             let mut seeds = vec![[0u8; KEY_SIZE]; D::PLAYERS];
             TreePRF::expand_full(&mut seeds, root);
 
@@ -1016,7 +1017,7 @@ impl<D: Domain> StreamingProver<D> {
                             .await
                             .unwrap();
                     }
-                    Err(_) => return Ok(output),
+                    Err(_) => return Ok(()),
                 }
             }
         }
@@ -1072,17 +1073,9 @@ impl<D: Domain> StreamingProver<D> {
 
         // wait for tasks to finish
         inputs.clear();
-        let mut output = Vec::new();
-        let mut start = true;
         for t in tasks {
-            let new_output = t.await.unwrap();
-            if start {
-                output = new_output.clone();
-                start = false;
-            }
-            assert_eq!(output, new_output);
-            output = new_output;
+            t.await.unwrap();
         }
-        Ok(output)
+        Ok(())
     }
 }
