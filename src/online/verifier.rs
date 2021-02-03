@@ -318,10 +318,7 @@ impl<D: Domain> StreamingVerifier<D> {
 
         let collection_task = task::spawn(collect_transcript_hashes::<D>(bind, tasks));
 
-        let chunk_size = ceil_divide(
-            inputs.len(),
-            chunks_to_fit_in_memory(self.program.len(), inputs.len()),
-        );
+        let chunk_size = chunk_size(self.program.len(), inputs.len());
         let input_chunks = inputs.chunks_mut(chunk_size);
         let output_chunks = outputs.chunks_mut(chunk_size);
 

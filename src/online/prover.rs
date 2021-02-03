@@ -529,10 +529,7 @@ impl<D: Domain> StreamingProver<D> {
 
         let extraction_task = task::spawn(extract_output::<D>(bind, preprocessing, branch, tasks));
 
-        let chunk_size = ceil_divide(
-            inputs.len(),
-            chunks_to_fit_in_memory(program.len(), inputs.len()),
-        );
+        let chunk_size = chunk_size(program.len(), inputs.len());
         let input_chunks = inputs.chunks_mut(chunk_size);
         let output_chunks = outputs.chunks_mut(chunk_size);
 
@@ -668,10 +665,7 @@ impl<D: Domain> StreamingProver<D> {
 
         let tasks_finished = task::spawn(wait_for_all(tasks));
 
-        let chunk_size = ceil_divide(
-            inputs.len(),
-            chunks_to_fit_in_memory(program.len(), inputs.len()),
-        );
+        let chunk_size = chunk_size(program.len(), inputs.len());
         let input_chunks = inputs.chunks_mut(chunk_size);
         let output_chunks = outputs.chunks_mut(chunk_size);
 

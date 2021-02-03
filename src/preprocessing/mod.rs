@@ -146,10 +146,7 @@ impl<D: Domain> Proof<D> {
         }
         let commitments = task::spawn(collect_commitments::<D>(tasks));
 
-        let chunk_size = ceil_divide(
-            inputs.len(),
-            chunks_to_fit_in_memory(program.len(), inputs.len()),
-        );
+        let chunk_size = chunk_size(program.len(), inputs.len());
         let input_chunks = inputs.chunks_mut(chunk_size);
         let output_chunks = outputs.chunks_mut(chunk_size);
 
