@@ -95,8 +95,8 @@ impl Serializable for Batch {
 impl Samplable for Batch {
     fn gen<R: RngCore>(rng: &mut R) -> Batch {
         let mut res: [u64; BATCH_SIZE] = [0; BATCH_SIZE];
-        for i in 0..res.len() {
-            res[i] = rng.gen::<u64>();
+        for r in res.iter_mut() {
+            *r = rng.gen::<u64>();
         }
         Batch(res)
     }

@@ -92,7 +92,7 @@ impl Sharing<Scalar> for Sharing8 {
     fn reconstruct(&self) -> Scalar {
         let mut res = 0;
         for scalar in &self.0 {
-            res = res + scalar;
+            res += scalar;
         }
         Scalar(res)
     }
