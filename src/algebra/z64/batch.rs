@@ -86,7 +86,7 @@ impl RingModule<Scalar> for Batch {
 impl Serializable for Batch {
     fn serialize<W: io::Write>(&self, w: &mut W) -> io::Result<()> {
         for elem in self.0.iter() {
-            w.write_all(&elem.to_le_bytes());
+            w.write_all(&elem.to_le_bytes())?;
         }
         Ok(())
     }
@@ -95,10 +95,10 @@ impl Serializable for Batch {
 impl Samplable for Batch {
     fn gen<R: RngCore>(rng: &mut R) -> Batch {
         let mut res: [u64; BATCH_SIZE] = [0; BATCH_SIZE];
-        for i in 0..BATCH_SIZE {
+        for i in 0..res.len() {
             res[i] = rng.gen::<u64>();
         }
-        return Batch(res);
+        Batch(res)
     }
 }
 
@@ -111,7 +111,7 @@ impl Packable for Batch {
     ) -> io::Result<()> {
         for batch in elems {
             for elem in batch.0.iter() {
-                dst.write_all(&elem.to_le_bytes());
+                dst.write_all(&elem.to_le_bytes())?;
             }
         }
         Ok(())
@@ -127,7 +127,8 @@ impl Packable for Batch {
         for chunk in bytes.chunks(8) {
             batch.0[i] = u64::from_le_bytes(chunk.try_into().unwrap());
             
-            if i % BATCH_SIZE == 0 {
+            let bs = BATCH_SIZE;
+            if i % bs == 0 {
                 dst.write(batch);
                 i = 0;
             }

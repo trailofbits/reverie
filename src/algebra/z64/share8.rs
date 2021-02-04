@@ -81,7 +81,7 @@ impl RingModule<Scalar> for Sharing8 {
 impl Serializable for Sharing8 {
     fn serialize<W: io::Write>(&self, w: &mut W) -> io::Result<()> {
         for elem in self.0.iter() {
-            w.write_all(&elem.to_le_bytes());
+            w.write_all(&elem.to_le_bytes())?;
         }   
         Ok(())
     }
