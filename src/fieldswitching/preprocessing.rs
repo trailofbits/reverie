@@ -31,7 +31,8 @@ pub struct Run<D: Domain, D2: Domain> {
     pub(crate) fieldswitching_output: Vec<Vec<usize>>,
     pub(crate) eda_bits: Vec<Vec<D::Sharing>>,
     pub(crate) eda_composed: Vec<D2::Sharing>,
-    pub(crate) seed: [u8; KEY_SIZE], // root seed
+    pub(crate) seed: [u8; KEY_SIZE],
+    // root seed
     pub(crate) union: Hash,
     pub(crate) commitments: Vec<Hash>, // preprocessing commitment for every player
 }
@@ -40,8 +41,10 @@ pub struct Run<D: Domain, D2: Domain> {
 pub struct Output<D: Domain, D2: Domain> {
     pub(crate) fieldswitching_input: Vec<usize>,
     pub(crate) fieldswitching_output: Vec<Vec<usize>>,
-    pub eda_bits: Vec<Vec<D::Sharing>>, //TODO(gvl): remove
-    pub eda_composed: Vec<D2::Sharing>, //TODO(gvl): remove
+    pub eda_bits: Vec<Vec<D::Sharing>>,
+    //TODO(gvl): remove
+    pub eda_composed: Vec<D2::Sharing>,
+    //TODO(gvl): remove
     pub output1: preprocessing::Output<D>,
     pub output2: preprocessing::Output<D2>,
 }
@@ -191,6 +194,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             program2: Arc<Vec<Instruction<D2::Scalar>>>,
             proof1: preprocessing::Proof<D>,
             proof2: preprocessing::Proof<D2>,
+            hidden: Vec<usize>,
         ) -> Option<Output<D, D2>> {
             let mut eda_bits = Vec::with_capacity(DEFAULT_CAPACITY);
             let mut eda_composed = Vec::with_capacity(DEFAULT_CAPACITY);
@@ -230,7 +234,9 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             if output1.is_some() && output2.is_some() {
                 let output1 = output1.unwrap();
                 let output2 = output2.unwrap();
-                if !preprocessing::Proof::<D>::verify_challenge(&mut oracle, output1.0)
+                if output1.0[..] != output2.0[..]
+                    || hidden[..] != output1.0[..]
+                    || !preprocessing::Proof::<D>::verify_challenge(&mut oracle, output1.0)
                     || !preprocessing::Proof::<D2>::verify_challenge(&mut oracle, output2.0)
                 {
                     return None;
@@ -253,21 +259,47 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
         let mut roots: Vec<Option<[u8; KEY_SIZE]>> = vec![None; D::PREPROCESSING_REPETITIONS];
         self.random.expand(&mut roots);
 
+        // derive the hidden indexes
+        let mut opened: Vec<bool> = Vec::with_capacity(D::PREPROCESSING_REPETITIONS);
+        let mut hidden: Vec<usize> = Vec::with_capacity(D::ONLINE_REPETITIONS);
+        for (i, key) in roots.iter().enumerate() {
+            opened.push(key.is_some());
+            if key.is_none() {
+                hidden.push(i)
+            }
+        }
+
+        // prover must open exactly R-H repetitions
+        if hidden.len() != D::ONLINE_REPETITIONS {
+            return Err(String::from("number of hidden runs in preprocessing is incorrect"));
+        }
+
+        // recompute the opened repetitions
+        let opened_roots: Vec<[u8; KEY_SIZE]> = roots
+            .iter()
+            .filter(|v| v.is_some())
+            .map(|v| v.unwrap())
+            .collect();
+
+        debug_assert_eq!(
+            opened_roots.len(),
+            D::PREPROCESSING_REPETITIONS - D::ONLINE_REPETITIONS
+        );
+
         // verify pre-processing
         let mut tasks = vec![];
-        for seed in roots.iter().cloned() {
-            if seed.is_some() {
-                tasks.push(task::spawn(preprocessing_verification(
-                    seed.unwrap(),
-                    Arc::new(branches1.clone()),
-                    Arc::new(branches2.clone()),
-                    Arc::new(conn_program.clone()),
-                    Arc::new(program1.clone()),
-                    Arc::new(program2.clone()),
-                    self.preprocessing1.clone(),
-                    self.preprocessing2.clone(),
-                )));
-            }
+        for seed in opened_roots.iter().cloned() {
+            tasks.push(task::spawn(preprocessing_verification(
+                seed,
+                Arc::new(branches1.clone()),
+                Arc::new(branches2.clone()),
+                Arc::new(conn_program.clone()),
+                Arc::new(program1.clone()),
+                Arc::new(program2.clone()),
+                self.preprocessing1.clone(),
+                self.preprocessing2.clone(),
+                hidden.clone(),
+            )));
         }
 
         let mut result = Err(String::from("No tasks were started"));
