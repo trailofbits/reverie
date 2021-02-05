@@ -2,16 +2,14 @@ use super::*;
 
 use crate::util::Writer;
 
-use itertools::izip;
 use serde::{Deserialize, Serialize};
 
 use std::convert::TryInto;
 use std::io;
 
-pub(super) const BATCH_SIZE: usize = 1;
-
+//Batches for Z64 are always dimension 1
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Batch(pub(super) [u64; BATCH_SIZE]);
+pub struct Batch(pub(super) u64);
 
 impl Add for Batch {
     type Output = Self;
@@ -19,11 +17,7 @@ impl Add for Batch {
     #[allow(clippy::suspicious_arithmetic_impl)]
     #[inline(always)]
     fn add(self, other: Self) -> Self::Output {
-        let mut res: [u64; BATCH_SIZE] = [0; BATCH_SIZE];
-        for (res_scalar, self_scalar, other_scalar) in izip!(&mut res, &self.0, &other.0) {
-            *res_scalar = self_scalar + other_scalar;
-        }
-        Self(res)
+        Self(self.0 + other.0)
     }
 }
 
@@ -33,11 +27,7 @@ impl Sub for Batch {
     #[allow(clippy::suspicious_arithmetic_impl)]
     #[inline(always)]
     fn sub(self, other: Self) -> Self::Output {
-        let mut res: [u64; BATCH_SIZE] = [0; BATCH_SIZE];
-        for (res_scalar, self_scalar, other_scalar) in izip!(&mut res, &self.0, &other.0) {
-            *res_scalar = self_scalar - other_scalar;
-        }
-        Self(res)
+        Self(self.0 - other.0)
     }
 }
 
@@ -47,57 +37,43 @@ impl Mul for Batch {
     #[allow(clippy::suspicious_arithmetic_impl)]
     #[inline(always)]
     fn mul(self, other: Self) -> Self::Output {
-        let mut res: [u64; BATCH_SIZE] = [0; BATCH_SIZE];
-        for (res_scalar, self_scalar, other_scalar) in izip!(&mut res, &self.0, &other.0) {
-            *res_scalar = self_scalar * other_scalar;
-        }
-        Self(res)
+        Self(self.0 * other.0)
     }
 }
 
 impl RingElement for Batch {
-    const ONE: Batch = Batch([1; BATCH_SIZE]);
-    const ZERO: Batch = Batch([0; BATCH_SIZE]);
+    const ONE: Batch = Self(1);
+    const ZERO: Batch = Self(0);
 }
 
 impl RingModule<Scalar> for Batch {
-    const DIMENSION: usize = BATCH_SIZE;
+    const DIMENSION: usize = 1;
 
     #[inline(always)]
     fn action(&self, s: Scalar) -> Self {
-        let mut res: [u64; BATCH_SIZE] = [0; BATCH_SIZE];
-        for (res_scalar, self_scalar) in res.iter_mut().zip(&self.0) {
-            *res_scalar = s.0 * self_scalar;
-        }
-        Self(res)
+        Self(self.0 * s.0)
     }
 
     fn get(&self, i: usize) -> Scalar {
-        debug_assert!(i < BATCH_SIZE);
-        Scalar(self.0[i])
+        debug_assert!(i == 1);
+        Scalar(self.0)
     }
     
     fn set(&mut self, i: usize, s: Scalar) {
-        debug_assert!(i < BATCH_SIZE);
-        self.0[i] = s.0;
+        debug_assert!(i == 1);
+        self.0 = s.0;
     }
 }
 
 impl Serializable for Batch {
     fn serialize<W: io::Write>(&self, w: &mut W) -> io::Result<()> {
-        for elem in self.0.iter() {
-            w.write_all(&elem.to_le_bytes())?;
-        }
-        Ok(())
+        w.write_all(&self.0.to_le_bytes())
     }
 }
 
 impl Samplable for Batch {
     fn gen<R: RngCore>(rng: &mut R) -> Batch {
-        let mut res: [u64; BATCH_SIZE] = [0; BATCH_SIZE];
-        for r in res.iter_mut() {
-            *r = rng.gen::<u64>();
-        }
+        let res = rng.gen::<u64>();
         Batch(res)
     }
 }
@@ -110,30 +86,20 @@ impl Packable for Batch {
         elems: I,
     ) -> io::Result<()> {
         for batch in elems {
-            for elem in batch.0.iter() {
-                dst.write_all(&elem.to_le_bytes())?;
-            }
+            dst.write_all(&batch.0.to_le_bytes())?;
         }
         Ok(())
     }
 
     fn unpack<W: Writer<Batch>>(mut dst: W, bytes: &[u8]) -> Result<(), ()> {
-        if bytes.len() % (8*BATCH_SIZE) != 0 {
+        if bytes.len() % 8 != 0 {
             return Err(());
         }
         
-        let mut i: usize = 0;
-        let mut batch: Batch = Batch([0; BATCH_SIZE]);
         for chunk in bytes.chunks(8) {
-            batch.0[i] = u64::from_le_bytes(chunk.try_into().unwrap());
-            
-            let bs = BATCH_SIZE;
-            if i % bs == 0 {
-                dst.write(batch);
-                i = 0;
-            }
+            let batch = u64::from_le_bytes(chunk.try_into().unwrap());
+            dst.write(Batch(batch));
         }
-
         Ok(())
     }
 }

@@ -14,30 +14,25 @@ impl Domain for Z64P8 {
 
     fn convert(dst: &mut [Self::Sharing], src: &[Self::Batch]) {
         assert_eq!(src.len(), Self::PLAYERS);
-        assert!(dst.len() >= Self::Batch::DIMENSION);
+        assert_eq!(dst.len(), 1);
 
-        for i in 0..Self::Batch::DIMENSION { 
-            let mut shares: [u64; Self::PLAYERS] = [0; Self::PLAYERS];
-            for j in 0..Self::PLAYERS {
-                shares[j] = src[j].0[i];
-            }
-            unsafe { *dst.get_unchecked_mut(i) = Sharing8(shares)};
+        let mut shares: [u64; Self::PLAYERS] = [0; Self::PLAYERS];
+        for i in 0..Self::PLAYERS {
+            shares[i] = src[i].0;
         }
+        unsafe { *dst.get_unchecked_mut(0) = Sharing8(shares)};
     }
 
     fn convert_inv(dst: &mut [Self::Batch], src: &[Self::Sharing]) {
         // there should be enough sharings to fill a batch
-        assert_eq!(src.len(), Self::Batch::DIMENSION);
+        assert_eq!(src.len(), 1);
 
         // there will be one batch per player
         assert_eq!(dst.len(), Self::PLAYERS);
 
+        let sharing = src[0].0;
         for i in 0..Self::PLAYERS {
-            let mut batch: [u64; Self::Batch::DIMENSION] = [0; Self::Batch::DIMENSION];
-            for j in 0..Self::Batch::DIMENSION {
-                batch[j] = src[j].0[i];
-            }
-            unsafe { *dst.get_unchecked_mut(i) = Batch(batch)};
+            unsafe { *dst.get_unchecked_mut(i) = Batch(sharing[i])};
         }
     }
 }
