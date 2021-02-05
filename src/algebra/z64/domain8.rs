@@ -31,8 +31,8 @@ impl Domain for Z64P8 {
         assert_eq!(dst.len(), Self::PLAYERS);
 
         let sharing = src[0].0;
-        for i in 0..Self::PLAYERS {
-            unsafe { *dst.get_unchecked_mut(i) = Batch(sharing[i])};
+        for (i, share) in sharing.iter().enumerate() {
+            unsafe { *dst.get_unchecked_mut(i) = Batch(*share)};
         }
     }
 }
