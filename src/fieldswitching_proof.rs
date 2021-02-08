@@ -70,6 +70,39 @@ mod tests {
         assert_eq!(verifier_output, output);
     }
 
+    #[test]
+    fn test_mini_proof_gf2p8_preprocessing() {
+        let mut rng = thread_rng();
+
+        let conn_program = connection_program();
+        let program1 = mini_program::<GF2P8>();
+        let program2 = mini_program::<GF2P8>();
+        let num_branch = 0;
+        let num_branches = 1 + rng.gen::<usize>() % 32;
+        let mut branches: Vec<Vec<BitScalar>> = Vec::with_capacity(num_branches);
+        for _ in 0..num_branches {
+            branches.push(random_scalars::<GF2P8, _>(&mut rng, num_branch));
+        }
+
+        let (preprocessed_proof, _) =
+            fieldswitching::preprocessing::Proof::<GF2P8, GF2P8>::new(
+                conn_program.clone(),
+                program1.clone(),
+                program2.clone(),
+                branches.clone(),
+                branches.clone(),
+            );
+
+        let proof_output = task::block_on(preprocessed_proof.verify(
+            conn_program.clone(),
+            program1.clone(),
+            program2.clone(),
+            branches.clone(),
+            branches.clone(),
+        ));
+        assert!(proof_output.is_ok());
+    }
+
     /// 1 bit adder with carry
     /// Input:
     /// input1: usize               : position of first input

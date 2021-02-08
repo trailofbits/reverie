@@ -94,14 +94,25 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
         }
     }
 
+    pub fn new_fs(program: PI, proof_runs: Vec<OnlineRun<D>>) -> Self {
+        StreamingVerifier {
+            program,
+            proof: Proof {
+                runs: proof_runs,
+                _ph: PhantomData,
+            },
+            _ph: PhantomData,
+        }
+    }
+
     pub async fn verify(
         self,
         bind: Option<&[u8]>,
         proof: Receiver<Vec<u8>>,
         fieldswitching_input: Vec<usize>,
         fieldswitching_output: Vec<Vec<usize>>,
-        eda_bits: Vec<Vec<D::Sharing>>,
-        eda_composed: Vec<D::Sharing>,
+        eda_bits: Vec<Vec<Vec<D::Sharing>>>,
+        eda_composed: Vec<Vec<D::Sharing>>,
     ) -> Result<Output<D>, String> {
         let mut oracle = RandomOracle::new(CONTEXT_ORACLE_ONLINE, bind);
 
@@ -134,12 +145,12 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
         mut proof: Receiver<Vec<u8>>,
         fieldswitching_input: Vec<usize>,
         fieldswitching_output: Vec<Vec<usize>>,
-        eda_bits: Vec<Vec<D::Sharing>>,
-        eda_composed: Vec<D::Sharing>,
+        eda_bits: Vec<Vec<Vec<D::Sharing>>>,
+        eda_composed: Vec<Vec<D::Sharing>>,
         oracle: &mut RandomOracle,
     ) -> Result<(Vec<usize>, Output<D>), String> {
         async fn process<D: Domain>(
-            run: Run<D>,
+            run: OnlineRun<D>,
             outputs: Sender<()>,
             inputs: Receiver<(
                 Arc<Instructions<D>>, // next slice of program
@@ -187,6 +198,8 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                 // recompute the Merkle root from the leaf and proof
                 (run.proof.verify(&hasher.finalize()), scalars.into_iter())
             };
+            println!("verify eda_bits: {:?}", eda_bits);
+            println!("verify eda_composed: {:?}", eda_composed);
 
             loop {
                 match inputs.recv().await {
@@ -406,6 +419,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
             src: usize,
         ) {
             let recon: D::Sharing = masks.next().unwrap() + broadcast.next().unwrap();
+            // println!("broadcast verifier: {:?}", recon);
             transcript.write(recon);
 
             output.write(wires.get(src) + recon.reconstruct());
@@ -429,6 +443,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
             let ab_gamma: D::Sharing = ab_gamma.next().unwrap();
             let omit_msg: D::Sharing = broadcast.next().unwrap();
             let recon = a_m.action(b_w) + b_m.action(a_w) + ab_gamma + omit_msg;
+            // println!("broadcast verifier: {:?}", recon);
             transcript.write(recon);
 
             // corrected wire
@@ -623,17 +638,27 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
         let mut tasks = Vec::with_capacity(D::ONLINE_REPETITIONS);
         let mut inputs = Vec::with_capacity(D::ONLINE_REPETITIONS);
         let mut outputs = Vec::with_capacity(D::ONLINE_REPETITIONS);
-        for run in self.proof.runs {
+        for (i, run) in self.proof.runs.iter().cloned().enumerate() {
             let (sender_inputs, reader_inputs) = async_channel::bounded(5);
             let (sender_outputs, reader_outputs) = async_channel::bounded(5);
+            let _eda_bits = if eda_bits.is_empty() {
+                vec![]
+            } else {
+                eda_bits[i].clone()
+            };
+            let _eda_composed = if eda_composed.is_empty() {
+                vec![]
+            } else {
+                eda_composed[i].clone()
+            };
             tasks.push(task::spawn(process::<D>(
                 run,
                 sender_outputs,
                 reader_inputs,
                 fieldswitching_input.clone(),
                 fieldswitching_output.clone(),
-                eda_bits.clone(),
-                eda_composed.clone(),
+                _eda_bits,
+                _eda_composed,
             )));
             inputs.push(sender_inputs);
             outputs.push(reader_outputs);
@@ -685,6 +710,8 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                 }
                 omitted.push(omit);
                 // println!("verifier transcript feed: {:?}", transcript);
+                println!("verif: {:?}", preprocessing.as_bytes());
+                println!("verif: {:?}", transcript.as_bytes());
                 oracle.feed(preprocessing.as_bytes());
                 oracle.feed(transcript.as_bytes());
                 pp_hashes.push(preprocessing);

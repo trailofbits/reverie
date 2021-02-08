@@ -64,9 +64,9 @@ fn count_inputs<D: Domain>(program: &[Instruction<D::Scalar>]) -> usize {
 }
 
 pub struct StreamingProver<D: Domain> {
-    branch: Arc<Vec<D::Scalar>>,
-    preprocessing: PreprocessingOutput<D>,
-    omitted: Vec<usize>,
+    pub(crate) branch: Arc<Vec<D::Scalar>>,
+    pub(crate) preprocessing: PreprocessingOutput<D>,
+    pub(crate) omitted: Vec<usize>,
 }
 
 struct BatchExtractor<D: Domain, W: Writer<D::Batch>> {
@@ -146,6 +146,8 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
         fieldswitching_output: Vec<Vec<usize>>,
         output: &mut Vec<D::Scalar>,
     ) {
+        println!("prover eda_bits: {:?}", preprocessing_eda_bits);
+        println!("prover eda_composed: {:?}", preprocessing_eda_composed);
         let mut witness = witness.iter().cloned();
         let mut ab_gamma = preprocessing_ab_gamma.iter().cloned();
         let mut masks = preprocessing_masks.iter().cloned();
@@ -392,6 +394,7 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
         let recon = a_m.action(b_w) + b_m.action(a_w) + ab_gamma;
 
         // reconstruct
+        // println!("broadcast prover: {:?}", recon);
         broadcast.write(recon);
 
         // corrected wire
@@ -460,6 +463,7 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
         src: usize,
     ) {
         let recon: D::Sharing = masks.next().unwrap();
+        // println!("broadcast prover: {:?}", recon);
         broadcast.write(recon);
         output.write(self.wires.get(src) + recon.reconstruct());
 
@@ -689,8 +693,7 @@ impl<D: Domain> StreamingProver<D> {
     ) -> (Proof<D>, Self) {
         assert_eq!(preprocessing.hidden.len(), D::ONLINE_REPETITIONS);
         let mut oracle = RandomOracle::new(CONTEXT_ORACLE_ONLINE, bind);
-
-        let (branch, masked_branches, _output) = <StreamingProver<D>>::new_round_1(
+        let (branch, masked_branches, _output, oracle_inputs) = <StreamingProver<D>>::new_round_1(
             preprocessing.clone(),
             branch_index,
             program,
@@ -699,13 +702,90 @@ impl<D: Domain> StreamingProver<D> {
             fieldswitching_output,
             eda_bits,
             eda_composed,
-            &mut oracle,
         )
         .await;
 
+        for oracle_feed in oracle_inputs {
+            oracle.feed(&oracle_feed)
+        }
+
         let omitted = <StreamingProver<D>>::get_challenge(&mut oracle);
 
-        <StreamingProver<D>>::new_round_3(preprocessing, branch, masked_branches, omitted)
+        <StreamingProver<D>>::new_round_3(preprocessing, Arc::new(branch), masked_branches, omitted)
+    }
+
+    async fn process(
+        root: [u8; KEY_SIZE],
+        branches: Arc<Vec<Vec<D::Batch>>>,
+        branch_index: usize,
+        branch: Arc<Vec<D::Scalar>>,
+        outputs: Sender<()>,
+        inputs: Receiver<ProgWitSlice<D>>,
+        fieldswitching_input: Vec<usize>,
+        fieldswitching_output: Vec<Vec<usize>>,
+        eda_bits: Vec<Vec<D::Sharing>>,
+        eda_composed: Vec<D::Sharing>,
+    ) -> Result<(Vec<u8>, MerkleSetProof, Hash, Vec<D::Scalar>), SendError<Vec<u8>>> {
+        // online execution
+        let mut online = Prover::<D, _>::new(branch.iter().cloned());
+
+        // public transcript (broadcast channel)
+        let mut transcript = RingHasher::new();
+
+        // preprocessing execution
+        let mut preprocessing = PreprocessingExecution::<D>::new(root);
+
+        // vectors for values passed between preprocessing and online execution
+        let mut masks = Vec::with_capacity(DEFAULT_CAPACITY);
+        let mut ab_gamma = Vec::with_capacity(DEFAULT_CAPACITY);
+        let mut output = Vec::new();
+
+        loop {
+            match inputs.recv().await {
+                Ok((program, witness)) => {
+                    // execute the next slice of program
+                    {
+                        // reset preprocessing output buffers
+                        masks.clear();
+                        ab_gamma.clear();
+
+                        // prepare pre-processing execution (online mode)
+                        preprocessing.process(
+                            &program[..],
+                            &mut VoidWriter::new(),
+                            &mut masks,
+                            &mut ab_gamma,
+                            fieldswitching_input.clone(),
+                            fieldswitching_output.clone(),
+                        );
+
+                        // compute public transcript
+                        online.run(
+                            &program[..],
+                            &witness[..],
+                            &masks[..],
+                            &ab_gamma[..],
+                            &eda_bits[..],
+                            &eda_composed[..],
+                            &mut VoidWriter::new(),
+                            &mut transcript,
+                            fieldswitching_input.clone(),
+                            fieldswitching_output.clone(),
+                            &mut output,
+                        );
+                    }
+
+                    // needed for synchronization
+                    outputs.send(()).await.unwrap();
+                }
+                Err(_) => {
+                    let mut packed: Vec<u8> = Vec::with_capacity(256);
+                    let (branch, proof) = preprocessing.prove_branch(&*branches, branch_index);
+                    Packable::pack(&mut packed, branch.iter()).unwrap();
+                    return Ok((packed, proof, transcript.finalize(), output));
+                }
+            }
+        }
     }
 
     pub async fn new_round_1<
@@ -720,104 +800,64 @@ impl<D: Domain> StreamingProver<D> {
         fieldswitching_output: Vec<Vec<usize>>,
         eda_bits: Vec<Vec<<D as Domain>::Sharing>>,
         eda_composed: Vec<<D as Domain>::Sharing>,
-        oracle: &mut RandomOracle,
     ) -> (
-        Arc<Vec<<D as Domain>::Scalar>>,
+        Vec<<D as Domain>::Scalar>,
         Vec<(Vec<u8>, MerkleSetProof)>,
         Vec<D::Scalar>,
+        Vec<[u8; 32]>,
     ) {
-        async fn process<D: Domain>(
-            root: [u8; KEY_SIZE],
-            branches: Arc<Vec<Vec<D::Batch>>>,
-            branch_index: usize,
-            branch: Arc<Vec<D::Scalar>>,
-            outputs: Sender<()>,
-            inputs: Receiver<ProgWitSlice<D>>,
-            fieldswitching_input: Vec<usize>,
-            fieldswitching_output: Vec<Vec<usize>>,
-            eda_bits: Vec<Vec<D::Sharing>>,
-            eda_composed: Vec<D::Sharing>,
-        ) -> Result<(Vec<u8>, MerkleSetProof, Hash, Vec<D::Scalar>), SendError<Vec<u8>>> {
-            // online execution
-            let mut online = Prover::<D, _>::new(branch.iter().cloned());
+        let runs = preprocessing.hidden.clone();
+        <StreamingProver<D>>::do_runs_round_1(
+            preprocessing,
+            branch_index,
+            &mut program,
+            &mut witness,
+            fieldswitching_input,
+            fieldswitching_output,
+            eda_bits,
+            eda_composed,
+            runs,
+        )
+        .await
+    }
 
-            // public transcript (broadcast channel)
-            let mut transcript = RingHasher::new();
-
-            // preprocessing execution
-            let mut preprocessing = PreprocessingExecution::<D>::new(root);
-
-            // vectors for values passed between preprocessing and online execution
-            let mut masks = Vec::with_capacity(DEFAULT_CAPACITY);
-            let mut ab_gamma = Vec::with_capacity(DEFAULT_CAPACITY);
-            let mut output = Vec::new();
-
-            loop {
-                match inputs.recv().await {
-                    Ok((program, witness)) => {
-                        // execute the next slice of program
-                        {
-                            // reset preprocessing output buffers
-                            masks.clear();
-                            ab_gamma.clear();
-
-                            // prepare pre-processing execution (online mode)
-                            preprocessing.process(
-                                &program[..],
-                                &mut VoidWriter::new(),
-                                &mut masks,
-                                &mut ab_gamma,
-                                fieldswitching_input.clone(),
-                                fieldswitching_output.clone(),
-                            );
-
-                            // compute public transcript
-                            online.run(
-                                &program[..],
-                                &witness[..],
-                                &masks[..],
-                                &ab_gamma[..],
-                                &eda_bits[..],
-                                &eda_composed[..],
-                                &mut VoidWriter::new(),
-                                &mut transcript,
-                                fieldswitching_input.clone(),
-                                fieldswitching_output.clone(),
-                                &mut output,
-                            );
-                        }
-
-                        // needed for synchronization
-                        outputs.send(()).await.unwrap();
-                    }
-                    Err(_) => {
-                        let mut packed: Vec<u8> = Vec::with_capacity(256);
-                        let (branch, proof) = preprocessing.prove_branch(&*branches, branch_index);
-                        Packable::pack(&mut packed, branch.iter()).unwrap();
-                        return Ok((packed, proof, transcript.finalize(), output));
-                    }
-                }
-            }
-        }
-
+    pub(crate) async fn do_runs_round_1<
+        PI: Iterator<Item = Instruction<D::Scalar>>,
+        WI: Iterator<Item = D::Scalar>,
+    >(
+        preprocessing: PreprocessingOutput<D>,
+        branch_index: usize,
+        mut program: &mut PI,
+        mut witness: &mut WI,
+        fieldswitching_input: Vec<usize>,
+        fieldswitching_output: Vec<Vec<usize>>,
+        eda_bits: Vec<Vec<<D as Domain>::Sharing>>,
+        eda_composed: Vec<<D as Domain>::Sharing>,
+        runs: Vec<preprocessing::PreprocessingRun>,
+    ) -> (
+        Vec<D::Scalar>,
+        Vec<(Vec<u8>, MerkleSetProof)>,
+        Vec<D::Scalar>,
+        Vec<[u8; 32]>,
+    ) {
         // unpack selected branch into scalars again
         let branch_batches = &preprocessing.branches[branch_index][..];
-        let mut branch = Vec::with_capacity(branch_batches.len() * D::Batch::DIMENSION);
+        let mut _branch = Vec::with_capacity(branch_batches.len() * D::Batch::DIMENSION);
         for batch in branch_batches.iter() {
             for j in 0..D::Batch::DIMENSION {
-                branch.push(batch.get(j))
+                _branch.push(batch.get(j))
             }
         }
-        let branch = Arc::new(branch);
+        let branch = Arc::new(_branch.clone());
 
         // create async parallel task for every repetition
         let mut tasks = Vec::with_capacity(D::ONLINE_REPETITIONS);
         let mut inputs = Vec::with_capacity(D::ONLINE_REPETITIONS);
         let mut outputs = Vec::with_capacity(D::ONLINE_REPETITIONS);
-        for run in preprocessing.hidden.iter() {
+        for run in runs.iter() {
             let (send_inputs, recv_inputs) = async_channel::bounded(2);
             let (send_outputs, recv_outputs) = async_channel::bounded(2);
-            tasks.push(task::spawn(process::<D>(
+            tasks.push(task::spawn(Self::process(
                 run.seed,
                 preprocessing.branches.clone(),
                 branch_index,
@@ -863,17 +903,18 @@ impl<D: Domain> StreamingProver<D> {
         let mut masked_branches = Vec::with_capacity(D::ONLINE_REPETITIONS);
         let mut output = Vec::new();
 
-        for (pp, t) in preprocessing.hidden.iter().zip(tasks.into_iter()) {
+        let mut oracle_input = Vec::new();
+        for (pp, t) in runs.iter().zip(tasks.into_iter()) {
             let (masked, proof, transcript, _output) = t.await.unwrap();
             output = _output;
             masked_branches.push((masked, proof));
 
             // RO((preprocessing, transcript))
             // println!("transcript feed: {:?}", transcript);
-            oracle.feed(pp.union.as_bytes());
-            oracle.feed(transcript.as_bytes());
+            oracle_input.push(pp.union.as_bytes().clone());
+            oracle_input.push(transcript.as_bytes().clone());
         }
-        (branch, masked_branches, output)
+        (_branch.clone(), masked_branches, output, oracle_input)
     }
 
     pub fn get_challenge(oracle: &mut RandomOracle) -> Vec<usize> {
@@ -903,7 +944,7 @@ impl<D: Domain> StreamingProver<D> {
                     .zip(masked_branches.into_iter())
                     .map(|((omit, run), (branch, proof))| {
                         let tree = TreePRF::new(D::PLAYERS, run.seed);
-                        Run {
+                        OnlineRun {
                             proof,
                             branch,
                             commitment: run.commitments[omit].clone(),
@@ -932,8 +973,8 @@ impl<D: Domain> StreamingProver<D> {
         mut witness: WI,
         fieldswitching_input: Vec<usize>,
         fieldswitching_output: Vec<Vec<usize>>,
-        eda_bits: Vec<Vec<D::Sharing>>,
-        eda_composed: Vec<D::Sharing>,
+        eda_bits: Vec<Vec<Vec<D::Sharing>>>,
+        eda_composed: Vec<Vec<D::Sharing>>,
     ) -> Result<(), SendError<Vec<u8>>> {
         async fn process<D: Domain>(
             root: [u8; KEY_SIZE],
@@ -1026,14 +1067,25 @@ impl<D: Domain> StreamingProver<D> {
         let mut tasks = Vec::with_capacity(D::ONLINE_REPETITIONS);
         let mut inputs = Vec::with_capacity(D::ONLINE_REPETITIONS);
         let mut outputs = Vec::with_capacity(D::ONLINE_REPETITIONS);
-        for (run, omit) in self
+        for (i, (run, omit)) in self
             .preprocessing
             .hidden
             .iter()
             .zip(self.omitted.iter().cloned())
+            .enumerate()
         {
             let (sender_inputs, reader_inputs) = async_channel::bounded(3);
             let (sender_outputs, reader_outputs) = async_channel::bounded(3);
+            let _eda_bits = if eda_bits.is_empty() {
+                vec![]
+            } else {
+                eda_bits[i].clone()
+            };
+            let _eda_composed = if eda_composed.is_empty() {
+                vec![]
+            } else {
+                eda_composed[i].clone()
+            };
             tasks.push(task::spawn(process::<D>(
                 run.seed,
                 omit,
@@ -1042,8 +1094,8 @@ impl<D: Domain> StreamingProver<D> {
                 reader_inputs,
                 fieldswitching_input.clone(),
                 fieldswitching_output.clone(),
-                eda_bits.clone(),
-                eda_composed.clone(),
+                _eda_bits,
+                _eda_composed,
             )));
             inputs.push(sender_inputs);
             outputs.push(reader_outputs);

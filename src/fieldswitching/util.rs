@@ -1,7 +1,7 @@
 use crate::algebra::{Domain, RingElement, RingModule};
 use crate::consts::{CONTEXT_RNG_EDA, CONTEXT_RNG_EDA_2};
 use crate::crypto::{kdf, KEY_SIZE, PRG};
-use crate::preprocessing::util::{ShareGenerator, PartialShareGenerator};
+use crate::preprocessing::util::{PartialShareGenerator, ShareGenerator};
 
 pub struct SharesGenerator<D: Domain, D2: Domain> {
     pub eda: ShareGenerator<D>,

@@ -58,8 +58,8 @@ impl<D: Domain> Proof<D> {
 }
 
 #[derive(Clone)] //TODO(gvl): remove Clone
-pub struct Run {
-    pub(crate) seed: [u8; KEY_SIZE], // root seed
+pub struct PreprocessingRun {
+    pub(crate) seed: [u8; KEY_SIZE], // root seed TODO(gvl): Shouldn't we get the actual output instead of the seed?
     pub(crate) union: Hash,
     pub(crate) commitments: Vec<Hash>, // preprocessing commitment for every player
 }
@@ -74,7 +74,7 @@ pub struct Run {
 #[derive(Clone)] //TODO(gvl): remove clone
 pub struct PreprocessingOutput<D: Domain> {
     pub(crate) branches: Arc<Vec<Vec<D::Batch>>>,
-    pub(crate) hidden: Vec<Run>,
+    pub(crate) hidden: Vec<PreprocessingRun>,
 }
 
 #[derive(Clone)] //TODO(gvl): remove clone
@@ -358,7 +358,7 @@ impl<D: Domain> Proof<D> {
 
         // extract pre-processing key material for the hidden views
         // (returned to the prover for use in the online phase)
-        let mut hidden_runs: Vec<Run> = Vec::with_capacity(D::ONLINE_REPETITIONS);
+        let mut hidden_runs: Vec<PreprocessingRun> = Vec::with_capacity(D::ONLINE_REPETITIONS);
         let mut hidden_hashes: Vec<Hash> = Vec::with_capacity(D::ONLINE_REPETITIONS);
         let mut results = results.into_iter().enumerate();
 
@@ -372,7 +372,7 @@ impl<D: Domain> Proof<D> {
             };
 
             // add to the preprocessing output
-            hidden_runs.push(Run {
+            hidden_runs.push(PreprocessingRun {
                 seed: roots[i],
                 union: result.0.clone(),
                 commitments: result.1,
