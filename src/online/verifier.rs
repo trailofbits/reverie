@@ -43,7 +43,7 @@ async fn feed<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>>(
 }
 
 pub struct StreamingVerifier<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> {
-    proof: Proof<D>,
+    pub(crate) proof: Proof<D>,
     program: PI,
     _ph: PhantomData<D>,
 }
@@ -108,24 +108,25 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
     pub async fn verify(
         self,
         bind: Option<&[u8]>,
-        proof: Receiver<Vec<u8>>,
+        mut proof: Receiver<Vec<u8>>,
         fieldswitching_input: Vec<usize>,
         fieldswitching_output: Vec<Vec<usize>>,
     ) -> Result<Output<D>, String> {
         let mut oracle = RandomOracle::new(CONTEXT_ORACLE_ONLINE, bind);
 
-        let (omitted, out) = match self
-            .verify_round_1(
-                proof,
-                fieldswitching_input,
-                fieldswitching_output,
-                &mut oracle,
-            )
+        let (oracle_feed, omitted, out) = match self
+            .verify_round_1(&mut proof, fieldswitching_input, fieldswitching_output)
             .await
         {
             Ok(out) => out,
             Err(e) => return Err(e),
         };
+
+        debug_assert_eq!(out.pp_hashes.len(), D::ONLINE_REPETITIONS);
+
+        for feed in oracle_feed {
+            oracle.feed(&feed);
+        }
 
         if !<StreamingVerifier<D, PI>>::verify_omitted(&mut oracle, omitted) {
             return Err(String::from(
@@ -137,12 +138,26 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
     }
 
     pub async fn verify_round_1(
-        mut self,
-        mut proof: Receiver<Vec<u8>>,
+        self,
+        proof: &mut Receiver<Vec<u8>>,
         fieldswitching_input: Vec<usize>,
         fieldswitching_output: Vec<Vec<usize>>,
-        oracle: &mut RandomOracle,
-    ) -> Result<(Vec<usize>, Output<D>), String> {
+    ) -> Result<(Vec<[u8; 32]>, Vec<usize>, Output<D>), String> {
+        let runs = self.proof.runs.clone();
+        if runs.len() != D::ONLINE_REPETITIONS {
+            return Err(String::from("Failed to complete all online repetitions"));
+        }
+        self.do_verify_round_1(proof, fieldswitching_input, fieldswitching_output, runs)
+            .await
+    }
+
+    pub(crate) async fn do_verify_round_1(
+        mut self,
+        proof: &mut Receiver<Vec<u8>>,
+        fieldswitching_input: Vec<usize>,
+        fieldswitching_output: Vec<Vec<usize>>,
+        runs: Vec<OnlineRun<D>>,
+    ) -> Result<(Vec<[u8; 32]>, Vec<usize>, Output<D>), String> {
         async fn process<D: Domain>(
             run: OnlineRun<D>,
             outputs: Sender<()>,
@@ -255,7 +270,13 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                                     }
                                     Instruction::Input(dst) => {
                                         assert_ne!(nr_of_wires, 0);
-                                        nr_of_wires = process_input::<D>(fieldswitching_input.clone(), &mut wires, &mut witness, nr_of_wires, dst);
+                                        nr_of_wires = process_input::<D>(
+                                            fieldswitching_input.clone(),
+                                            &mut wires,
+                                            &mut witness,
+                                            nr_of_wires,
+                                            dst,
+                                        );
                                     }
                                     Instruction::Branch(dst) => {
                                         assert_ne!(nr_of_wires, 0);
@@ -309,7 +330,13 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                                                     .append(&mut out_list.clone());
                                                 let mut zeroes = Vec::new();
                                                 for _i in 0..out_list.len() {
-                                                    nr_of_wires = process_input::<D>(fieldswitching_input.clone(), &mut wires, &mut witness, nr_of_wires, nr_of_wires);
+                                                    nr_of_wires = process_input::<D>(
+                                                        fieldswitching_input.clone(),
+                                                        &mut wires,
+                                                        &mut witness,
+                                                        nr_of_wires,
+                                                        nr_of_wires,
+                                                    );
                                                     zeroes.push(nr_of_wires);
                                                     nr_of_wires += 1;
                                                 }
@@ -363,7 +390,13 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
             }
         }
 
-        fn process_input<D: Domain>(fieldswitching_input: Vec<usize>, mut wires: &mut VecMap<D::Scalar>, witness: &mut Cloned<Iter<D::Scalar>>, mut nr_of_wires: usize, dst: usize) -> usize {
+        fn process_input<D: Domain>(
+            fieldswitching_input: Vec<usize>,
+            mut wires: &mut VecMap<D::Scalar>,
+            witness: &mut Cloned<Iter<D::Scalar>>,
+            mut nr_of_wires: usize,
+            dst: usize,
+        ) -> usize {
             let mut new_dst = dst;
             if fieldswitching_input.contains(&dst) {
                 new_dst = nr_of_wires;
@@ -371,23 +404,25 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
 
             wires.set(new_dst, witness.next().unwrap());
             #[cfg(feature = "trace")]
-                {
-                    println!(
-                        "verifier-input : Input({}) ; wire = {:?}",
-                    new_dst, wires.get(new_dst)
-                    );
-                }
+            {
+                println!(
+                    "verifier-input : Input({}) ; wire = {:?}",
+                    new_dst,
+                    wires.get(new_dst)
+                );
+            }
 
             if fieldswitching_input.contains(&dst) {
                 //TODO(gvl) Subtract constant instead of add
                 nr_of_wires += 1;
-                nr_of_wires = process_input::<D>(fieldswitching_input, wires, witness, nr_of_wires, nr_of_wires);
-                process_add::<D>(
-                    &mut wires,
-                    dst,
-                    new_dst,
+                nr_of_wires = process_input::<D>(
+                    fieldswitching_input,
+                    wires,
+                    witness,
+                    nr_of_wires,
                     nr_of_wires,
                 );
+                process_add::<D>(&mut wires, dst, new_dst, nr_of_wires);
                 nr_of_wires += 1;
             }
             nr_of_wires
@@ -408,13 +443,9 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
             output.write(wires.get(src) + recon.reconstruct());
 
             #[cfg(feature = "trace")]
-                {
-                    println!(
-                        "verifier-output   : Output({}) ; recon = {:?}",
-                        src,
-                        recon,
-                    );
-                }
+            {
+                println!("verifier-output   : Output({}) ; recon = {:?}", src, recon,);
+            }
         }
 
         fn process_mul<D: Domain>(
@@ -445,15 +476,12 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
             wires.set(dst, c_w);
 
             #[cfg(feature = "trace")]
-                {
-                    println!(
-                        "verifier-mul      : Mul({}, {}, {}) ; recon = {:?}",
-                        dst,
-                        src1,
-                        src2,
-                        recon,
-                    );
-                }
+            {
+                println!(
+                    "verifier-mul      : Mul({}, {}, {}) ; recon = {:?}",
+                    dst, src1, src2, recon,
+                );
+            }
         }
 
         fn process_add<D: Domain>(
@@ -467,7 +495,10 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
             wires.set(dst, a_w + b_w);
             #[cfg(feature = "trace")]
             {
-                println!("verifier-add   : Add({:?}, {:?}, {:?}) ; a_w = {:?}, b_w = {:?}", dst, src1, src2, a_w, b_w,);
+                println!(
+                    "verifier-add   : Add({:?}, {:?}, {:?}) ; a_w = {:?}, b_w = {:?}",
+                    dst, src1, src2, a_w, b_w,
+                );
             }
         }
 
@@ -630,18 +661,14 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                 output_bits.push(output_bit);
             }
 
-            (output_bits, carry_out+1)
-        }
-
-        if self.proof.runs.len() != D::ONLINE_REPETITIONS {
-            return Err(String::from("Failed to complete all online repetitions"));
+            (output_bits, carry_out + 1)
         }
 
         // create async parallel task for every repetition
         let mut tasks = Vec::with_capacity(D::ONLINE_REPETITIONS);
         let mut inputs = Vec::with_capacity(D::ONLINE_REPETITIONS);
         let mut outputs = Vec::with_capacity(D::ONLINE_REPETITIONS);
-        for run in self.proof.runs.iter().cloned() {
+        for run in runs.iter().cloned() {
             let (sender_inputs, reader_inputs) = async_channel::bounded(5);
             let (sender_outputs, reader_outputs) = async_channel::bounded(5);
             tasks.push(task::spawn(process::<D>(
@@ -657,10 +684,10 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
 
         // schedule up to 2 tasks immediately (for better performance)
         let mut scheduled = 0;
-        scheduled += feed::<D, _>(BATCH_SIZE, &mut inputs[..], &mut self.program, &mut proof)
+        scheduled += feed::<D, _>(BATCH_SIZE, &mut inputs[..], &mut self.program, proof)
             .await
             .ok_or_else(|| String::from("Failed to schedule tasks"))? as usize;
-        scheduled += feed::<D, _>(BATCH_SIZE, &mut inputs[..], &mut self.program, &mut proof)
+        scheduled += feed::<D, _>(BATCH_SIZE, &mut inputs[..], &mut self.program, proof)
             .await
             .ok_or_else(|| String::from("Failed to schedule tasks"))? as usize;
 
@@ -673,7 +700,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
             }
 
             // schedule a new task and wait for all works to complete one
-            scheduled += feed::<D, _>(BATCH_SIZE, &mut inputs[..], &mut self.program, &mut proof)
+            scheduled += feed::<D, _>(BATCH_SIZE, &mut inputs[..], &mut self.program, proof)
                 .await
                 .ok_or_else(|| String::from("Failed to schedule tasks"))?
                 as usize;
@@ -686,6 +713,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
         let mut result: Vec<D::Scalar> = vec![];
         let mut omitted: Vec<usize> = Vec::with_capacity(D::ONLINE_REPETITIONS);
         let mut pp_hashes: Vec<Hash> = Vec::with_capacity(D::ONLINE_REPETITIONS);
+        let mut oracle_feed = Vec::new();
         {
             for (i, t) in tasks.into_iter().enumerate() {
                 let (preprocessing, transcript, omit, output) = t
@@ -700,19 +728,14 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                     ));
                 }
                 omitted.push(omit);
-                // println!("verifier transcript feed: {:?}", transcript);
-                // println!("verif preprocessing: {:?}", preprocessing.as_bytes());
-                // println!("verif transcript: {:?}", transcript.as_bytes());
-                oracle.feed(preprocessing.as_bytes());
-                oracle.feed(transcript.as_bytes());
+                oracle_feed.push(preprocessing.as_bytes().clone());
+                oracle_feed.push(transcript.as_bytes().clone());
                 pp_hashes.push(preprocessing);
             }
         }
 
-        debug_assert_eq!(pp_hashes.len(), D::ONLINE_REPETITIONS);
-
         // return output to verify against pre-processing
-        Ok((omitted, Output { pp_hashes, result }))
+        Ok((oracle_feed, omitted, Output { pp_hashes, result }))
     }
 
     pub fn verify_omitted(oracle: &mut RandomOracle, omitted: Vec<usize>) -> bool {

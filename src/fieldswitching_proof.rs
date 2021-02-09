@@ -64,9 +64,13 @@ mod tests {
             branches.clone(),
         ));
         assert!(pp_output.is_ok());
-        let verifier_output =
-            task::block_on(proof.verify(None, conn_program.clone(),program1.clone(), program2.clone()))
-                .unwrap();
+        let verifier_output = task::block_on(proof.verify(
+            None,
+            conn_program.clone(),
+            program1.clone(),
+            program2.clone(),
+        ))
+        .unwrap();
         assert_eq!(verifier_output, output);
     }
 
@@ -84,14 +88,13 @@ mod tests {
             branches.push(random_scalars::<GF2P8, _>(&mut rng, num_branch));
         }
 
-        let (preprocessed_proof, _) =
-            fieldswitching::preprocessing::Proof::<GF2P8, GF2P8>::new(
-                conn_program.clone(),
-                program1.clone(),
-                program2.clone(),
-                branches.clone(),
-                branches.clone(),
-            );
+        let (preprocessed_proof, _) = fieldswitching::preprocessing::Proof::<GF2P8, GF2P8>::new(
+            conn_program.clone(),
+            program1.clone(),
+            program2.clone(),
+            branches.clone(),
+            branches.clone(),
+        );
 
         let proof_output = task::block_on(preprocessed_proof.verify(
             conn_program.clone(),

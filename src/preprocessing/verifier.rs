@@ -519,6 +519,6 @@ impl<D: Domain> PreprocessingExecution<D> {
             output_bits.push(output_bit);
         }
 
-        (output_bits, carry_out+1)
+        (output_bits, carry_out + 1)
     }
 }

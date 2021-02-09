@@ -179,7 +179,15 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
                 }
                 Instruction::Input(dst) => {
                     assert_ne!(nr_of_wires, 0);
-                    nr_of_wires = self.process_input(masked_witness, fieldswitching_input.clone(), &mut eda_composed, witness.next().unwrap(), &mut masks, nr_of_wires, dst);
+                    nr_of_wires = self.process_input(
+                        masked_witness,
+                        fieldswitching_input.clone(),
+                        &mut eda_composed,
+                        witness.next().unwrap(),
+                        &mut masks,
+                        nr_of_wires,
+                        dst,
+                    );
                 }
                 Instruction::Branch(dst) => {
                     assert_ne!(nr_of_wires, 0);
@@ -274,7 +282,15 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
                             let mut zeroes = Vec::new();
                             for i in 0..out_list.len() {
                                 let added = eda_bits[i].next().unwrap().reconstruct();
-                                nr_of_wires = self.process_input(masked_witness, fieldswitching_input.clone(), &mut eda_composed, added, &mut masks, nr_of_wires, nr_of_wires);
+                                nr_of_wires = self.process_input(
+                                    masked_witness,
+                                    fieldswitching_input.clone(),
+                                    &mut eda_composed,
+                                    added,
+                                    &mut masks,
+                                    nr_of_wires,
+                                    nr_of_wires,
+                                );
                                 zeroes.push(nr_of_wires);
                                 nr_of_wires += 1;
                             }
@@ -301,7 +317,16 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
         debug_assert!(masks.next().is_none());
     }
 
-    fn process_input<WW: Writer<D::Scalar>>(&mut self, masked_witness: &mut WW, fieldswitching_input: Vec<usize>, eda_composed: &mut Cloned<Iter<D::Sharing>>, value: D::Scalar, masks: &mut Cloned<Iter<D::Sharing>>, mut nr_of_wires: usize, dst: usize) -> usize {
+    fn process_input<WW: Writer<D::Scalar>>(
+        &mut self,
+        masked_witness: &mut WW,
+        fieldswitching_input: Vec<usize>,
+        eda_composed: &mut Cloned<Iter<D::Sharing>>,
+        value: D::Scalar,
+        masks: &mut Cloned<Iter<D::Sharing>>,
+        mut nr_of_wires: usize,
+        dst: usize,
+    ) -> usize {
         let mut new_dst = dst;
         if fieldswitching_input.contains(&dst) {
             new_dst = nr_of_wires;
@@ -313,28 +338,36 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
         masked_witness.write(wire);
 
         #[cfg(feature = "trace")]
-            {
-                println!(
-                    "prover-input    : Input({}) ; wire = {:?}, mask = {:?}, value = {:?}",
-                    new_dst, wire, mask, value
-                );
-            }
+        {
+            println!(
+                "prover-input    : Input({}) ; wire = {:?}, mask = {:?}, value = {:?}",
+                new_dst, wire, mask, value
+            );
+        }
 
         // evaluate the circuit in plain for testing
         #[cfg(test)]
-            #[cfg(debug_assertions)]
-            {
-                assert_eq!(self.wires.get(new_dst) + mask.reconstruct(), value);
-                #[cfg(feature = "trace")]
-                println!("  mask = {:?}, value = {:?}", mask, value);
-                self.plain.set(new_dst, Some(value));
-            }
+        #[cfg(debug_assertions)]
+        {
+            assert_eq!(self.wires.get(new_dst) + mask.reconstruct(), value);
+            #[cfg(feature = "trace")]
+            println!("  mask = {:?}, value = {:?}", mask, value);
+            self.plain.set(new_dst, Some(value));
+        }
 
         if fieldswitching_input.contains(&dst) {
             //TODO(gvl) Subtract constant instead of add
             let added: D::Scalar = eda_composed.next().unwrap().reconstruct();
             nr_of_wires += 1;
-            nr_of_wires = self.process_input(masked_witness, fieldswitching_input, eda_composed, added, masks, nr_of_wires, nr_of_wires);
+            nr_of_wires = self.process_input(
+                masked_witness,
+                fieldswitching_input,
+                eda_composed,
+                added,
+                masks,
+                nr_of_wires,
+                nr_of_wires,
+            );
             self.process_add(masks, dst, new_dst, nr_of_wires);
             nr_of_wires += 1;
         }
@@ -674,7 +707,7 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
             output_bits.push(output_bit);
         }
 
-        (output_bits, carry_out+1)
+        (output_bits, carry_out + 1)
     }
 }
 
@@ -1053,7 +1086,12 @@ impl<D: Domain> StreamingProver<D> {
                             );
                         }
 
-                        debug_assert_eq!(masked.len(), witness.len() + fieldswitching_input.len() + fieldswitching_output.len());
+                        debug_assert_eq!(
+                            masked.len(),
+                            witness.len()
+                                + fieldswitching_input.len()
+                                + fieldswitching_output.len()
+                        );
 
                         // serialize the chunk
 

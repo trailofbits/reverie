@@ -40,7 +40,7 @@ pub struct OnlineRun<D: Domain> {
 /// Holds the (constant sized) state required to initialize the streaming online verifier
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Proof<D: Domain> {
-    runs: Vec<OnlineRun<D>>,
+    pub(crate) runs: Vec<OnlineRun<D>>,
     _ph: PhantomData<D>,
 }
 

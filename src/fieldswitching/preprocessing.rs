@@ -1,7 +1,7 @@
 use crate::algebra::{Domain, RingElement, RingModule, Samplable};
 use crate::consts::{BATCH_SIZE, CONTEXT_ORACLE_PREPROCESSING, CONTEXT_RNG_CORRECTION};
 use crate::crypto::{hash, kdf, Hash, Hasher, RingHasher, TreePRF, KEY_SIZE, PRG};
-use crate::fieldswitching::util::{convert_bit_domain, SharesGenerator, PartialSharesGenerator};
+use crate::fieldswitching::util::{convert_bit_domain, PartialSharesGenerator, SharesGenerator};
 use crate::oracle::RandomOracle;
 use crate::util::Writer;
 use crate::{preprocessing, ConnectionInstruction, Instruction};
@@ -626,7 +626,7 @@ impl<D: Domain, D2: Domain> PartialPreprocessingExecution<D, D2> {
     pub fn process(
         &mut self,
         conn_program: &[ConnectionInstruction],
-        corrections: &[D2::Batch],                // player 0 corrections
+        corrections: &[D2::Batch],           // player 0 corrections
         eda_bits: &mut Vec<Vec<D::Sharing>>, // eda bits in boolean form
         eda_composed: &mut Vec<D2::Sharing>, // eda bits composed in arithmetic form
     ) -> Option<()> {
@@ -702,7 +702,7 @@ impl<D: Domain, D2: Domain> PartialPreprocessingExecution<D, D2> {
                 } else {
                     &self.commitments[i]
                 }
-                    .as_bytes(),
+                .as_bytes(),
             );
         }
         hasher.finalize()
