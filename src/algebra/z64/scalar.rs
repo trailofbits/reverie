@@ -44,7 +44,7 @@ impl Add for Scalar {
     type Output = Self;
 
     fn add(self, other: Self) -> Self::Output {
-        Self(self.0 + other.0)
+        Self(u64::wrapping_add(self.0, other.0))
     }
 }
 
@@ -52,7 +52,7 @@ impl Sub for Scalar {
     type Output = Self;
 
     fn sub(self, other: Self) -> Self::Output {
-        Self(self.0 - other.0)
+        Self(u64::wrapping_sub(self.0, other.0))
     }
 }
 
@@ -60,7 +60,7 @@ impl Mul for Scalar {
     type Output = Self;
 
     fn mul(self, other: Self) -> Self::Output {
-        Self(self.0 * other.0)
+        Self(u64::wrapping_mul(self.0, other.0))
     }
 }
 

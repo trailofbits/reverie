@@ -17,7 +17,7 @@ impl Add for Batch {
     #[allow(clippy::suspicious_arithmetic_impl)]
     #[inline(always)]
     fn add(self, other: Self) -> Self::Output {
-        Self(self.0 + other.0)
+        Self(u64::wrapping_add(self.0, other.0))
     }
 }
 
@@ -27,7 +27,7 @@ impl Sub for Batch {
     #[allow(clippy::suspicious_arithmetic_impl)]
     #[inline(always)]
     fn sub(self, other: Self) -> Self::Output {
-        Self(self.0 - other.0)
+        Self(u64::wrapping_mul(self.0, other.0))
     }
 }
 
@@ -37,7 +37,7 @@ impl Mul for Batch {
     #[allow(clippy::suspicious_arithmetic_impl)]
     #[inline(always)]
     fn mul(self, other: Self) -> Self::Output {
-        Self(self.0 * other.0)
+        Self(u64::wrapping_mul(self.0, other.0))
     }
 }
 
@@ -51,7 +51,7 @@ impl RingModule<Scalar> for Batch {
 
     #[inline(always)]
     fn action(&self, s: Scalar) -> Self {
-        Self(self.0 * s.0)
+        Self(u64::wrapping_mul(self.0, s.0))
     }
 
     fn get(&self, i: usize) -> Scalar {

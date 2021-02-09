@@ -188,3 +188,8 @@ fn test_gf2_p64_64() {
 fn test_gf2_p64_85() {
     test_domain::<gf2_vec85::GF2P64_85>();
 }
+
+#[test]
+fn test_z64_p8() {
+    test_domain::<z64::Z64P8>();
+}

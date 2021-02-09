@@ -36,3 +36,65 @@ impl Domain for Z64P8 {
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    use rand::thread_rng;
+
+    //make sure round trip conversion is the identity function
+    #[test]
+    fn test_convert() {
+        let mut rng = thread_rng();
+        for _ in 0..100 {
+            let batches: [_; 8] = [
+                Batch::gen(&mut rng),
+                Batch::gen(&mut rng),
+                Batch::gen(&mut rng),
+                Batch::gen(&mut rng),
+                Batch::gen(&mut rng),
+                Batch::gen(&mut rng),
+                Batch::gen(&mut rng),
+                Batch::gen(&mut rng),    
+            ];
+
+            let mut shares = [Sharing8::ZERO; 1];
+            Z64P8::convert(&mut shares, &batches);
+
+            let mut result = [Batch::ZERO; 8];
+            Z64P8::convert_inv(&mut result, &shares);
+
+            assert_eq!(batches, result);
+        }
+    }
+
+    // test round trip serialization 
+    #[test]
+    fn test_pack_batch() {
+        let mut rng = thread_rng();
+        for _ in 0..100 {
+            let batches: [_; 8] = [
+                Batch::gen(&mut rng),
+                Batch::gen(&mut rng),
+                Batch::gen(&mut rng),
+                Batch::gen(&mut rng),
+                Batch::gen(&mut rng),
+                Batch::gen(&mut rng),
+                Batch::gen(&mut rng),
+                Batch::gen(&mut rng),    
+            ];
+
+            let mut serialized: Vec<u8> = vec![];
+            Batch::pack(&mut serialized, batches.iter()).unwrap();
+
+            let mut result: Vec<Batch> = vec![];
+            Batch::unpack(&mut result, &serialized).unwrap();
+            assert_eq!(result.len(), batches.len());
+            for (i, res) in result.iter().enumerate() {
+                assert_eq!(batches[i], *res);
+            }
+        }
+    }
+}
+

@@ -18,7 +18,7 @@ impl Add for Sharing8 {
     fn add(self, other: Self) -> Self {
         let mut res: [MaybeUninit<u64>; PLAYERS] = [MaybeUninit::uninit(); PLAYERS];
         for (res_share, self_share, other_share) in izip!(&mut res, &self.0, &other.0) {
-            *res_share = MaybeUninit::new(*self_share + *other_share);
+            *res_share = MaybeUninit::new(u64::wrapping_add(*self_share, *other_share));
         }
         Self(unsafe { mem::transmute(res) }) 
     }
@@ -31,7 +31,7 @@ impl Sub for Sharing8 {
     fn sub(self, other: Self) -> Self::Output {
         let mut res: [MaybeUninit<u64>; PLAYERS] = [MaybeUninit::uninit(); PLAYERS];
         for (res_share, self_share, other_share) in izip!(&mut res, &self.0, &other.0) {
-            *res_share = MaybeUninit::new(*self_share - *other_share);
+            *res_share = MaybeUninit::new(u64::wrapping_sub(*self_share, *other_share));
         }
         Self(unsafe { mem::transmute(res) }) 
     }
@@ -44,7 +44,7 @@ impl Mul for Sharing8 {
     fn mul(self, other: Self) -> Self::Output {
         let mut res: [MaybeUninit<u64>; PLAYERS] = [MaybeUninit::uninit(); PLAYERS];
         for (res_share, self_share, other_share) in izip!(&mut res, &self.0, &other.0) {
-            *res_share = MaybeUninit::new(*self_share * *other_share);
+            *res_share = MaybeUninit::new(u64::wrapping_mul(*self_share, *other_share));
         }
         Self(unsafe { mem::transmute(res) }) 
     }
@@ -62,7 +62,7 @@ impl RingModule<Scalar> for Sharing8 {
     fn action(&self, s: Scalar) -> Self {
         let mut res: [MaybeUninit<u64>; PLAYERS] = [MaybeUninit::uninit(); PLAYERS];
         for (res_share, self_share) in res.iter_mut().zip(&self.0) {
-            *res_share = MaybeUninit::new(s.0 * *self_share)
+            *res_share = MaybeUninit::new(u64::wrapping_mul(s.0, *self_share));
         }
         Self(unsafe { mem::transmute(res) })
     }
@@ -92,7 +92,7 @@ impl Sharing<Scalar> for Sharing8 {
     fn reconstruct(&self) -> Scalar {
         let mut res = 0;
         for scalar in &self.0 {
-            res += scalar;
+            res = u64::wrapping_add(res, *scalar);
         }
         Scalar(res)
     }
