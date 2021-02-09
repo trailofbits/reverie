@@ -164,7 +164,9 @@ impl<D: Domain> PreprocessingExecution<D> {
                     self.masks.set(new_dst, self.shares.input.next());
 
                     if fieldswitching_input.contains(&dst) {
-                        self.masks.set(dst, self.masks.get(nr_of_wires));
+                        nr_of_wires += 1;
+                        self.masks.set(nr_of_wires, self.shares.input.next());
+                        self.process_add(dst, new_dst, nr_of_wires);
                         nr_of_wires += 1;
                     }
                 }
@@ -231,7 +233,7 @@ impl<D: Domain> PreprocessingExecution<D> {
                         fieldswitching_output_done.append(&mut out_list.clone());
                         let mut zeroes = Vec::new();
                         for _i in 0..out_list.len() {
-                            self.masks.set(nr_of_wires, D::Sharing::ZERO); //process_const
+                            self.masks.set(nr_of_wires, self.shares.input.next());
                             zeroes.push(nr_of_wires);
                             nr_of_wires += 1;
                         }
@@ -396,7 +398,7 @@ impl<D: Domain> PreprocessingExecution<D> {
             output_bits.push(output_bit);
         }
 
-        (output_bits, carry_out)
+        (output_bits, carry_out + 1)
     }
 
     pub fn done(mut self) -> (Hash, Vec<Hash>) {

@@ -163,8 +163,6 @@ impl<D: Domain> Proof<D> {
                     recv,
                     fieldswitching_input,
                     fieldswitching_output,
-                    vec![],
-                    vec![],
                 )
                 .await
         }

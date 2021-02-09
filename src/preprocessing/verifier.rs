@@ -209,7 +209,14 @@ impl<D: Domain> PreprocessingExecution<D> {
                     self.masks.set(new_dst, mask);
 
                     if fieldswitching_input.contains(&dst) {
-                        self.masks.set(dst, self.masks.get(nr_of_wires));
+                        nr_of_wires += 1;
+                        // check if need for new batch of input masks
+                        let mask = self.shares.input.next();
+
+                        // assign the next unused input share to the destination wire
+                        self.masks.set(nr_of_wires, mask);
+
+                        self.process_add(dst, new_dst, nr_of_wires);
                         nr_of_wires += 1;
                     }
                 }
@@ -283,7 +290,11 @@ impl<D: Domain> PreprocessingExecution<D> {
                             fieldswitching_output_done.append(&mut out_list.clone());
                             let mut zeroes = Vec::new();
                             for _i in 0..out_list.len() {
-                                self.masks.set(nr_of_wires, D::Sharing::ZERO); //process_const
+                                // check if need for new batch of input masks
+                                let mask = self.shares.input.next();
+
+                                // assign the next unused input share to the destination wire
+                                self.masks.set(nr_of_wires, mask);
                                 zeroes.push(nr_of_wires);
                                 nr_of_wires += 1;
                             }
@@ -508,6 +519,6 @@ impl<D: Domain> PreprocessingExecution<D> {
             output_bits.push(output_bit);
         }
 
-        (output_bits, carry_out)
+        (output_bits, carry_out+1)
     }
 }

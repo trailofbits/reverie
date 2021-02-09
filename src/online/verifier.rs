@@ -111,8 +111,6 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
         proof: Receiver<Vec<u8>>,
         fieldswitching_input: Vec<usize>,
         fieldswitching_output: Vec<Vec<usize>>,
-        eda_bits: Vec<Vec<Vec<D::Sharing>>>,
-        eda_composed: Vec<Vec<D::Sharing>>,
     ) -> Result<Output<D>, String> {
         let mut oracle = RandomOracle::new(CONTEXT_ORACLE_ONLINE, bind);
 
@@ -121,8 +119,6 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                 proof,
                 fieldswitching_input,
                 fieldswitching_output,
-                eda_bits,
-                eda_composed,
                 &mut oracle,
             )
             .await
@@ -145,8 +141,6 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
         mut proof: Receiver<Vec<u8>>,
         fieldswitching_input: Vec<usize>,
         fieldswitching_output: Vec<Vec<usize>>,
-        eda_bits: Vec<Vec<Vec<D::Sharing>>>,
-        eda_composed: Vec<Vec<D::Sharing>>,
         oracle: &mut RandomOracle,
     ) -> Result<(Vec<usize>, Output<D>), String> {
         async fn process<D: Domain>(
@@ -158,23 +152,15 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
             )>,
             fieldswitching_input: Vec<usize>,
             fieldswitching_output: Vec<Vec<usize>>,
-            preprocessing_eda_bits: Vec<Vec<D::Sharing>>,
-            preprocessing_eda_composed: Vec<D::Sharing>,
         ) -> Option<(Hash, Hash, usize, Vec<D::Scalar>)> {
             let mut wires = VecMap::new();
             let mut transcript: RingHasher<_> = RingHasher::new();
             let mut output: Vec<D::Scalar> = Vec::with_capacity(5);
-            let mut corrections_hash: RingHasher<_> = RingHasher::new();
 
             // pre-processing output
             let mut preprocessing = PreprocessingExecution::<D>::new(&run.open);
             let mut masks: Vec<D::Sharing> = Vec::with_capacity(DEFAULT_CAPACITY);
             let mut ab_gamma: Vec<D::Sharing> = Vec::with_capacity(DEFAULT_CAPACITY);
-            let mut eda_bits = Vec::<Cloned<Iter<D::Sharing>>>::new();
-            for eda_bit in &preprocessing_eda_bits[..] {
-                eda_bits.push(eda_bit.iter().cloned());
-            }
-            let mut eda_composed = (&preprocessing_eda_composed[..]).iter().cloned();
             let mut broadcast_upstream: Vec<D::Batch> = Vec::with_capacity(DEFAULT_CAPACITY);
             let mut corrections_upstream: Vec<D::Batch> = Vec::with_capacity(DEFAULT_CAPACITY);
             let mut masked_witness_upstream: Vec<D::Scalar> = Vec::with_capacity(DEFAULT_CAPACITY);
@@ -198,8 +184,6 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                 // recompute the Merkle root from the leaf and proof
                 (run.proof.verify(&hasher.finalize()), scalars.into_iter())
             };
-            println!("verify eda_bits: {:?}", eda_bits);
-            println!("verify eda_composed: {:?}", eda_composed);
 
             loop {
                 match inputs.recv().await {
@@ -220,13 +204,9 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                         broadcast_upstream.clear();
                         let chunk: Chunk = bincode::deserialize(&chunk[..]).ok()?;
                         Packable::unpack(&mut masked_witness_upstream, &chunk.witness[..]).ok()?;
+                        // println!("masked witness verifier: {:?}", masked_witness_upstream);
                         Packable::unpack(&mut corrections_upstream, &chunk.corrections[..]).ok()?;
                         Packable::unpack(&mut broadcast_upstream, &chunk.broadcast[..]).ok()?;
-
-                        // add corrections to player 0 view
-                        for elem in corrections_upstream.iter().cloned() {
-                            corrections_hash.update(elem);
-                        }
 
                         // reset preprocessing output buffers
                         masks.clear();
@@ -275,32 +255,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                                     }
                                     Instruction::Input(dst) => {
                                         assert_ne!(nr_of_wires, 0);
-
-                                        let mut new_dst = dst;
-                                        if fieldswitching_input.contains(&dst) {
-                                            new_dst = nr_of_wires;
-                                        }
-
-                                        wires.set(new_dst, witness.next()?);
-                                        #[cfg(feature = "trace")]
-                                        {
-                                            println!(
-                                                "verifier-input : wire = {:?}",
-                                                wires.get(new_dst)
-                                            );
-                                        }
-
-                                        if fieldswitching_input.contains(&dst) {
-                                            //TODO(gvl) Subtract constant instead of add
-                                            let added = eda_composed.next().unwrap().reconstruct();
-                                            process_add_const::<D>(
-                                                &mut wires,
-                                                dst,
-                                                nr_of_wires,
-                                                added,
-                                            );
-                                            nr_of_wires += 1;
-                                        }
+                                        nr_of_wires = process_input::<D>(fieldswitching_input.clone(), &mut wires, &mut witness, nr_of_wires, dst);
                                     }
                                     Instruction::Branch(dst) => {
                                         assert_ne!(nr_of_wires, 0);
@@ -353,10 +308,8 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                                                 fieldswitching_output_done
                                                     .append(&mut out_list.clone());
                                                 let mut zeroes = Vec::new();
-                                                for i in 0..out_list.len() {
-                                                    let added =
-                                                        eda_bits[i].next().unwrap().reconstruct();
-                                                    wires.set(nr_of_wires, added); //process_const
+                                                for _i in 0..out_list.len() {
+                                                    nr_of_wires = process_input::<D>(fieldswitching_input.clone(), &mut wires, &mut witness, nr_of_wires, nr_of_wires);
                                                     zeroes.push(nr_of_wires);
                                                     nr_of_wires += 1;
                                                 }
@@ -410,6 +363,36 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
             }
         }
 
+        fn process_input<D: Domain>(fieldswitching_input: Vec<usize>, mut wires: &mut VecMap<D::Scalar>, witness: &mut Cloned<Iter<D::Scalar>>, mut nr_of_wires: usize, dst: usize) -> usize {
+            let mut new_dst = dst;
+            if fieldswitching_input.contains(&dst) {
+                new_dst = nr_of_wires;
+            }
+
+            wires.set(new_dst, witness.next().unwrap());
+            #[cfg(feature = "trace")]
+                {
+                    println!(
+                        "verifier-input : Input({}) ; wire = {:?}",
+                    new_dst, wires.get(new_dst)
+                    );
+                }
+
+            if fieldswitching_input.contains(&dst) {
+                //TODO(gvl) Subtract constant instead of add
+                nr_of_wires += 1;
+                nr_of_wires = process_input::<D>(fieldswitching_input, wires, witness, nr_of_wires, nr_of_wires);
+                process_add::<D>(
+                    &mut wires,
+                    dst,
+                    new_dst,
+                    nr_of_wires,
+                );
+                nr_of_wires += 1;
+            }
+            nr_of_wires
+        }
+
         fn process_output<D: Domain>(
             wires: &mut VecMap<D::Scalar>,
             transcript: &mut RingHasher<D::Sharing>,
@@ -423,6 +406,15 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
             transcript.write(recon);
 
             output.write(wires.get(src) + recon.reconstruct());
+
+            #[cfg(feature = "trace")]
+                {
+                    println!(
+                        "verifier-output   : Output({}) ; recon = {:?}",
+                        src,
+                        recon,
+                    );
+                }
         }
 
         fn process_mul<D: Domain>(
@@ -451,6 +443,17 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
 
             // reconstruct and correct share
             wires.set(dst, c_w);
+
+            #[cfg(feature = "trace")]
+                {
+                    println!(
+                        "verifier-mul      : Mul({}, {}, {}) ; recon = {:?}",
+                        dst,
+                        src1,
+                        src2,
+                        recon,
+                    );
+                }
         }
 
         fn process_add<D: Domain>(
@@ -464,7 +467,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
             wires.set(dst, a_w + b_w);
             #[cfg(feature = "trace")]
             {
-                println!("verifier-add   : a_w = {:?}, b_w = {:?}", a_w, b_w,);
+                println!("verifier-add   : Add({:?}, {:?}, {:?}) ; a_w = {:?}, b_w = {:?}", dst, src1, src2, a_w, b_w,);
             }
         }
 
@@ -627,7 +630,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                 output_bits.push(output_bit);
             }
 
-            (output_bits, carry_out)
+            (output_bits, carry_out+1)
         }
 
         if self.proof.runs.len() != D::ONLINE_REPETITIONS {
@@ -638,27 +641,15 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
         let mut tasks = Vec::with_capacity(D::ONLINE_REPETITIONS);
         let mut inputs = Vec::with_capacity(D::ONLINE_REPETITIONS);
         let mut outputs = Vec::with_capacity(D::ONLINE_REPETITIONS);
-        for (i, run) in self.proof.runs.iter().cloned().enumerate() {
+        for run in self.proof.runs.iter().cloned() {
             let (sender_inputs, reader_inputs) = async_channel::bounded(5);
             let (sender_outputs, reader_outputs) = async_channel::bounded(5);
-            let _eda_bits = if eda_bits.is_empty() {
-                vec![]
-            } else {
-                eda_bits[i].clone()
-            };
-            let _eda_composed = if eda_composed.is_empty() {
-                vec![]
-            } else {
-                eda_composed[i].clone()
-            };
             tasks.push(task::spawn(process::<D>(
                 run,
                 sender_outputs,
                 reader_inputs,
                 fieldswitching_input.clone(),
                 fieldswitching_output.clone(),
-                _eda_bits,
-                _eda_composed,
             )));
             inputs.push(sender_inputs);
             outputs.push(reader_outputs);
@@ -710,8 +701,8 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                 }
                 omitted.push(omit);
                 // println!("verifier transcript feed: {:?}", transcript);
-                println!("verif: {:?}", preprocessing.as_bytes());
-                println!("verif: {:?}", transcript.as_bytes());
+                // println!("verif preprocessing: {:?}", preprocessing.as_bytes());
+                // println!("verif transcript: {:?}", transcript.as_bytes());
                 oracle.feed(preprocessing.as_bytes());
                 oracle.feed(transcript.as_bytes());
                 pp_hashes.push(preprocessing);

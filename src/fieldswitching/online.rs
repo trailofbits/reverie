@@ -1,7 +1,7 @@
-use crate::algebra::{Domain, RingElement};
+use crate::algebra::{Domain, RingElement, Packable};
 use crate::consts::CONTEXT_ORACLE_ONLINE;
 use crate::crypto::{Hash, Hasher, MerkleSetProof, TreePRF};
-use crate::fieldswitching::preprocessing::FsPreprocessingRun;
+use crate::fieldswitching::preprocessing::{FsPreprocessingRun, PreprocessingExecution, PartialPreprocessingExecution};
 use crate::fieldswitching::util::convert_bit;
 use crate::online::{StreamingProver, StreamingVerifier};
 use crate::oracle::RandomOracle;
@@ -29,10 +29,9 @@ pub struct Proof<D: Domain, D2: Domain> {
 pub struct OnlineRun<D: Domain, D2: Domain> {
     open: TreePRF,    // randomness for opened players
     commitment: Hash, // commitment for hidden preprocessing player
+    corrections: Vec<u8>,
     run1: super::super::online::OnlineRun<D>,
     run2: super::super::online::OnlineRun<D2>,
-    _ph: PhantomData<D>,
-    _ph2: PhantomData<D2>,
 }
 
 impl<D: Domain, D2: Domain> Proof<D, D2> {
@@ -169,7 +168,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             masked_branches_2.append(&mut _masked_branches_2);
             input2 = _input2;
             for oracle_feed in oracle_inputs {
-                println!("prover: {:?}", oracle_feed);
+                // println!("prover: {:?}", oracle_feed);
                 oracle.feed(&oracle_feed);
             }
         }
@@ -264,13 +263,14 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
                             _ph: PhantomData,
                         };
                         let tree = TreePRF::new(D::PLAYERS, run.seed);
+                        let mut corrections: Vec<u8> = Vec::new();
+                        Packable::pack(&mut corrections, run.corrections.iter()).unwrap();
                         OnlineRun {
+                            open: tree.puncture(omit),
+                            commitment: Hasher::new().finalize(),
+                            corrections,
                             run1,
                             run2,
-                            commitment: Hasher::new().finalize(),
-                            open: tree.puncture(omit),
-                            _ph: PhantomData,
-                            _ph2: PhantomData,
                         }
                     },
                 )
@@ -285,40 +285,48 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
     pub async fn verify(
         &self,
         bind: Option<Vec<u8>>,
+        conn_program: Vec<ConnectionInstruction>,
         program1: Vec<Instruction<D::Scalar>>,
         program2: Vec<Instruction<D2::Scalar>>,
-        preprocessed: Vec<fieldswitching::preprocessing::Output<D, D2>>,
     ) -> Result<Vec<D2::Scalar>, String> {
         async fn online_verification<D: Domain, D2: Domain>(
+            conn_program: Vec<ConnectionInstruction>,
+            run: OnlineRun<D, D2>,
+        ) -> Result<(Vec<Vec<D::Sharing>>, Vec<D2::Sharing>, Hash), String> {
+            let mut execution = PartialPreprocessingExecution::<D, D2>::new(run.open);
+
+            let mut eda_composed = Vec::new();
+            let mut eda_bits = Vec::new();
+            let mut corrections = Vec::new();
+            match D2::Batch::unpack(&mut corrections, &run.corrections) {
+                Ok(_) => (),
+                Err(e) => return Err(String::from(format!("{:?}", e)))
+            };
+            execution.process(&conn_program[..], &corrections[..], &mut eda_bits, &mut eda_composed);
+
+            return Ok((eda_bits, eda_composed, execution.commitment(&run.commitment)));
+        }
+
+        async fn verify_sub_circuits<D: Domain, D2: Domain>(
             bind: Option<Vec<u8>>,
+            conn_program: Vec<ConnectionInstruction>,
             program1: Arc<Vec<Instruction<D::Scalar>>>,
             program2: Arc<Vec<Instruction<D2::Scalar>>>,
             proof1: online::Proof<D>,
             proof2: online::Proof<D2>,
-            preprocessed: Vec<fieldswitching::preprocessing::Output<D, D2>>,
             recv1: Receiver<Vec<u8>>,
             recv2: Receiver<Vec<u8>>,
-        ) -> Result<online::Output<D2>, String> {
+        ) -> Result<Vec<D2::Scalar>, String> {
+            let (fieldswitching_input, fieldswitching_output) = PreprocessingExecution::<D, D2>::get_fs_input_output(&conn_program[..]);
             let mut oracle =
                 RandomOracle::new(CONTEXT_ORACLE_ONLINE, bind.as_ref().map(|x| &x[..]));
 
-            let fieldswitching_output = preprocessed[0].fieldswitching_output.clone();
-            let fieldswitching_input = preprocessed[0].fieldswitching_input.clone();
-            let mut eda_composed = Vec::new();
-            let mut eda_bits = Vec::new();
-            for out in preprocessed {
-                eda_composed.push(out.eda_composed);
-                eda_bits.push(out.eda_bits);
-            }
-
-            let verifier1 = online::StreamingVerifier::new(program1.iter().cloned(), proof1);
+            let verifier1 = online::StreamingVerifier::new(program1.iter().cloned(), proof1.clone());
             let (omitted1, _result1) = match verifier1
                 .verify_round_1(
                     recv1,
                     vec![],
                     fieldswitching_output,
-                    eda_bits,
-                    vec![],
                     &mut oracle,
                 )
                 .await
@@ -327,14 +335,12 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
                 Err(e) => return Err(e),
             };
 
-            let verifier2 = online::StreamingVerifier::new(program2.iter().cloned(), proof2);
+            let verifier2 = online::StreamingVerifier::new(program2.iter().cloned(), proof2.clone());
             let (omitted2, result2) = match verifier2
                 .verify_round_1(
                     recv2,
                     fieldswitching_input,
                     vec![],
-                    vec![],
-                    eda_composed,
                     &mut oracle,
                 )
                 .await
@@ -356,20 +362,45 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
                 return Err(String::from("omitted values for proof 2 are incorrect"));
             }
 
-            return Ok(result2);
+            //TODO(gvl): both preprocessed checking
+            // Ok(out) => Ok(out.check(&preprocessed.output2).ok_or_else(|| {
+            //     String::from("Online task output did not match preprocessing output")
+            // })?),
+
+            Ok(result2.result)
         }
 
         // verify the online execution
         let (send1, recv1) = bounded(CHANNEL_CAPACITY);
         let (send2, recv2) = bounded(CHANNEL_CAPACITY);
 
-        let task_online = task::spawn(online_verification(
+        let mut tasks = Vec::new();
+        for run in self.runs.iter().cloned() {
+            tasks.push(task::spawn(online_verification(
+                conn_program.clone(),
+                run,
+            )));
+        }
+
+        let mut eda_composed = Vec::new();
+        let mut eda_bits = Vec::new();
+        for t in tasks {
+            let result = t.await;
+            if result.is_err() {
+                return Err(result.err().unwrap());
+            }
+            eda_bits.push(result.clone().unwrap().0);
+            eda_composed.push(result.unwrap().1);
+            // oracle.feed(result.unwrap().2);
+        }
+
+        let t = task::spawn(verify_sub_circuits(
             bind,
-            Arc::new(program1.clone()),
-            Arc::new(program2.clone()),
+            conn_program.clone(),
+            Arc::new(program1),
+            Arc::new(program2),
             self.online1.clone(),
             self.online2.clone(),
-            preprocessed.clone(),
             recv1,
             recv2,
         ));
@@ -388,13 +419,6 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             }
         }
 
-        match task_online.await {
-            //TODO(gvl): both preprocessed checking
-            // Ok(out) => Ok(out.check(&preprocessed.output2).ok_or_else(|| {
-            //     String::from("Online task output did not match preprocessing output")
-            // })?),
-            Ok(out) => Ok(out.result),
-            Err(e) => Err(String::from("Online verification task failed: ") + e.as_str()),
-        }
+        t.await
     }
 }

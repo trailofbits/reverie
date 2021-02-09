@@ -56,16 +56,16 @@ mod tests {
             pp_output,
         ));
 
-        let proof_output = task::block_on(preprocessed_proof.verify(
+        let pp_output = task::block_on(preprocessed_proof.verify(
             conn_program.clone(),
             program1.clone(),
             program2.clone(),
             branches.clone(),
             branches.clone(),
-        ))
-        .unwrap();
+        ));
+        assert!(pp_output.is_ok());
         let verifier_output =
-            task::block_on(proof.verify(None, program1.clone(), program2.clone(), proof_output))
+            task::block_on(proof.verify(None, conn_program.clone(),program1.clone(), program2.clone()))
                 .unwrap();
         assert_eq!(verifier_output, output);
     }

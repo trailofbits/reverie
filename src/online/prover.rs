@@ -46,7 +46,7 @@ async fn feed<
     }
 
     // feed to workers
-    debug_assert_eq!(senders.len(), D::ONLINE_REPETITIONS);
+    // debug_assert_eq!(senders.len(), D::ONLINE_REPETITIONS);
     for tx in senders.iter_mut() {
         tx.send((ps.clone(), ws.clone())).await.unwrap();
     }
@@ -146,8 +146,8 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
         fieldswitching_output: Vec<Vec<usize>>,
         output: &mut Vec<D::Scalar>,
     ) {
-        println!("prover eda_bits: {:?}", preprocessing_eda_bits);
-        println!("prover eda_composed: {:?}", preprocessing_eda_composed);
+        // println!("prover eda_bits: {:?}", preprocessing_eda_bits);
+        // println!("prover eda_composed: {:?}", preprocessing_eda_composed);
         let mut witness = witness.iter().cloned();
         let mut ab_gamma = preprocessing_ab_gamma.iter().cloned();
         let mut masks = preprocessing_masks.iter().cloned();
@@ -179,42 +179,7 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
                 }
                 Instruction::Input(dst) => {
                     assert_ne!(nr_of_wires, 0);
-
-                    let mut new_dst = dst;
-                    if fieldswitching_input.contains(&dst) {
-                        new_dst = nr_of_wires;
-                    }
-
-                    let value: D::Scalar = witness.next().unwrap();
-                    let mask: D::Sharing = masks.next().unwrap();
-                    let wire = value + D::Sharing::reconstruct(&mask);
-                    self.wires.set(new_dst, wire);
-                    masked_witness.write(wire);
-
-                    #[cfg(feature = "trace")]
-                    {
-                        println!(
-                            "prover-input    : Input({}) ; wire = {:?}, mask = {:?}, value = {:?}",
-                            new_dst, wire, mask, value
-                        );
-                    }
-
-                    // evaluate the circuit in plain for testing
-                    #[cfg(test)]
-                    #[cfg(debug_assertions)]
-                    {
-                        assert_eq!(self.wires.get(new_dst) + mask.reconstruct(), value);
-                        #[cfg(feature = "trace")]
-                        println!("  mask = {:?}, value = {:?}", mask, value);
-                        self.plain.set(new_dst, Some(value));
-                    }
-
-                    if fieldswitching_input.contains(&dst) {
-                        //TODO(gvl) Subtract constant instead of add
-                        let added = eda_composed.next().unwrap().reconstruct();
-                        self.process_add_const(&mut masks, dst, nr_of_wires, added); //TODO(gvl): use input instead of add_const
-                        nr_of_wires += 1;
-                    }
+                    nr_of_wires = self.process_input(masked_witness, fieldswitching_input.clone(), &mut eda_composed, witness.next().unwrap(), &mut masks, nr_of_wires, dst);
                 }
                 Instruction::Branch(dst) => {
                     assert_ne!(nr_of_wires, 0);
@@ -309,7 +274,7 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
                             let mut zeroes = Vec::new();
                             for i in 0..out_list.len() {
                                 let added = eda_bits[i].next().unwrap().reconstruct();
-                                self.process_const(&mut masks, nr_of_wires, added); //TODO(gvl): use input instead of const
+                                nr_of_wires = self.process_input(masked_witness, fieldswitching_input.clone(), &mut eda_composed, added, &mut masks, nr_of_wires, nr_of_wires);
                                 zeroes.push(nr_of_wires);
                                 nr_of_wires += 1;
                             }
@@ -334,6 +299,46 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
         }
         debug_assert!(witness.next().is_none());
         debug_assert!(masks.next().is_none());
+    }
+
+    fn process_input<WW: Writer<D::Scalar>>(&mut self, masked_witness: &mut WW, fieldswitching_input: Vec<usize>, eda_composed: &mut Cloned<Iter<D::Sharing>>, value: D::Scalar, masks: &mut Cloned<Iter<D::Sharing>>, mut nr_of_wires: usize, dst: usize) -> usize {
+        let mut new_dst = dst;
+        if fieldswitching_input.contains(&dst) {
+            new_dst = nr_of_wires;
+        }
+
+        let mask: D::Sharing = masks.next().unwrap();
+        let wire = value + D::Sharing::reconstruct(&mask);
+        self.wires.set(new_dst, wire);
+        masked_witness.write(wire);
+
+        #[cfg(feature = "trace")]
+            {
+                println!(
+                    "prover-input    : Input({}) ; wire = {:?}, mask = {:?}, value = {:?}",
+                    new_dst, wire, mask, value
+                );
+            }
+
+        // evaluate the circuit in plain for testing
+        #[cfg(test)]
+            #[cfg(debug_assertions)]
+            {
+                assert_eq!(self.wires.get(new_dst) + mask.reconstruct(), value);
+                #[cfg(feature = "trace")]
+                println!("  mask = {:?}, value = {:?}", mask, value);
+                self.plain.set(new_dst, Some(value));
+            }
+
+        if fieldswitching_input.contains(&dst) {
+            //TODO(gvl) Subtract constant instead of add
+            let added: D::Scalar = eda_composed.next().unwrap().reconstruct();
+            nr_of_wires += 1;
+            nr_of_wires = self.process_input(masked_witness, fieldswitching_input, eda_composed, added, masks, nr_of_wires, nr_of_wires);
+            self.process_add(masks, dst, new_dst, nr_of_wires);
+            nr_of_wires += 1;
+        }
+        nr_of_wires
     }
 
     fn process_add(
@@ -406,11 +411,12 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
         #[cfg(feature = "trace")]
         {
             println!(
-                "prover-mul      : Mul({}, {}, {}) ; wire = {:?}",
+                "prover-mul      : Mul({}, {}, {}) ; wire = {:?}, recon: {:?}",
                 dst,
                 src1,
                 src2,
                 self.wires.get(dst),
+                recon,
             );
         }
 
@@ -485,10 +491,11 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
             assert_eq!(
                 self.wires.get(src) + recon.reconstruct(),
                 value,
-                "wire-index: {}, wire-value: {:?} recon: {:?}",
+                "wire-index: {}, wire-value: {:?} recon: {:?}, value: {:?}",
                 src,
                 self.wires.get(src),
-                recon
+                recon,
+                value
             );
         }
     }
@@ -667,7 +674,7 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
             output_bits.push(output_bit);
         }
 
-        (output_bits, carry_out)
+        (output_bits, carry_out+1)
     }
 }
 
@@ -712,80 +719,6 @@ impl<D: Domain> StreamingProver<D> {
         let omitted = <StreamingProver<D>>::get_challenge(&mut oracle);
 
         <StreamingProver<D>>::new_round_3(preprocessing, Arc::new(branch), masked_branches, omitted)
-    }
-
-    async fn process(
-        root: [u8; KEY_SIZE],
-        branches: Arc<Vec<Vec<D::Batch>>>,
-        branch_index: usize,
-        branch: Arc<Vec<D::Scalar>>,
-        outputs: Sender<()>,
-        inputs: Receiver<ProgWitSlice<D>>,
-        fieldswitching_input: Vec<usize>,
-        fieldswitching_output: Vec<Vec<usize>>,
-        eda_bits: Vec<Vec<D::Sharing>>,
-        eda_composed: Vec<D::Sharing>,
-    ) -> Result<(Vec<u8>, MerkleSetProof, Hash, Vec<D::Scalar>), SendError<Vec<u8>>> {
-        // online execution
-        let mut online = Prover::<D, _>::new(branch.iter().cloned());
-
-        // public transcript (broadcast channel)
-        let mut transcript = RingHasher::new();
-
-        // preprocessing execution
-        let mut preprocessing = PreprocessingExecution::<D>::new(root);
-
-        // vectors for values passed between preprocessing and online execution
-        let mut masks = Vec::with_capacity(DEFAULT_CAPACITY);
-        let mut ab_gamma = Vec::with_capacity(DEFAULT_CAPACITY);
-        let mut output = Vec::new();
-
-        loop {
-            match inputs.recv().await {
-                Ok((program, witness)) => {
-                    // execute the next slice of program
-                    {
-                        // reset preprocessing output buffers
-                        masks.clear();
-                        ab_gamma.clear();
-
-                        // prepare pre-processing execution (online mode)
-                        preprocessing.process(
-                            &program[..],
-                            &mut VoidWriter::new(),
-                            &mut masks,
-                            &mut ab_gamma,
-                            fieldswitching_input.clone(),
-                            fieldswitching_output.clone(),
-                        );
-
-                        // compute public transcript
-                        online.run(
-                            &program[..],
-                            &witness[..],
-                            &masks[..],
-                            &ab_gamma[..],
-                            &eda_bits[..],
-                            &eda_composed[..],
-                            &mut VoidWriter::new(),
-                            &mut transcript,
-                            fieldswitching_input.clone(),
-                            fieldswitching_output.clone(),
-                            &mut output,
-                        );
-                    }
-
-                    // needed for synchronization
-                    outputs.send(()).await.unwrap();
-                }
-                Err(_) => {
-                    let mut packed: Vec<u8> = Vec::with_capacity(256);
-                    let (branch, proof) = preprocessing.prove_branch(&*branches, branch_index);
-                    Packable::pack(&mut packed, branch.iter()).unwrap();
-                    return Ok((packed, proof, transcript.finalize(), output));
-                }
-            }
-        }
     }
 
     pub async fn new_round_1<
@@ -840,6 +773,81 @@ impl<D: Domain> StreamingProver<D> {
         Vec<D::Scalar>,
         Vec<[u8; 32]>,
     ) {
+        async fn process<D: Domain>(
+            root: [u8; KEY_SIZE],
+            branches: Arc<Vec<Vec<D::Batch>>>,
+            branch_index: usize,
+            branch: Arc<Vec<D::Scalar>>,
+            outputs: Sender<()>,
+            inputs: Receiver<ProgWitSlice<D>>,
+            fieldswitching_input: Vec<usize>,
+            fieldswitching_output: Vec<Vec<usize>>,
+            eda_bits: Vec<Vec<D::Sharing>>,
+            eda_composed: Vec<D::Sharing>,
+        ) -> Result<(Vec<u8>, MerkleSetProof, Hash, Vec<D::Scalar>), SendError<Vec<u8>>> {
+            // online execution
+            let mut online = Prover::<D, _>::new(branch.iter().cloned());
+
+            // public transcript (broadcast channel)
+            let mut transcript = RingHasher::new();
+
+            // preprocessing execution
+            let mut preprocessing = PreprocessingExecution::<D>::new(root);
+
+            // vectors for values passed between preprocessing and online execution
+            let mut masks = Vec::with_capacity(DEFAULT_CAPACITY);
+            let mut ab_gamma = Vec::with_capacity(DEFAULT_CAPACITY);
+            let mut output = Vec::new();
+
+            loop {
+                match inputs.recv().await {
+                    Ok((program, witness)) => {
+                        // execute the next slice of program
+                        {
+                            // reset preprocessing output buffers
+                            masks.clear();
+                            ab_gamma.clear();
+
+                            // prepare pre-processing execution (online mode)
+                            preprocessing.process(
+                                &program[..],
+                                &mut VoidWriter::new(),
+                                &mut masks,
+                                &mut ab_gamma,
+                                fieldswitching_input.clone(),
+                                fieldswitching_output.clone(),
+                            );
+                            // println!("prover masks: {:?}", masks);
+
+                            // compute public transcript
+                            online.run(
+                                &program[..],
+                                &witness[..],
+                                &masks[..],
+                                &ab_gamma[..],
+                                &eda_bits[..],
+                                &eda_composed[..],
+                                &mut VoidWriter::new(),
+                                &mut transcript,
+                                fieldswitching_input.clone(),
+                                fieldswitching_output.clone(),
+                                &mut output,
+                            );
+                        }
+
+                        // needed for synchronization
+                        outputs.send(()).await.unwrap();
+                    }
+                    Err(_) => {
+                        let mut packed: Vec<u8> = Vec::with_capacity(256);
+                        let (branch, proof) = preprocessing.prove_branch(&*branches, branch_index);
+                        Packable::pack(&mut packed, branch.iter()).unwrap();
+                        return Ok((packed, proof, transcript.finalize(), output));
+                    }
+                }
+            }
+        }
+
         // unpack selected branch into scalars again
         let branch_batches = &preprocessing.branches[branch_index][..];
         let mut _branch = Vec::with_capacity(branch_batches.len() * D::Batch::DIMENSION);
@@ -857,7 +865,7 @@ impl<D: Domain> StreamingProver<D> {
         for run in runs.iter() {
             let (send_inputs, recv_inputs) = async_channel::bounded(2);
             let (send_outputs, recv_outputs) = async_channel::bounded(2);
-            tasks.push(task::spawn(Self::process(
+            tasks.push(task::spawn(process::<D>(
                 run.seed,
                 preprocessing.branches.clone(),
                 branch_index,
@@ -1045,11 +1053,15 @@ impl<D: Domain> StreamingProver<D> {
                             );
                         }
 
+                        debug_assert_eq!(masked.len(), witness.len() + fieldswitching_input.len() + fieldswitching_output.len());
+
                         // serialize the chunk
 
                         chunk.witness.clear();
                         chunk.broadcast.clear();
                         chunk.corrections.clear();
+                        // println!("masked witness prover: {:?}", masked);
+
                         Packable::pack(&mut chunk.witness, masked.iter()).unwrap();
                         Packable::pack(&mut chunk.broadcast, broadcast.iter()).unwrap();
                         Packable::pack(&mut chunk.corrections, corrections.iter()).unwrap();
