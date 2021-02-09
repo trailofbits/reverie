@@ -15,6 +15,9 @@ mod ring;
 /// General purpose "bit-by-bit" domain
 pub mod gf2;
 
+// Ring of integers mod 64
+pub mod z64;
+
 /// These two domains are primarily used for bit-slicing LowMC inside the circuit
 pub mod gf2_vec;
 pub mod gf2_vec85;
@@ -184,4 +187,9 @@ fn test_gf2_p64_64() {
 #[test]
 fn test_gf2_p64_85() {
     test_domain::<gf2_vec85::GF2P64_85>();
+}
+
+#[test]
+fn test_z64_p8() {
+    test_domain::<z64::Z64P8>();
 }
