@@ -12,6 +12,7 @@ use async_std::task;
 
 use serde::{Deserialize, Serialize};
 
+use crate::fieldswitching::util::FieldSwitchingIO;
 use std::sync::Arc;
 
 const CHANNEL_CAPACITY: usize = 100;
@@ -58,8 +59,7 @@ impl<D: Domain> Proof<D> {
         branches: Arc<Vec<Vec<D::Scalar>>>,
         branch_index: usize,
         witness: Arc<Vec<D::Scalar>>,
-        fieldswitching_input: Vec<usize>,
-        fieldswitching_output: Vec<Vec<usize>>,
+        fieldswitching_io: FieldSwitchingIO,
     ) -> Self {
         async fn online_proof<D: Domain>(
             send: Sender<Vec<u8>>,
@@ -67,8 +67,7 @@ impl<D: Domain> Proof<D> {
             program: Arc<Vec<Instruction<D::Scalar>>>,
             branch_index: usize,
             witness: Arc<Vec<D::Scalar>>,
-            fieldswitching_input: Vec<usize>,
-            fieldswitching_output: Vec<Vec<usize>>,
+            fieldswitching_io: FieldSwitchingIO,
             pp_output: preprocessing::PreprocessingOutput<D>,
         ) -> Option<online::Proof<D>> {
             let (online, prover) = online::StreamingProver::new(
@@ -77,10 +76,8 @@ impl<D: Domain> Proof<D> {
                 branch_index,
                 program.clone().iter().cloned(),
                 witness.clone().iter().cloned(),
-                fieldswitching_input.clone(),
-                fieldswitching_output.clone(),
-                vec![],
-                vec![],
+                fieldswitching_io.clone(),
+                (vec![], vec![]),
             )
             .await;
             prover
@@ -88,8 +85,7 @@ impl<D: Domain> Proof<D> {
                     send,
                     program.iter().cloned(),
                     witness.iter().cloned(),
-                    fieldswitching_input.clone(),
-                    fieldswitching_output.clone(),
+                    fieldswitching_io.clone(),
                     vec![],
                     vec![],
                 )
@@ -109,8 +105,7 @@ impl<D: Domain> Proof<D> {
             seed,
             &branches[..],
             program.iter().cloned(),
-            fieldswitching_input.clone(),
-            fieldswitching_output.clone(),
+            fieldswitching_io.clone(),
         );
 
         // create prover for online phase
@@ -121,8 +116,7 @@ impl<D: Domain> Proof<D> {
             program.clone(),
             branch_index,
             witness.clone(),
-            fieldswitching_input.clone(),
-            fieldswitching_output.clone(),
+            fieldswitching_io,
             pp_output,
         ));
 
@@ -145,25 +139,18 @@ impl<D: Domain> Proof<D> {
         bind: Option<Vec<u8>>,
         branches: Arc<Vec<Vec<D::Scalar>>>,
         program: Arc<Vec<Instruction<D::Scalar>>>,
-        fieldswitching_input: Vec<usize>,
-        fieldswitching_output: Vec<Vec<usize>>,
+        fieldswitching_io: FieldSwitchingIO,
     ) -> Result<Vec<D::Scalar>, String> {
         async fn online_verification<D: Domain>(
             bind: Option<Vec<u8>>,
             program: Arc<Vec<Instruction<D::Scalar>>>,
             proof: online::Proof<D>,
             recv: Receiver<Vec<u8>>,
-            fieldswitching_input: Vec<usize>,
-            fieldswitching_output: Vec<Vec<usize>>,
+            fieldswitching_io: FieldSwitchingIO,
         ) -> Result<online::Output<D>, String> {
             let verifier = online::StreamingVerifier::new(program.iter().cloned(), proof);
             verifier
-                .verify(
-                    bind.as_ref().map(|x| &x[..]),
-                    recv,
-                    fieldswitching_input,
-                    fieldswitching_output,
-                )
+                .verify(bind.as_ref().map(|x| &x[..]), recv, fieldswitching_io)
                 .await
         }
 
@@ -171,16 +158,14 @@ impl<D: Domain> Proof<D> {
             branches: Arc<Vec<Vec<D::Scalar>>>,
             program: Arc<Vec<Instruction<D::Scalar>>>,
             proof: preprocessing::Proof<D>,
-            fieldswitching_input: Vec<usize>,
-            fieldswitching_output: Vec<Vec<usize>>,
+            fieldswitching_io: FieldSwitchingIO,
         ) -> Option<preprocessing::Output<D>> {
             let branches: Vec<&[D::Scalar]> = branches.iter().map(|b| &b[..]).collect();
             proof
                 .verify(
                     &branches[..],
                     program.iter().cloned(),
-                    fieldswitching_input.clone(),
-                    fieldswitching_output.clone(),
+                    fieldswitching_io.clone(),
                 )
                 .await
         }
@@ -190,8 +175,7 @@ impl<D: Domain> Proof<D> {
             branches.clone(),
             program.clone(),
             self.preprocessing.clone(),
-            fieldswitching_input.clone(),
-            fieldswitching_output.clone(),
+            fieldswitching_io.clone(),
         ));
 
         // verify the online execution
@@ -201,8 +185,7 @@ impl<D: Domain> Proof<D> {
             program,
             self.online.clone(),
             recv,
-            fieldswitching_input.clone(),
-            fieldswitching_output.clone(),
+            fieldswitching_io.clone(),
         ));
 
         // send proof to the online verifier
@@ -249,8 +232,7 @@ impl<D: Domain> Proof<D> {
         branches: Vec<Vec<D::Scalar>>,
         witness: Vec<D::Scalar>,
         branch_index: usize,
-        fieldswitching_input: Vec<usize>,
-        fieldswitching_output: Vec<Vec<usize>>,
+        fieldswitching_io: FieldSwitchingIO,
     ) -> Self {
         task::block_on(Self::new_async(
             bind,
@@ -258,8 +240,7 @@ impl<D: Domain> Proof<D> {
             Arc::new(branches),
             branch_index,
             Arc::new(witness),
-            fieldswitching_input,
-            fieldswitching_output,
+            fieldswitching_io,
         ))
     }
 
@@ -280,15 +261,13 @@ impl<D: Domain> Proof<D> {
         bind: Option<Vec<u8>>,
         program: Vec<Instruction<D::Scalar>>,
         branches: Vec<Vec<D::Scalar>>,
-        fieldswitching_input: Vec<usize>,
-        fieldswitching_output: Vec<Vec<usize>>,
+        fieldswitching_io: FieldSwitchingIO,
     ) -> Result<Vec<D::Scalar>, String> {
         task::block_on(self.verify_async(
             bind,
             Arc::new(branches),
             Arc::new(program),
-            fieldswitching_input,
-            fieldswitching_output,
+            fieldswitching_io,
         ))
     }
 }
@@ -697,16 +676,14 @@ mod tests {
                 test.branches.clone(),
                 test.input.clone(),
                 test.branch_index,
-                vec![],
-                vec![],
+                (vec![], vec![]),
             );
             let verifier_output = proof
                 .verify(
                     None,
                     test.program.clone(),
                     test.branches.clone(),
-                    vec![],
-                    vec![],
+                    (vec![], vec![]),
                 )
                 .unwrap();
             assert_eq!(verifier_output, output);
@@ -725,11 +702,10 @@ mod tests {
                 branches.clone(),
                 input,
                 branch_index,
-                vec![],
-                vec![],
+                (vec![], vec![]),
             );
             let verifier_output = proof
-                .verify(None, program, branches, vec![], vec![])
+                .verify(None, program, branches, (vec![], vec![]))
                 .unwrap();
             assert_eq!(verifier_output, output);
         }
@@ -747,11 +723,10 @@ mod tests {
                 branches.clone(),
                 input,
                 branch_index,
-                vec![],
-                vec![],
+                (vec![], vec![]),
             );
             let verifier_output = proof
-                .verify(None, program, branches, vec![], vec![])
+                .verify(None, program, branches, (vec![], vec![]))
                 .unwrap();
             assert_eq!(verifier_output, output);
         }
@@ -769,11 +744,10 @@ mod tests {
                 branches.clone(),
                 input,
                 branch_index,
-                vec![],
-                vec![],
+                (vec![], vec![]),
             );
             let verifier_output = proof
-                .verify(None, program, branches, vec![], vec![])
+                .verify(None, program, branches, (vec![], vec![]))
                 .unwrap();
             assert_eq!(verifier_output, output);
         }
@@ -791,11 +765,10 @@ mod tests {
                 branches.clone(),
                 input,
                 branch_index,
-                vec![],
-                vec![],
+                (vec![], vec![]),
             );
             let verifier_output = proof
-                .verify(None, program, branches, vec![], vec![])
+                .verify(None, program, branches, (vec![], vec![]))
                 .unwrap();
             assert_eq!(verifier_output, output);
         }

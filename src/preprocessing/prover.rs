@@ -23,7 +23,8 @@ pub struct PreprocessingExecution<D: Domain> {
 
     // Beaver multiplication state
     corrections_prg: Vec<PRG>,
-    share_a: Vec<D::Sharing>, // beta sharings (from input)
+    share_a: Vec<D::Sharing>,
+    // beta sharings (from input)
     share_b: Vec<D::Sharing>, // alpha sharings (from input)
 }
 
@@ -299,9 +300,7 @@ impl<D: Domain> PreprocessingExecution<D> {
                         ab_gamma,
                         &mut batch_a,
                         &mut batch_b,
-                        dst,
-                        src1,
-                        src2,
+                        (dst, src1, src2),
                     )
                 }
                 Instruction::Output(src) => {
@@ -341,9 +340,7 @@ impl<D: Domain> PreprocessingExecution<D> {
                                 ab_gamma,
                                 &mut batch_a,
                                 &mut batch_b,
-                                out_list,
-                                zeroes,
-                                nr_of_wires,
+                                (out_list, zeroes, nr_of_wires),
                             );
                             nr_of_wires = carry_out;
                             for outs in outputs {
@@ -392,13 +389,11 @@ impl<D: Domain> PreprocessingExecution<D> {
         ab_gamma: &mut Vec<<D as Domain>::Sharing>,
         mut batch_a: &mut Vec<D::Batch>,
         mut batch_b: &mut Vec<D::Batch>,
-        dst: usize,
-        src1: usize,
-        src2: usize,
+        wire_nrs: (usize, usize, usize),
     ) {
         // push the input masks to the stack
-        let mask_a = self.masks.get(src1);
-        let mask_b = self.masks.get(src2);
+        let mask_a = self.masks.get(wire_nrs.1);
+        let mask_b = self.masks.get(wire_nrs.2);
         self.share_a.push(mask_a);
         self.share_b.push(mask_b);
 
@@ -408,7 +403,7 @@ impl<D: Domain> PreprocessingExecution<D> {
 
         // assign mask to output
         // (NOTE: can be done before the correction bits are computed, allowing batching regardless of circuit topology)
-        self.masks.set(dst, self.shares.beaver.next());
+        self.masks.set(wire_nrs.0, self.shares.beaver.next());
 
         // if the batch is full, generate next batch of ab_gamma shares
         if self.share_a.len() == D::Batch::DIMENSION {
@@ -420,7 +415,7 @@ impl<D: Domain> PreprocessingExecution<D> {
         #[cfg(debug_assertions)]
         #[cfg(feature = "debug_eval")]
         {
-            masks.write(self.masks.get(dst));
+            masks.write(self.masks.get(wire_nrs.0));
         }
     }
 
@@ -442,32 +437,17 @@ impl<D: Domain> PreprocessingExecution<D> {
         ab_gamma: &mut Vec<<D as Domain>::Sharing>,
         batch_a: &mut Vec<D::Batch>,
         batch_b: &mut Vec<D::Batch>,
-        input1: usize,
-        input2: usize,
-        carry_in: usize,
-        start_new_wires: usize,
+        inputs: (usize, usize, usize, usize),
     ) -> (usize, usize) {
-        self.process_add(masks, start_new_wires, input1, input2);
-        self.process_add(masks, start_new_wires + 1, carry_in, start_new_wires);
+        self.process_add(masks, inputs.3, inputs.0, inputs.1);
+        self.process_add(masks, inputs.3 + 1, inputs.2, inputs.3);
         self.process_mul(
             corrections,
             masks,
             ab_gamma,
             batch_a,
             batch_b,
-            start_new_wires + 2,
-            carry_in,
-            start_new_wires,
-        );
-        self.process_mul(
-            corrections,
-            masks,
-            ab_gamma,
-            batch_a,
-            batch_b,
-            start_new_wires + 3,
-            input1,
-            input2,
+            (inputs.3 + 2, inputs.2, inputs.3),
         );
         self.process_mul(
             corrections,
@@ -475,24 +455,20 @@ impl<D: Domain> PreprocessingExecution<D> {
             ab_gamma,
             batch_a,
             batch_b,
-            start_new_wires + 4,
-            start_new_wires + 2,
-            start_new_wires + 3,
+            (inputs.3 + 3, inputs.0, inputs.1),
         );
-        self.process_add(
+        self.process_mul(
+            corrections,
             masks,
-            start_new_wires + 5,
-            start_new_wires + 2,
-            start_new_wires + 3,
+            ab_gamma,
+            batch_a,
+            batch_b,
+            (inputs.3 + 4, inputs.3 + 2, inputs.3 + 3),
         );
-        self.process_add(
-            masks,
-            start_new_wires + 6,
-            start_new_wires + 4,
-            start_new_wires + 5,
-        );
+        self.process_add(masks, inputs.3 + 5, inputs.3 + 2, inputs.3 + 3);
+        self.process_add(masks, inputs.3 + 6, inputs.3 + 4, inputs.3 + 5);
 
-        (start_new_wires + 1, start_new_wires + 6)
+        (inputs.3 + 1, inputs.3 + 6)
     }
 
     fn first_adder<CW: Writer<D::Batch>, MW: Writer<D::Sharing>>(
@@ -502,23 +478,19 @@ impl<D: Domain> PreprocessingExecution<D> {
         ab_gamma: &mut Vec<<D as Domain>::Sharing>,
         batch_a: &mut Vec<D::Batch>,
         batch_b: &mut Vec<D::Batch>,
-        input1: usize,
-        input2: usize,
-        start_new_wires: usize,
+        inputs: (usize, usize, usize),
     ) -> (usize, usize) {
-        self.process_add(masks, start_new_wires, input1, input2);
+        self.process_add(masks, inputs.2, inputs.0, inputs.1);
         self.process_mul(
             corrections,
             masks,
             ab_gamma,
             batch_a,
             batch_b,
-            start_new_wires + 1,
-            input1,
-            input2,
+            (inputs.2 + 1, inputs.0, inputs.1),
         );
 
-        (start_new_wires, start_new_wires + 1)
+        (inputs.2, inputs.2 + 1)
     }
 
     /// n bit adder with carry
@@ -538,14 +510,12 @@ impl<D: Domain> PreprocessingExecution<D> {
         ab_gamma: &mut Vec<<D as Domain>::Sharing>,
         batch_a: &mut Vec<D::Batch>,
         batch_b: &mut Vec<D::Batch>,
-        start_input1: Vec<usize>,
-        start_input2: Vec<usize>,
-        start_new_wires: usize,
+        inputs: (Vec<usize>, Vec<usize>, usize),
     ) -> (Vec<usize>, usize) {
-        assert_eq!(start_input1.len(), start_input2.len());
-        assert!(!start_input1.is_empty());
+        assert_eq!(inputs.0.len(), inputs.1.len());
+        assert!(!inputs.0.is_empty());
         let mut output_bits = Vec::new();
-        let mut start_new_wires_mut = start_new_wires;
+        let mut start_new_wires_mut = inputs.2;
 
         let (mut output_bit, mut carry_out) = self.first_adder(
             corrections,
@@ -553,12 +523,10 @@ impl<D: Domain> PreprocessingExecution<D> {
             ab_gamma,
             batch_a,
             batch_b,
-            start_input1[0],
-            start_input2[0],
-            start_new_wires,
+            (inputs.0[0], inputs.1[0], inputs.2),
         );
         output_bits.push(output_bit);
-        for i in 1..start_input1.len() {
+        for i in 1..inputs.0.len() {
             start_new_wires_mut += carry_out;
             let (output_bit1, carry_out1) = self.adder(
                 corrections,
@@ -566,10 +534,7 @@ impl<D: Domain> PreprocessingExecution<D> {
                 ab_gamma,
                 batch_a,
                 batch_b,
-                start_input1[i],
-                start_input2[i],
-                carry_out,
-                start_new_wires_mut,
+                (inputs.0[i], inputs.1[i], carry_out, start_new_wires_mut),
             );
             output_bit = output_bit1;
             carry_out = carry_out1;

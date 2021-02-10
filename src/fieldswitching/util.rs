@@ -2,6 +2,19 @@ use crate::algebra::{Domain, RingElement, RingModule};
 use crate::consts::{CONTEXT_RNG_EDA, CONTEXT_RNG_EDA_2};
 use crate::crypto::{kdf, KEY_SIZE, PRG};
 use crate::preprocessing::util::{PartialShareGenerator, ShareGenerator};
+use crate::{ConnectionInstruction, Instruction};
+use std::sync::Arc;
+
+pub type FieldSwitchingIO = (Vec<usize>, Vec<Vec<usize>>);
+pub type FullProgram<D, D2> = (
+    Vec<ConnectionInstruction>,
+    Arc<Vec<Instruction<<D as Domain>::Scalar>>>,
+    Arc<Vec<Instruction<<D2 as Domain>::Scalar>>>,
+);
+pub type Eda<D> = (
+    Vec<Vec<<D as Domain>::Sharing>>,
+    Vec<<D as Domain>::Sharing>,
+);
 
 pub struct SharesGenerator<D: Domain, D2: Domain> {
     pub eda: ShareGenerator<D>,

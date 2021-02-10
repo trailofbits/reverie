@@ -18,6 +18,7 @@ use std::sync::Arc;
 use async_channel::{Receiver, SendError, Sender};
 use async_std::task;
 
+use crate::fieldswitching::util::FieldSwitchingIO;
 use serde::{Deserialize, Serialize};
 
 async fn feed<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>>(
@@ -108,8 +109,7 @@ impl<D: Domain> Proof<D> {
         seeds: &[[u8; KEY_SIZE]],
         branches: Arc<Vec<Vec<D::Batch>>>,
         mut program: PI,
-        fieldswitching_input: Vec<usize>,
-        fieldswitching_output: Vec<Vec<usize>>,
+        fieldswitching_io: FieldSwitchingIO,
     ) -> Vec<(Hash, Vec<Hash>)> {
         assert!(
             branches.len() > 0,
@@ -121,8 +121,7 @@ impl<D: Domain> Proof<D> {
             branches: Arc<Vec<Vec<D::Batch>>>,
             outputs: Sender<()>,
             inputs: Receiver<Arc<Instructions<D>>>,
-            fieldswitching_input: Vec<usize>,
-            fieldswitching_output: Vec<Vec<usize>>,
+            fieldswitching_io: FieldSwitchingIO,
         ) -> Result<(Hash, Vec<Hash>), SendError<()>> {
             let mut preprocessing: preprocessing::PreprocessingExecution<D> =
                 preprocessing::PreprocessingExecution::new(root, &branches[..]);
@@ -132,8 +131,8 @@ impl<D: Domain> Proof<D> {
                     Ok(program) => {
                         preprocessing.prove(
                             &program[..],
-                            fieldswitching_input.clone(),
-                            fieldswitching_output.clone(),
+                            fieldswitching_io.0.clone(),
+                            fieldswitching_io.1.clone(),
                         );
                         outputs.send(()).await?;
                     }
@@ -158,8 +157,7 @@ impl<D: Domain> Proof<D> {
                 branches.clone(),
                 send_outputs,
                 recv_inputs,
-                fieldswitching_input.clone(),
-                fieldswitching_output.clone(),
+                fieldswitching_io.clone(),
             )));
             inputs.push(send_inputs);
             outputs.push(recv_outputs);
@@ -194,19 +192,12 @@ impl<D: Domain> Proof<D> {
         &self,
         branches: &[&[D::Scalar]],
         program: PI,
-        fieldswitching_input: Vec<usize>,
-        fieldswitching_output: Vec<Vec<usize>>,
+        fieldswitching_io: FieldSwitchingIO,
     ) -> Option<Output<D>> {
         let mut oracle = RandomOracle::new(CONTEXT_ORACLE_PREPROCESSING, None);
 
         let (hidden, output) = match self
-            .verify_round_1(
-                branches,
-                program,
-                fieldswitching_input,
-                fieldswitching_output,
-                &mut oracle,
-            )
+            .verify_round_1(branches, program, fieldswitching_io, &mut oracle)
             .await
         {
             Some(out) => out,
@@ -224,8 +215,7 @@ impl<D: Domain> Proof<D> {
         &self,
         branches: &[&[<D as Domain>::Scalar]],
         program: PI,
-        fieldswitching_input: Vec<usize>,
-        fieldswitching_output: Vec<Vec<usize>>,
+        fieldswitching_io: FieldSwitchingIO,
         oracle: &mut RandomOracle,
     ) -> Option<(Vec<usize>, Output<D>)> {
         // pack branch scalars into batches for efficiency
@@ -262,14 +252,8 @@ impl<D: Domain> Proof<D> {
             D::PREPROCESSING_REPETITIONS - D::ONLINE_REPETITIONS
         );
 
-        let opened_results = Self::preprocess(
-            &opened_roots[..],
-            branches,
-            program,
-            fieldswitching_input,
-            fieldswitching_output,
-        )
-        .await;
+        let opened_results =
+            Self::preprocess(&opened_roots[..], branches, program, fieldswitching_io).await;
 
         debug_assert_eq!(
             opened_results.len(),
@@ -323,19 +307,12 @@ impl<D: Domain> Proof<D> {
         global: [u8; KEY_SIZE],
         branches: &[&[D::Scalar]],
         program: PI,
-        fieldswitching_input: Vec<usize>,
-        fieldswitching_output: Vec<Vec<usize>>,
+        fieldswitching_io: FieldSwitchingIO,
     ) -> (Self, PreprocessingOutput<D>) {
         let mut oracle = RandomOracle::new(CONTEXT_ORACLE_PREPROCESSING, None);
 
-        let (branches, roots, results) = <Proof<D>>::new_round_1(
-            global,
-            branches,
-            program,
-            fieldswitching_input,
-            fieldswitching_output,
-            &mut oracle,
-        );
+        let (branches, roots, results) =
+            <Proof<D>>::new_round_1(global, branches, program, fieldswitching_io, &mut oracle);
 
         let hidden = <Proof<D>>::get_challenge(&mut oracle);
 
@@ -412,8 +389,7 @@ impl<D: Domain> Proof<D> {
         global: [u8; 32],
         branches: &[&[<D as Domain>::Scalar]],
         program: PI,
-        fieldswitching_input: Vec<usize>,
-        fieldswitching_output: Vec<Vec<usize>>,
+        fieldswitching_io: FieldSwitchingIO,
         oracle: &mut RandomOracle,
     ) -> (
         Arc<Vec<Vec<<D as Domain>::Batch>>>,
@@ -432,8 +408,7 @@ impl<D: Domain> Proof<D> {
             &roots[..],
             branches.clone(),
             program,
-            fieldswitching_input,
-            fieldswitching_output,
+            fieldswitching_io,
         ));
 
         // send the pre-processing commitments to the random oracle, receive challenges
@@ -463,13 +438,17 @@ mod tests {
         let seed: [u8; KEY_SIZE] = rng.gen();
         let branch: Vec<BitScalar> = vec![];
         let branches: Vec<&[BitScalar]> = vec![&branch];
-        let proof =
-            Proof::<GF2P8>::new(seed, &branches[..], program.iter().cloned(), vec![], vec![]);
-        assert!(task::block_on(
-            proof
-                .0
-                .verify(&branches[..], program.into_iter(), vec![], vec![])
-        )
+        let proof = Proof::<GF2P8>::new(
+            seed,
+            &branches[..],
+            program.iter().cloned(),
+            (vec![], vec![]),
+        );
+        assert!(task::block_on(proof.0.verify(
+            &branches[..],
+            program.into_iter(),
+            (vec![], vec![])
+        ))
         .is_some());
     }
 }

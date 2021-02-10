@@ -38,7 +38,7 @@ pub struct FsPreprocessingRun<D: Domain, D2: Domain> {
 }
 
 impl<D: Domain, D2: Domain> Proof<D, D2> {
-    pub(crate) fn new(
+    pub fn new(
         conn_program: Vec<ConnectionInstruction>,
         program1: Vec<Instruction<D::Scalar>>,
         program2: Vec<Instruction<D2::Scalar>>,
@@ -95,8 +95,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             global_seeds[1],
             &branches1[..],
             program1.iter().cloned(),
-            vec![],
-            fieldswitching_output,
+            (vec![], fieldswitching_output),
             &mut oracle,
         );
 
@@ -107,8 +106,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             global_seeds[2],
             &branches2[..],
             program2.iter().cloned(),
-            fieldswitching_input,
-            vec![],
+            (fieldswitching_input, vec![]),
             &mut oracle,
         );
 
@@ -167,7 +165,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
         )
     }
 
-    pub(crate) async fn verify(
+    pub async fn verify(
         &self,
         conn_program: Vec<ConnectionInstruction>,
         program1: Vec<Instruction<D::Scalar>>,
@@ -269,8 +267,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             .verify_round_1(
                 &branches1[..],
                 program1.iter().cloned(),
-                vec![],
-                fieldswitching_output.clone(),
+                (vec![], fieldswitching_output.clone()),
                 &mut oracle,
             )
             .await;
@@ -279,8 +276,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             .verify_round_1(
                 &branches2[..],
                 program2.iter().cloned(),
-                fieldswitching_input.clone(),
-                vec![],
+                (fieldswitching_input.clone(), vec![]),
                 &mut oracle,
             )
             .await;
@@ -305,7 +301,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
     }
 }
 
-pub(crate) struct PreprocessingExecution<D: Domain, D2: Domain> {
+pub struct PreprocessingExecution<D: Domain, D2: Domain> {
     // commitments to player random
     commitments: Vec<Hash>,
 
@@ -385,8 +381,8 @@ impl<D: Domain, D2: Domain> PreprocessingExecution<D, D2> {
         let two = D2::Batch::ONE + D2::Batch::ONE;
         let mut pow_two = D2::Batch::ONE;
         let mut arith = D2::Batch::ZERO;
-        for j in 0..len {
-            arith = arith + pow_two * eda[j];
+        for eda_b in eda {
+            arith = arith + pow_two * eda_b;
             pow_two = pow_two * two;
         }
         // correct shares for player 0 (correction bits)
