@@ -358,6 +358,7 @@ impl<D: Domain, D2: Domain> PreprocessingExecution<D, D2> {
 
         // transpose sharings into per player batches
         batch_eda.resize(len, vec![D::Batch::ZERO; D::Sharing::DIMENSION]);
+        #[allow(clippy::needless_range_loop)]
         for pos in 0..len {
             D::convert_inv(&mut batch_eda[pos][..], &self.eda_bits_shares[pos][..]);
         }
@@ -399,6 +400,7 @@ impl<D: Domain, D2: Domain> PreprocessingExecution<D, D2> {
         if eda_bits.len() != len {
             eda_bits.resize(len, Vec::with_capacity(D::Batch::DIMENSION));
         }
+        #[allow(clippy::needless_range_loop)]
         for j in 0..len {
             let start = eda_bits[j].len();
             eda_bits[j].resize(start + D::Batch::DIMENSION, D::Sharing::ZERO);
@@ -586,6 +588,7 @@ impl<D: Domain, D2: Domain> PartialPreprocessingExecution<D, D2> {
 
         // transpose sharings into per player batches
         batch_eda.resize(len, vec![D::Batch::ZERO; D::Sharing::DIMENSION]);
+        #[allow(clippy::needless_range_loop)]
         for pos in 0..len {
             D::convert_inv(&mut batch_eda[pos][..], &self.eda_bits_shares[pos][..]);
         }
@@ -606,6 +609,7 @@ impl<D: Domain, D2: Domain> PartialPreprocessingExecution<D, D2> {
         if eda_bits.len() != len {
             eda_bits.resize(len, Vec::with_capacity(D::Batch::DIMENSION));
         }
+        #[allow(clippy::needless_range_loop)]
         for j in 0..len {
             let start = eda_bits[j].len();
             eda_bits[j].resize(start + D::Batch::DIMENSION, D::Sharing::ZERO);

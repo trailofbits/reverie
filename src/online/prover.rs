@@ -283,6 +283,7 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
                         if !fieldswitching_output_done.contains(&src) {
                             fieldswitching_output_done.append(&mut out_list.clone());
                             let mut zeroes = Vec::new();
+                            #[allow(clippy::needless_range_loop)]
                             for i in 0..out_list.len() {
                                 let added = eda_bits[i].next().unwrap().reconstruct();
                                 nr_of_wires = self.process_input(

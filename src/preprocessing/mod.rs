@@ -21,6 +21,12 @@ use async_std::task;
 use crate::fieldswitching::util::FieldSwitchingIO;
 use serde::{Deserialize, Serialize};
 
+type Round1Output<D> = (
+    Arc<Vec<Vec<<D as Domain>::Batch>>>,
+    Vec<[u8; 32]>,
+    Vec<(Hash, Vec<Hash>)>,
+);
+
 async fn feed<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>>(
     senders: &mut [Sender<Arc<Instructions<D>>>],
     program: &mut PI,
@@ -391,11 +397,7 @@ impl<D: Domain> Proof<D> {
         program: PI,
         fieldswitching_io: FieldSwitchingIO,
         oracle: &mut RandomOracle,
-    ) -> (
-        Arc<Vec<Vec<<D as Domain>::Batch>>>,
-        Vec<[u8; 32]>,
-        Vec<(Hash, Vec<Hash>)>,
-    ) {
+    ) -> Round1Output<D> {
         // pack branch scalars into batches for efficiency
         let branches = Arc::new(pack_branches::<D>(branches));
 
