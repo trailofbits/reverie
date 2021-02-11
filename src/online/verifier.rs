@@ -319,24 +319,19 @@ impl<D: Domain> StreamingVerifier<D> {
         let collection_task = task::spawn(collect_transcript_hashes::<D>(bind, tasks));
 
         let chunk_size = chunk_size(self.program.len(), inputs.len());
-        let input_chunks = inputs.chunks_mut(chunk_size);
-        let output_chunks = outputs.chunks_mut(chunk_size);
 
-        for (inputs_chunk, outputs_chunk) in input_chunks.zip(output_chunks) {
-            // feed to workers
-            for sender in inputs_chunk {
+        while !inputs.is_empty(){
+            for sender in inputs.drain(..chunk_size){
                 let chunk = proof.recv().await.unwrap();
                 sender
                     .send((self.program.clone(), chunk)).await.unwrap();
             }
-
-            for rx in outputs_chunk.iter_mut() {
+            for rx in outputs.drain(..chunk_size){
                 let _ = rx.recv().await;
             }
         }
 
         // wait for tasks to finish
-        inputs.clear();
         let (result, pp_hashes) = collection_task.await?;
 
         // return output to verify against pre-processing

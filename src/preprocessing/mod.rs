@@ -147,20 +147,15 @@ impl<D: Domain> Proof<D> {
         let commitments = task::spawn(collect_commitments::<D>(tasks));
 
         let chunk_size = chunk_size(program.len(), inputs.len());
-        let input_chunks = inputs.chunks_mut(chunk_size);
-        let output_chunks = outputs.chunks_mut(chunk_size);
 
-        for (inputs_chunk, outputs_chunk) in input_chunks.zip(output_chunks) {
-            for sender in inputs_chunk {
+        while !inputs.is_empty(){
+                for sender in inputs.drain(..chunk_size){
                 sender.send(program.clone()).await.unwrap();
             }
-            for rx in outputs_chunk.iter_mut() {
+            for rx in outputs.drain(..chunk_size){
                 let _ = rx.recv().await;
             }
         }
-
-        // close inputs channels
-        inputs.clear();
 
         // collect final commitments
         commitments.await
