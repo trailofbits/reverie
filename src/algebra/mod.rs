@@ -73,6 +73,7 @@ pub trait Domain: Debug + Copy + Send + Sync + 'static {
     const PLAYERS: usize;
     const PREPROCESSING_REPETITIONS: usize;
     const ONLINE_REPETITIONS: usize;
+    const NR_OF_BITS: usize;
 
     type Scalar: LocalOperation + RingElement + Packable + Sized;
 

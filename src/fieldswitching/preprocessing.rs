@@ -333,7 +333,7 @@ impl<D: Domain, D2: Domain> PreprocessingExecution<D, D2> {
             commitments,
             shares: SharesGenerator::new(&player_seeds[..]),
             scratch: vec![D2::Batch::ZERO; D2::PLAYERS],
-            scratch2: vec![vec![D::Batch::ZERO; D::PLAYERS]; 2], //TODO(gvl): replace 2 with actual size
+            scratch2: vec![vec![D::Batch::ZERO; D::PLAYERS]; D2::NR_OF_BITS], //TODO(gvl): replace 2 with actual size
             eda_composed_shares: Vec::with_capacity(D::Batch::DIMENSION),
             eda_bits_shares: Vec::with_capacity(D2::Batch::DIMENSION),
             corrections_prg: player_seeds
@@ -420,7 +420,7 @@ impl<D: Domain, D2: Domain> PreprocessingExecution<D, D2> {
         for gate in conn_program {
             match gate {
                 ConnectionInstruction::BToA(dst, src) => {
-                    fieldswitching_output.push(src.to_vec());
+                    fieldswitching_output.push(src[0..D2::NR_OF_BITS].to_vec());
                     fieldswitching_input.push(*dst);
                 }
                 ConnectionInstruction::AToB(_dst, _src) => {}
@@ -438,23 +438,20 @@ impl<D: Domain, D2: Domain> PreprocessingExecution<D, D2> {
         eda_composed: &mut Vec<D2::Sharing>, // eda bits composed in arithmetic form
     ) {
         //TODO(gvl): set outer dimension to size of target field
-        let mut m = 1;
+        let m = D2::NR_OF_BITS;
         let mut batch_eda = vec![vec![D::Batch::ZERO; D::PLAYERS]; m];
 
         for gate in conn_program {
             match gate {
-                ConnectionInstruction::BToA(_dst, src) => {
-                    if src.len() > m {
-                        m = src.len()
-                    }
+                ConnectionInstruction::BToA(_dst, _src) => {
                     self.eda_composed_shares
                         .resize(self.eda_composed_shares.len() + 1, D2::Sharing::ZERO); //TODO(gvl): better scaling
                     self.eda_bits_shares
-                        .resize(src.len(), Vec::with_capacity(D::Batch::DIMENSION));
+                        .resize(m, Vec::with_capacity(D::Batch::DIMENSION));
                     // push the input masks to the deferred eda stack
-                    for (pos, &_src) in src.iter().enumerate() {
+                    for eda in self.eda_bits_shares.iter_mut() {
                         let mask = self.shares.eda_2.next();
-                        self.eda_bits_shares[pos].push(mask);
+                        eda.push(mask);
                     }
 
                     // assign mask to output
@@ -467,7 +464,7 @@ impl<D: Domain, D2: Domain> PreprocessingExecution<D, D2> {
                             eda_composed,
                             corrections,
                             &mut batch_eda,
-                            src.len(),
+                            m,
                         );
                     }
                 }
@@ -564,7 +561,7 @@ impl<D: Domain, D2: Domain> PartialPreprocessingExecution<D, D2> {
             omitted,
             shares,
             scratch: vec![D2::Batch::ZERO; D2::PLAYERS],
-            scratch2: vec![vec![D::Batch::ZERO; D::PLAYERS]; 2], //TODO(gvl): replace 2 with actual size
+            scratch2: vec![vec![D::Batch::ZERO; D::PLAYERS]; D2::NR_OF_BITS], //TODO(gvl): replace 2 with actual size
             eda_composed_shares: Vec::with_capacity(D::Batch::DIMENSION),
             eda_bits_shares: Vec::with_capacity(D2::Batch::DIMENSION),
             corrections_prg,
@@ -586,8 +583,8 @@ impl<D: Domain, D2: Domain> PartialPreprocessingExecution<D, D2> {
 
         // transpose sharings into per player batches
         batch_eda.resize(len, vec![D::Batch::ZERO; D::Sharing::DIMENSION]);
-        for (pos, share) in self.eda_bits_shares.iter().enumerate() {
-            D::convert_inv(&mut batch_eda[pos][..], &share[..]);
+        for (pos, eda) in batch_eda.iter_mut().enumerate() {
+            D::convert_inv(&mut eda[..], &self.eda_bits_shares[pos][..]);
         }
         self.eda_bits_shares.clear();
 
@@ -629,15 +626,12 @@ impl<D: Domain, D2: Domain> PartialPreprocessingExecution<D, D2> {
         let mut corrections = corrections.iter().cloned();
 
         //TODO(gvl): set outer dimension to size of target field
-        let mut m = 1;
+        let m = D2::NR_OF_BITS;
         let mut batch_eda = vec![vec![D::Batch::ZERO; D::PLAYERS]; m];
 
         for gate in conn_program {
             match gate {
                 ConnectionInstruction::BToA(_dst, src) => {
-                    if src.len() > m {
-                        m = src.len()
-                    }
                     self.eda_composed_shares
                         .resize(self.eda_composed_shares.len() + 1, D2::Sharing::ZERO); //TODO(gvl): better scaling
                     self.eda_bits_shares
@@ -658,7 +652,7 @@ impl<D: Domain, D2: Domain> PartialPreprocessingExecution<D, D2> {
                             eda_composed,
                             &mut corrections,
                             &mut batch_eda,
-                            src.len(),
+                            m,
                         );
                     }
                 }

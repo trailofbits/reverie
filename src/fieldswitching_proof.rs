@@ -84,10 +84,10 @@ mod tests {
     fn test_mini_proof_gf2p8_z64() {
         let mut rng = thread_rng();
 
-        let conn_program = connection_program();
-        let program1 = mini_program::<Gf2P8>();
-        let program2 = mini_program::<Z64P8>();
-        let input = random_scalars::<Gf2P8, ThreadRng>(&mut rng, 4);
+        let conn_program = connection_program_64();
+        let program1 = mini_bool_program_64();
+        let program2 = mini_arith_program_64();
+        let input = random_scalars::<Gf2P8, ThreadRng>(&mut rng, 64);
         let num_branch = 0;
         let num_branches = 1 + rng.gen::<usize>() % 32;
         let mut branches1: Vec<Vec<BitScalar>> = Vec::with_capacity(num_branches);

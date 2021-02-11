@@ -5,6 +5,7 @@ use crate::{ConnectionInstruction, Instruction};
 use crate::algebra::gf2::{BitScalar, Gf2P8};
 use rand::RngCore;
 use rand::{thread_rng, Rng};
+use crate::algebra::z64::{Scalar, Z64P8};
 
 pub fn random_scalar<D: Domain, R: RngCore>(rng: &mut R) -> D::Scalar {
     let mut share = vec![D::Sharing::ZERO; D::Batch::DIMENSION];
@@ -90,7 +91,10 @@ pub fn evaluate_fieldswitching_btoa_program<D: Domain, D2: Domain>(
                 let mut input = D2::Scalar::ZERO;
                 let mut pow_two = D2::Scalar::ONE;
                 let two = D2::Scalar::ONE + D2::Scalar::ONE;
-                for &_src in src.iter() {
+                for (i, _src) in src.iter().cloned().enumerate() {
+                    if i >= D2::NR_OF_BITS {
+                        break;
+                    }
                     let index = out_wires.iter().position(|&x| x == _src).unwrap();
                     input = input + convert_bit::<D, D2>(output1[index]) * pow_two;
                     pow_two = two * pow_two;
@@ -247,14 +251,78 @@ pub fn mini_program<D: Domain>() -> Vec<Instruction<D::Scalar>> {
 pub fn connection_program() -> Vec<ConnectionInstruction> {
     let mut program: Vec<ConnectionInstruction> = Vec::new();
 
-    let src1: [usize; 1] = [4];
-    let src4: [usize; 1] = [7];
-    let src2: [usize; 1] = [5];
-    let src3: [usize; 1] = [6];
+    let src1: [usize; 64] = [4; 64];
+    let src4: [usize; 64] = [7; 64];
+    let src2: [usize; 64] = [5; 64];
+    let src3: [usize; 64] = [6; 64];
     program.push(ConnectionInstruction::BToA(0, src1));
     program.push(ConnectionInstruction::BToA(1, src2));
     program.push(ConnectionInstruction::BToA(2, src3));
     program.push(ConnectionInstruction::BToA(3, src4));
+
+    program
+}
+
+#[test]
+pub fn test_evaluate_program_64() {
+    let mut rng = thread_rng();
+
+    let program1 = mini_bool_program_64();
+    let program2 = mini_arith_program_64();
+    let conn_program = connection_program_64();
+    let input = random_scalars::<Gf2P8, _>(&mut rng, 64);
+
+    let branch1: Vec<BitScalar> = vec![];
+    let branches1: Vec<Vec<BitScalar>> = vec![branch1];
+    let branch2: Vec<Scalar> = vec![];
+    let branches2: Vec<Vec<Scalar>> = vec![branch2];
+
+    let output = evaluate_fieldswitching_btoa_program::<Gf2P8, Z64P8>(
+        &conn_program[..],
+        &program1[..],
+        &program2[..],
+        &input[..],
+        &branches1[0][..],
+        &branches2[0][..],
+    );
+    assert_eq!(output, vec![Scalar::ZERO]);
+}
+
+pub fn mini_bool_program_64() -> Vec<Instruction<BitScalar>> {
+    let mut program: Vec<Instruction<BitScalar>> = Vec::new();
+    program.push(Instruction::NrOfWires(128));
+    for i in 0..64 {
+        program.push(Instruction::Input(i));
+        program.push(Instruction::AddConst(i + 64, i, BitScalar::ONE));
+        program.push(Instruction::Output(i + 64));
+    }
+
+    program
+}
+
+pub fn connection_program_64() -> Vec<ConnectionInstruction> {
+    let mut program: Vec<ConnectionInstruction> = Vec::new();
+
+    let mut src: [usize; 64] = [0; 64];
+    for i in 64..128 {
+        src[i-64] = i;
+    }
+
+    program.push(ConnectionInstruction::BToA(0, src));
+
+    program
+}
+
+pub fn mini_arith_program_64() -> Vec<Instruction<Scalar>> {
+    let mut program: Vec<Instruction<Scalar>> = Vec::new();
+    program.push(Instruction::NrOfWires(3));
+    program.push(Instruction::Input(0));
+
+    let min_one = Scalar::ZERO - Scalar::ONE;
+    program.push(Instruction::MulConst(1, 0, min_one));
+    program.push(Instruction::Add(2, 0, 1));
+
+    program.push(Instruction::Output(2));
 
     program
 }

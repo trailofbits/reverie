@@ -36,7 +36,6 @@ mod fieldswitching_proof;
 mod proof;
 
 pub use proof::{ProofGf2P64, ProofGf2P64_64, ProofGf2P64_85, ProofGf2P8};
-// pub use fieldswitching_proof::{FieldSwitching_ProofGF2P64, FieldSwitching_ProofGF2P64_64, FieldSwitching_ProofGF2P64_85, FieldSwitching_ProofGF2P8};
 
 use crate::algebra::RingElement;
 
@@ -56,8 +55,8 @@ pub enum Instruction<E: RingElement> {
 
 #[derive(Copy, Clone, Debug)]
 pub enum ConnectionInstruction {
-    BToA(usize, [usize; 1]), // Change field from GF(2) to GF(2^k) //TODO(gvl): make more flexible
-    AToB([usize; 1], usize), // Change field from GF(2^k) to GF(2) //TODO(gvl): make more flexible
+    BToA(usize, [usize; 64]), // Change field from GF(2) to GF(2^k) //TODO(gvl): make more flexible, max size of arithmetic ring is now 64 bits
+    AToB([usize; 64], usize), // Change field from GF(2^k) to GF(2) //TODO(gvl): make more flexible, max size of arithmetic ring is now 64 bits
 }
 
 type Instructions<D> = Vec<Instruction<<D as algebra::Domain>::Scalar>>;

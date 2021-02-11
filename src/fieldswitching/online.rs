@@ -86,7 +86,11 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
                         let mut pow_two = D2::Scalar::ONE;
                         let two = D2::Scalar::ONE + D2::Scalar::ONE;
                         let mut next = D2::Scalar::ZERO;
-                        for &_src in src.iter() {
+                        //TODO(gvl): solve this mess
+                        for (i, _src) in src.iter().cloned().enumerate() {
+                            if i >= D2::NR_OF_BITS {
+                                break;
+                            }
                             next = next + convert_bit::<D, D2>(output1[_src - 4]) * pow_two;
                             pow_two = two * pow_two;
                         }
