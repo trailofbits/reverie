@@ -195,6 +195,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                 // recompute the Merkle root from the leaf and proof
                 (run.proof.verify(&hasher.finalize()), scalars.into_iter())
             };
+            let mut nr_of_wires = 0;
 
             loop {
                 match inputs.recv().await {
@@ -225,7 +226,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
 
                         // run (partial) preprocessing on next chunk
                         preprocessing.process(
-                            &program[..],
+                            (&program[..], nr_of_wires),
                             &corrections_upstream[..],
                             &mut masks,
                             &mut ab_gamma,
@@ -237,7 +238,6 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                             let mut masks = masks.iter().cloned();
                             let mut witness = masked_witness_upstream.iter().cloned();
                             let mut ab_gamma = ab_gamma.iter().cloned();
-                            let mut nr_of_wires = 0;
                             let mut fieldswitching_output_done = Vec::new();
 
                             // pad omitted player scalars into sharings (zero shares for all other players)

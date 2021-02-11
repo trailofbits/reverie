@@ -141,13 +141,13 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
     // execute the next chunk of program
     fn run<WW: Writer<D::Scalar>, BW: Writer<D::Sharing>>(
         &mut self,
-        program_witness: (&[Instruction<D::Scalar>], &[D::Scalar]),
+        program_witness: (&[Instruction<D::Scalar>], &[D::Scalar], usize),
         preprocessing: PreprocessedValues<D>,
         masked_witness: &mut WW,
         broadcast: &mut BW,
         fieldswitching_io: FieldSwitchingIO,
         output: &mut Vec<D::Scalar>,
-    ) {
+    ) -> usize {
         // println!("prover eda_bits: {:?}", preprocessing_eda_bits);
         // println!("prover eda_composed: {:?}", preprocessing_eda_composed);
         let mut witness = program_witness.1.iter().cloned();
@@ -161,7 +161,7 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
         }
         let mut eda_composed = preprocessing.3.iter().cloned();
 
-        let mut nr_of_wires = 0;
+        let mut nr_of_wires = program_witness.2;
         let mut fieldswitching_output_done = Vec::new();
 
         for step in program_witness.0 {
@@ -317,6 +317,8 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
         }
         debug_assert!(witness.next().is_none());
         debug_assert!(masks.next().is_none());
+
+        nr_of_wires
     }
 
     fn process_input<WW: Writer<D::Scalar>>(
@@ -793,6 +795,7 @@ impl<D: Domain> StreamingProver<D> {
             let mut masks = Vec::with_capacity(DEFAULT_CAPACITY);
             let mut ab_gamma = Vec::with_capacity(DEFAULT_CAPACITY);
             let mut output = Vec::new();
+            let mut nr_of_wires = 0;
 
             loop {
                 match io.1.recv().await {
@@ -805,7 +808,7 @@ impl<D: Domain> StreamingProver<D> {
 
                             // prepare pre-processing execution (online mode)
                             preprocessing.process(
-                                &program[..],
+                                (&program[..], nr_of_wires),
                                 &mut VoidWriter::new(),
                                 &mut masks,
                                 &mut ab_gamma,
@@ -815,8 +818,8 @@ impl<D: Domain> StreamingProver<D> {
                             // println!("prover masks: {:?}", masks);
 
                             // compute public transcript
-                            online.run(
-                                (&program[..], &witness[..]),
+                            nr_of_wires = online.run(
+                                (&program[..], &witness[..], nr_of_wires),
                                 (&masks[..], &ab_gamma[..], &eda.0[..], &eda.1[..]),
                                 &mut VoidWriter::new(),
                                 &mut transcript,
@@ -999,6 +1002,7 @@ impl<D: Domain> StreamingProver<D> {
                 broadcast: Vec::with_capacity(BATCH_SIZE),
                 corrections: Vec::with_capacity(BATCH_SIZE),
             };
+            let mut nr_of_wires = 0;
 
             loop {
                 match inputs.recv().await {
@@ -1013,7 +1017,7 @@ impl<D: Domain> StreamingProver<D> {
                         {
                             // prepare pre-processing execution (online mode), save the corrections.
                             preprocessing.process(
-                                &program[..],
+                                (&program[..], nr_of_wires),
                                 &mut SwitchWriter::new(&mut corrections, omitted != 0),
                                 &mut masks,
                                 &mut ab_gamma,
@@ -1022,8 +1026,8 @@ impl<D: Domain> StreamingProver<D> {
                             );
 
                             // compute public transcript
-                            online.run(
-                                (&program[..], &witness[..]),
+                            nr_of_wires = online.run(
+                                (&program[..], &witness[..], nr_of_wires),
                                 (&masks[..], &ab_gamma[..], &eda.0[..], &eda.1[..]),
                                 &mut masked,
                                 &mut BatchExtractor::<D, _>::new(omitted, &mut broadcast),

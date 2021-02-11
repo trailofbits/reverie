@@ -66,7 +66,7 @@ impl<D: Domain> Proof<D> {
 
 #[derive(Clone)] //TODO(gvl): remove Clone
 pub struct PreprocessingRun {
-    pub(crate) seed: [u8; KEY_SIZE], // root seed TODO(gvl): Shouldn't we get the actual output instead of the seed?
+    pub(crate) seed: [u8; KEY_SIZE], // root seed
     pub(crate) union: Hash,
     pub(crate) commitments: Vec<Hash>, // preprocessing commitment for every player
 }
@@ -131,14 +131,16 @@ impl<D: Domain> Proof<D> {
         ) -> Result<(Hash, Vec<Hash>), SendError<()>> {
             let mut preprocessing: preprocessing::PreprocessingExecution<D> =
                 preprocessing::PreprocessingExecution::new(root, &branches[..]);
+            let mut nr_of_wires = 0;
 
             loop {
                 match inputs.recv().await {
                     Ok(program) => {
-                        preprocessing.prove(
+                        nr_of_wires = preprocessing.prove(
                             &program[..],
                             fieldswitching_io.0.clone(),
                             fieldswitching_io.1.clone(),
+                            nr_of_wires,
                         );
                         outputs.send(()).await?;
                     }

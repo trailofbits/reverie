@@ -64,7 +64,6 @@ impl<D: Domain, D2: Domain> PartialSharesGenerator<D, D2> {
 
 pub fn convert_bit_domain<D: Domain, D2: Domain>(input: D::Batch) -> Result<D2::Batch, String> {
     debug_assert_eq!(D::Batch::DIMENSION, D2::Batch::DIMENSION);
-    //TODO: Use random sharings of 1 and 0 (in all groups)
     let mut out = D2::Batch::ZERO;
     for i in 0..D::Batch::DIMENSION {
         if input.get(i) == D::Scalar::ONE {
@@ -91,12 +90,12 @@ mod tests {
     use rand::thread_rng;
 
     use crate::algebra::gf2::{BitBatch, GF2P64, GF2P8};
-    use crate::algebra::{RingElement, Samplable};
+    use crate::algebra::{RingElement, Samplable, RingModule};
     use crate::fieldswitching::util::convert_bit_domain;
+    use crate::algebra::z64::{Z64P8, Batch};
 
     #[test]
     pub fn test_convert_domain() {
-        // TODO: write tests when we have other fields
         let one = BitBatch::ONE;
         let zero = BitBatch::ZERO;
         let two = one + one; // = zero in binary
@@ -115,5 +114,28 @@ mod tests {
             convert_bit_domain::<GF2P8, GF2P64>(two).unwrap()
         );
         assert!(convert_bit_domain::<GF2P8, GF2P64>(batch).is_ok());
+    }
+
+    #[test]
+    #[ignore]
+    pub fn test_convert_actual_domain() {
+        let one = BitBatch::ONE;
+        let zero = BitBatch::ZERO;
+        let two = one + one; // = zero in binary
+        let batch = BitBatch::gen(&mut thread_rng());
+
+        // assert_eq!(
+        //     vec![Batch::ONE; BitBatch::DIMENSION],
+        //     convert_bit_domain::<GF2P8, Z64P8>(one).unwrap()
+        // );
+        // assert_eq!(
+        //     vec![Batch::ZERO; BitBatch::DIMENSION],
+        //     convert_bit_domain::<GF2P8, Z64P8>(zero).unwrap()
+        // );
+        // assert_eq!(
+        //     vec![Batch::ONE + Batch::ONE; BitBatch::DIMENSION],
+        //     convert_bit_domain::<GF2P8, Z64P8>(two).unwrap()
+        // );
+        assert!(convert_bit_domain::<GF2P8, Z64P8>(batch).is_ok());
     }
 }

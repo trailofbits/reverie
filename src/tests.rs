@@ -96,7 +96,7 @@ pub fn evaluate_fieldswitching_btoa_program<D: Domain, D2: Domain>(
                     pow_two = two * pow_two;
                 }
                 // wires1.set(dst, input);
-                wires1.push(input); //TODO(gvl): change order
+                wires1.push(input);
             }
             ConnectionInstruction::AToB(_dst, _src) => {
                 // let mut output = output1[src].clone();

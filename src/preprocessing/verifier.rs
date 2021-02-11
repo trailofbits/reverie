@@ -147,7 +147,7 @@ impl<D: Domain> PreprocessingExecution<D> {
     #[inline(always)]
     pub fn process(
         &mut self,
-        program: &[Instruction<D::Scalar>], // program slice
+        program: (&[Instruction<D::Scalar>], usize), // program slice + nr_of_wires
         corrections: &[D::Batch],           // player 0 corrections
         masks: &mut Vec<D::Sharing>,        // resulting sharings consumed by online phase
         ab_gamma: &mut Vec<D::Sharing>,     // a * b + \gamma sharings for online phase
@@ -165,10 +165,10 @@ impl<D: Domain> PreprocessingExecution<D> {
         // look forward in program until executed enough multiplications for next batch
         let mut batch_a = vec![D::Batch::ZERO; D::PLAYERS];
         let mut batch_b = vec![D::Batch::ZERO; D::PLAYERS];
-        let mut nr_of_wires = 0;
+        let mut nr_of_wires = program.1;
         let mut fieldswitching_output_done = Vec::new();
 
-        for step in program {
+        for step in program.0 {
             debug_assert_eq!(self.share_a.len(), self.share_b.len());
             debug_assert!(self.share_a.len() < D::Batch::DIMENSION);
             debug_assert!(self.share_a.len() < D::Batch::DIMENSION);

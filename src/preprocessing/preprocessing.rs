@@ -125,13 +125,14 @@ impl<D: Domain> PreprocessingExecution<D> {
         program: &[Instruction<D::Scalar>],
         fieldswitching_input: Vec<usize>,
         fieldswitching_output: Vec<Vec<usize>>,
-    ) {
+        nr_of_wires: usize,
+    ) -> usize {
         debug_assert_eq!(self.share_a.len(), 0);
         debug_assert_eq!(self.share_b.len(), 0);
 
         let mut batch_a = vec![D::Batch::ZERO; D::PLAYERS];
         let mut batch_b = vec![D::Batch::ZERO; D::PLAYERS];
-        let mut nr_of_wires = 0;
+        let mut nr_of_wires = nr_of_wires;
         let mut fieldswitching_output_done = Vec::new();
 
         for step in program {
@@ -257,6 +258,8 @@ impl<D: Domain> PreprocessingExecution<D> {
             self.shares.beaver.empty();
             self.generate(&mut batch_a, &mut batch_b);
         }
+
+        nr_of_wires
     }
 
     fn process_add(&mut self, dst: usize, src1: usize, src2: usize) {
