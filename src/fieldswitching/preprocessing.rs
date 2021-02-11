@@ -358,9 +358,8 @@ impl<D: Domain, D2: Domain> PreprocessingExecution<D, D2> {
 
         // transpose sharings into per player batches
         batch_eda.resize(len, vec![D::Batch::ZERO; D::Sharing::DIMENSION]);
-        #[allow(clippy::needless_range_loop)]
-        for pos in 0..len {
-            D::convert_inv(&mut batch_eda[pos][..], &self.eda_bits_shares[pos][..]);
+        for (pos, eda_share) in self.eda_bits_shares.iter().enumerate() {
+            D::convert_inv(&mut batch_eda[pos][..], &eda_share[..]);
         }
         self.eda_bits_shares.clear();
 
@@ -400,11 +399,10 @@ impl<D: Domain, D2: Domain> PreprocessingExecution<D, D2> {
         if eda_bits.len() != len {
             eda_bits.resize(len, Vec::with_capacity(D::Batch::DIMENSION));
         }
-        #[allow(clippy::needless_range_loop)]
-        for j in 0..len {
-            let start = eda_bits[j].len();
-            eda_bits[j].resize(start + D::Batch::DIMENSION, D::Sharing::ZERO);
-            D::convert(&mut eda_bits[j][start..], &self.scratch2[j][..]);
+        for (j, eda_bit) in eda_bits.iter_mut().enumerate() {
+            let start = eda_bit.len();
+            eda_bit.resize(start + D::Batch::DIMENSION, D::Sharing::ZERO);
+            D::convert(&mut eda_bit[start..], &self.scratch2[j][..]);
         }
 
         let start = eda_composed.len();
@@ -588,9 +586,8 @@ impl<D: Domain, D2: Domain> PartialPreprocessingExecution<D, D2> {
 
         // transpose sharings into per player batches
         batch_eda.resize(len, vec![D::Batch::ZERO; D::Sharing::DIMENSION]);
-        #[allow(clippy::needless_range_loop)]
-        for pos in 0..len {
-            D::convert_inv(&mut batch_eda[pos][..], &self.eda_bits_shares[pos][..]);
+        for (pos, share) in self.eda_bits_shares.iter().enumerate() {
+            D::convert_inv(&mut batch_eda[pos][..], &share[..]);
         }
         self.eda_bits_shares.clear();
 
@@ -609,11 +606,10 @@ impl<D: Domain, D2: Domain> PartialPreprocessingExecution<D, D2> {
         if eda_bits.len() != len {
             eda_bits.resize(len, Vec::with_capacity(D::Batch::DIMENSION));
         }
-        #[allow(clippy::needless_range_loop)]
-        for j in 0..len {
-            let start = eda_bits[j].len();
-            eda_bits[j].resize(start + D::Batch::DIMENSION, D::Sharing::ZERO);
-            D::convert(&mut eda_bits[j][start..], &self.scratch2[j][..]);
+        for (j, eda_bit) in eda_bits.iter_mut().enumerate() {
+            let start = eda_bit.len();
+            eda_bit.resize(start + D::Batch::DIMENSION, D::Sharing::ZERO);
+            D::convert(&mut eda_bit[start..], &self.scratch2[j][..]);
         }
 
         let start = eda_composed.len();

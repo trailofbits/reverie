@@ -76,23 +76,23 @@ pub fn evaluate_fieldswitching_btoa_program<D: Domain, D2: Domain>(
     conn_program: &[ConnectionInstruction],
     program1: &[Instruction<D::Scalar>],
     program2: &[Instruction<D2::Scalar>],
-    inputs2: &[D2::Scalar],
+    inputs: &[D::Scalar],
     branch1: &[D::Scalar],
     branch2: &[D2::Scalar],
-) -> Vec<D::Scalar> {
-    let (out_wires, output1) = evaluate_program::<D2>(program2, inputs2, branch2);
+) -> Vec<D2::Scalar> {
+    let (out_wires, output1) = evaluate_program::<D>(program1, inputs, branch1);
 
     let mut wires1 = Vec::new();
 
     for step in conn_program {
         match *step {
             ConnectionInstruction::BToA(_dst, src) => {
-                let mut input = D::Scalar::ZERO;
-                let mut pow_two = D::Scalar::ONE;
-                let two = D::Scalar::ONE + D::Scalar::ONE;
+                let mut input = D2::Scalar::ZERO;
+                let mut pow_two = D2::Scalar::ONE;
+                let two = D2::Scalar::ONE + D2::Scalar::ONE;
                 for &_src in src.iter() {
                     let index = out_wires.iter().position(|&x| x == _src).unwrap();
-                    input = input + convert_bit::<D2, D>(output1[index]) * pow_two;
+                    input = input + convert_bit::<D, D2>(output1[index]) * pow_two;
                     pow_two = two * pow_two;
                 }
                 // wires1.set(dst, input);
@@ -118,7 +118,7 @@ pub fn evaluate_fieldswitching_btoa_program<D: Domain, D2: Domain>(
         }
     }
 
-    let (_wires, output2) = evaluate_program::<D>(program1, &wires1[..], branch1);
+    let (_wires, output2) = evaluate_program::<D2>(program2, &wires1[..], branch2);
 
     output2
 }

@@ -11,6 +11,7 @@ mod tests {
     use rand::Rng;
 
     use async_std::task;
+    use crate::algebra::z64::{Z64P8, Scalar};
 
     #[test]
     fn test_mini_proof_gf2p8() {
@@ -22,9 +23,13 @@ mod tests {
         let input = random_scalars::<GF2P8, ThreadRng>(&mut rng, 4);
         let num_branch = 0;
         let num_branches = 1 + rng.gen::<usize>() % 32;
-        let mut branches: Vec<Vec<BitScalar>> = Vec::with_capacity(num_branches);
+        let mut branches1: Vec<Vec<BitScalar>> = Vec::with_capacity(num_branches);
         for _ in 0..num_branches {
-            branches.push(random_scalars::<GF2P8, _>(&mut rng, num_branch));
+            branches1.push(random_scalars::<GF2P8, _>(&mut rng, num_branch));
+        }
+        let mut branches2: Vec<Vec<BitScalar>> = Vec::with_capacity(num_branches);
+        for _ in 0..num_branches {
+            branches2.push(random_scalars::<GF2P8, _>(&mut rng, num_branch));
         }
         let branch_index = rng.gen::<usize>() % num_branches;
 
@@ -33,8 +38,8 @@ mod tests {
             &program1[..],
             &program2[..],
             &input[..],
-            &branches[branch_index][..],
-            &branches[branch_index][..],
+            &branches1[branch_index][..],
+            &branches2[branch_index][..],
         );
         assert_eq!(input, output);
 
@@ -43,8 +48,8 @@ mod tests {
                 conn_program.clone(),
                 program1.clone(),
                 program2.clone(),
-                branches.clone(),
-                branches.clone(),
+                branches1.clone(),
+                branches2.clone(),
             );
         let proof = task::block_on(fieldswitching::online::Proof::<GF2P8, GF2P8>::new(
             None,
@@ -60,8 +65,8 @@ mod tests {
             conn_program.clone(),
             program1.clone(),
             program2.clone(),
-            branches.clone(),
-            branches.clone(),
+            branches1.clone(),
+            branches2.clone(),
         ));
         assert!(pp_output.is_ok());
         let verifier_output = task::block_on(proof.verify(
@@ -72,6 +77,75 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(verifier_output, output);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_mini_proof_gf2p8_z64() {
+        let mut rng = thread_rng();
+
+        let conn_program = connection_program();
+        let program1 = mini_program::<GF2P8>();
+        let program2 = mini_program::<Z64P8>();
+        let input = random_scalars::<GF2P8, ThreadRng>(&mut rng, 4);
+        let num_branch = 0;
+        let num_branches = 1 + rng.gen::<usize>() % 32;
+        let mut branches1: Vec<Vec<BitScalar>> = Vec::with_capacity(num_branches);
+        for _ in 0..num_branches {
+            branches1.push(random_scalars::<GF2P8, _>(&mut rng, num_branch));
+        }
+        let mut branches2: Vec<Vec<Scalar>> = Vec::with_capacity(num_branches);
+        for _ in 0..num_branches {
+            branches2.push(random_scalars::<Z64P8, _>(&mut rng, num_branch));
+        }
+        let branch_index = rng.gen::<usize>() % num_branches;
+
+        let output = evaluate_fieldswitching_btoa_program::<GF2P8, Z64P8>(
+            &conn_program[..],
+            &program1[..],
+            &program2[..],
+            &input[..],
+            &branches1[branch_index][..],
+            &branches2[branch_index][..],
+        );
+        println!("input: {:?}", input);
+        println!("output: {:?}", output);
+        // assert_eq!(input, output);
+
+        let (preprocessed_proof, pp_output) =
+            fieldswitching::preprocessing::Proof::<GF2P8, Z64P8>::new(
+                conn_program.clone(),
+                program1.clone(),
+                program2.clone(),
+                branches1.clone(),
+                branches2.clone(),
+            );
+        let proof = task::block_on(fieldswitching::online::Proof::<GF2P8, Z64P8>::new(
+            None,
+            conn_program.clone(),
+            program1.clone(),
+            program2.clone(),
+            input.clone(),
+            branch_index,
+            pp_output,
+        ));
+
+        let pp_output = task::block_on(preprocessed_proof.verify(
+            conn_program.clone(),
+            program1.clone(),
+            program2.clone(),
+            branches1.clone(),
+            branches2.clone(),
+        ));
+        assert!(pp_output.is_ok());
+        let _verifier_output = task::block_on(proof.verify(
+            None,
+            conn_program.clone(),
+            program1.clone(),
+            program2.clone(),
+        ))
+            .unwrap();
+        // assert_eq!(verifier_output, output);
     }
 
     #[test]
