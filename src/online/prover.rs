@@ -360,8 +360,8 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
         }
 
         if fieldswitching_input.contains(&wire_nrs.1) {
-            //TODO(gvl) Subtract constant instead of add
-            let added: D::Scalar = eda_composed.next().unwrap().reconstruct();
+            let min_one = D::Scalar::ZERO - D::Scalar::ONE;
+            let added: D::Scalar = eda_composed.next().unwrap().reconstruct() * min_one;
             wire_nrs.0 += 1;
             wire_nrs.0 = self.process_input(
                 masked_witness,

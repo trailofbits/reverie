@@ -333,7 +333,7 @@ impl<D: Domain, D2: Domain> PreprocessingExecution<D, D2> {
             commitments,
             shares: SharesGenerator::new(&player_seeds[..]),
             scratch: vec![D2::Batch::ZERO; D2::PLAYERS],
-            scratch2: vec![vec![D::Batch::ZERO; D::PLAYERS]; D2::NR_OF_BITS], //TODO(gvl): replace 2 with actual size
+            scratch2: vec![vec![D::Batch::ZERO; D::PLAYERS]; D2::NR_OF_BITS],
             eda_composed_shares: Vec::with_capacity(D::Batch::DIMENSION),
             eda_bits_shares: Vec::with_capacity(D2::Batch::DIMENSION),
             corrections_prg: player_seeds
@@ -437,7 +437,6 @@ impl<D: Domain, D2: Domain> PreprocessingExecution<D, D2> {
         eda_bits: &mut Vec<Vec<D::Sharing>>, // eda bits in boolean form
         eda_composed: &mut Vec<D2::Sharing>, // eda bits composed in arithmetic form
     ) {
-        //TODO(gvl): set outer dimension to size of target field
         let m = D2::NR_OF_BITS;
         let mut batch_eda = vec![vec![D::Batch::ZERO; D::PLAYERS]; m];
 
@@ -476,7 +475,6 @@ impl<D: Domain, D2: Domain> PreprocessingExecution<D, D2> {
         if !self.eda_composed_shares.is_empty() {
             self.eda_composed_shares
                 .resize(D2::Batch::DIMENSION, D2::Sharing::ZERO);
-            //TODO(gvl): make len flexible
             for i in 0..m {
                 self.eda_bits_shares[i].resize(D::Batch::DIMENSION, D::Sharing::ZERO);
             }
@@ -561,7 +559,7 @@ impl<D: Domain, D2: Domain> PartialPreprocessingExecution<D, D2> {
             omitted,
             shares,
             scratch: vec![D2::Batch::ZERO; D2::PLAYERS],
-            scratch2: vec![vec![D::Batch::ZERO; D::PLAYERS]; D2::NR_OF_BITS], //TODO(gvl): replace 2 with actual size
+            scratch2: vec![vec![D::Batch::ZERO; D::PLAYERS]; D2::NR_OF_BITS],
             eda_composed_shares: Vec::with_capacity(D::Batch::DIMENSION),
             eda_bits_shares: Vec::with_capacity(D2::Batch::DIMENSION),
             corrections_prg,
@@ -625,7 +623,6 @@ impl<D: Domain, D2: Domain> PartialPreprocessingExecution<D, D2> {
     ) -> Option<()> {
         let mut corrections = corrections.iter().cloned();
 
-        //TODO(gvl): set outer dimension to size of target field
         let m = D2::NR_OF_BITS;
         let mut batch_eda = vec![vec![D::Batch::ZERO; D::PLAYERS]; m];
 
@@ -664,7 +661,6 @@ impl<D: Domain, D2: Domain> PartialPreprocessingExecution<D, D2> {
         if !self.eda_composed_shares.is_empty() {
             self.eda_composed_shares
                 .resize(D2::Batch::DIMENSION, D2::Sharing::ZERO);
-            //TODO(gvl): make len flexible
             for i in 0..m {
                 self.eda_bits_shares[i].resize(D::Batch::DIMENSION, D::Sharing::ZERO);
             }
