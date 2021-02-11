@@ -3,7 +3,7 @@ use super::*;
 use crate::algebra::Packable;
 use crate::algebra::{Domain, LocalOperation, RingModule, Sharing};
 use crate::consts::*;
-use crate::crypto::{Hash, TreePRF};
+use crate::crypto::{Hash, TreePrf};
 use crate::oracle::RandomOracle;
 use crate::preprocessing::prover::PreprocessingExecution;
 use crate::preprocessing::PreprocessingOutput;
@@ -12,7 +12,7 @@ use crate::Instructions;
 
 use std::sync::Arc;
 
-use crate::fieldswitching::util::{Eda, FieldSwitchingIO};
+use crate::fieldswitching::util::{Eda, FieldSwitchingIo};
 use async_channel::{Receiver, SendError, Sender};
 use async_std::task;
 use std::iter::Cloned;
@@ -26,6 +26,7 @@ type PreprocessedValues<'a, D> = (
     &'a [Vec<<D as Domain>::Sharing>],
     &'a [<D as Domain>::Sharing],
 );
+type ProgramWitnessNrOfWires<'a, D> = (&'a[Instruction<<D as Domain>::Scalar>], &'a[<D as Domain>::Scalar], usize);
 
 const DEFAULT_CAPACITY: usize = BATCH_SIZE;
 
@@ -141,11 +142,11 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
     // execute the next chunk of program
     fn run<WW: Writer<D::Scalar>, BW: Writer<D::Sharing>>(
         &mut self,
-        program_witness: (&[Instruction<D::Scalar>], &[D::Scalar], usize),
+        program_witness: ProgramWitnessNrOfWires<D>,
         preprocessing: PreprocessedValues<D>,
         masked_witness: &mut WW,
         broadcast: &mut BW,
-        fieldswitching_io: FieldSwitchingIO,
+        fieldswitching_io: FieldSwitchingIo,
         output: &mut Vec<D::Scalar>,
     ) -> usize {
         // println!("prover eda_bits: {:?}", preprocessing_eda_bits);
@@ -703,7 +704,7 @@ impl<D: Domain> StreamingProver<D> {
         branch_index: usize, // branch index (from preprocessing)
         program: PI,
         witness: WI,
-        fieldswitching_io: FieldSwitchingIO,
+        fieldswitching_io: FieldSwitchingIo,
         eda: Eda<D>,
     ) -> (Proof<D>, Self) {
         assert_eq!(preprocessing.hidden.len(), D::ONLINE_REPETITIONS);
@@ -735,7 +736,7 @@ impl<D: Domain> StreamingProver<D> {
         branch_index: usize,
         mut program: PI,
         mut witness: WI,
-        fieldswitching_io: FieldSwitchingIO,
+        fieldswitching_io: FieldSwitchingIo,
         eda: Eda<D>,
     ) -> (
         Vec<<D as Domain>::Scalar>,
@@ -764,7 +765,7 @@ impl<D: Domain> StreamingProver<D> {
         branch_index: usize,
         mut program: &mut PI,
         mut witness: &mut WI,
-        fieldswitching_io: FieldSwitchingIO,
+        fieldswitching_io: FieldSwitchingIo,
         eda: Eda<D>,
         runs: Vec<preprocessing::PreprocessingRun>,
     ) -> (
@@ -779,7 +780,7 @@ impl<D: Domain> StreamingProver<D> {
             branch_index: usize,
             branch: Arc<Vec<D::Scalar>>,
             io: (Sender<()>, Receiver<ProgWitSlice<D>>),
-            fieldswitching_io: FieldSwitchingIO,
+            fieldswitching_io: FieldSwitchingIo,
             eda: Eda<D>,
         ) -> Result<(Vec<u8>, MerkleSetProof, Hash, Vec<D::Scalar>), SendError<Vec<u8>>> {
             // online execution
@@ -941,7 +942,7 @@ impl<D: Domain> StreamingProver<D> {
                     .zip(preprocessing.hidden.iter())
                     .zip(masked_branches.into_iter())
                     .map(|((omit, run), (branch, proof))| {
-                        let tree = TreePRF::new(D::PLAYERS, run.seed);
+                        let tree = TreePrf::new(D::PLAYERS, run.seed);
                         OnlineRun {
                             proof,
                             branch,
@@ -969,7 +970,7 @@ impl<D: Domain> StreamingProver<D> {
         dst: Sender<Vec<u8>>,
         mut program: PI,
         mut witness: WI,
-        fieldswitching_io: FieldSwitchingIO,
+        fieldswitching_io: FieldSwitchingIo,
         eda_bits: Vec<Vec<Vec<D::Sharing>>>,
         eda_composed: Vec<Vec<D::Sharing>>,
     ) -> Result<(), SendError<Vec<u8>>> {
@@ -979,11 +980,11 @@ impl<D: Domain> StreamingProver<D> {
             branch: Arc<Vec<D::Scalar>>,
             outputs: Sender<Vec<u8>>,
             inputs: Receiver<ProgWitSlice<D>>,
-            fieldswitching_io: FieldSwitchingIO,
+            fieldswitching_io: FieldSwitchingIo,
             eda: Eda<D>,
         ) -> Result<(), SendError<Vec<u8>>> {
             let mut seeds = vec![[0u8; KEY_SIZE]; D::PLAYERS];
-            TreePRF::expand_full(&mut seeds, root);
+            TreePrf::expand_full(&mut seeds, root);
 
             let mut online = Prover::<D, _>::new(branch.iter().cloned());
             let mut preprocessing = PreprocessingExecution::<D>::new(root);

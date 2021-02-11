@@ -2,7 +2,7 @@ use super::util::SharesGenerator;
 
 use crate::algebra::{Domain, LocalOperation, RingElement, RingModule, Samplable};
 use crate::consts::{CONTEXT_RNG_BRANCH_MASK, CONTEXT_RNG_BRANCH_PERMUTE, CONTEXT_RNG_CORRECTION};
-use crate::crypto::{kdf, Hash, MerkleSet, MerkleSetProof, RingHasher, TreePRF, KEY_SIZE, PRG};
+use crate::crypto::{kdf, Hash, MerkleSet, MerkleSetProof, RingHasher, TreePrf, KEY_SIZE, Prg};
 use crate::util::{VecMap, Writer};
 use crate::Instruction;
 
@@ -22,7 +22,7 @@ pub struct PreprocessingExecution<D: Domain> {
     scratch: Vec<D::Batch>,
 
     // Beaver multiplication state
-    corrections_prg: Vec<PRG>,
+    corrections_prg: Vec<Prg>,
     share_a: Vec<D::Sharing>,
     // beta sharings (from input)
     share_b: Vec<D::Sharing>, // alpha sharings (from input)
@@ -34,10 +34,10 @@ impl<D: Domain> PreprocessingExecution<D> {
         branches: &[Vec<D::Batch>],
         index: usize,
     ) -> (Vec<D::Batch>, MerkleSetProof) {
-        let mut prgs: Vec<PRG> = self
+        let mut prgs: Vec<Prg> = self
             .player_seeds
             .iter()
-            .map(|seed| PRG::new(kdf(CONTEXT_RNG_BRANCH_MASK, seed)))
+            .map(|seed| Prg::new(kdf(CONTEXT_RNG_BRANCH_MASK, seed)))
             .collect();
 
         let mut hashes: Vec<RingHasher<D::Batch>> =
@@ -69,12 +69,12 @@ impl<D: Domain> PreprocessingExecution<D> {
     pub fn new(root: [u8; KEY_SIZE]) -> Self {
         // expand repetition seed into per-player seeds
         let mut player_seeds: Vec<[u8; KEY_SIZE]> = vec![[0u8; KEY_SIZE]; D::PLAYERS];
-        TreePRF::expand_full(&mut player_seeds, root);
+        TreePrf::expand_full(&mut player_seeds, root);
 
         // aggregate branch hashes into Merkle tree and return pre-processor for circuit
         let corrections_prg = player_seeds
             .iter()
-            .map(|seed| PRG::new(kdf(CONTEXT_RNG_CORRECTION, seed)))
+            .map(|seed| Prg::new(kdf(CONTEXT_RNG_CORRECTION, seed)))
             .collect();
 
         let shares = SharesGenerator::new(&player_seeds[..]);
@@ -104,8 +104,8 @@ impl<D: Domain> PreprocessingExecution<D> {
         debug_assert_eq!(self.share_b.len(), D::Batch::DIMENSION);
 
         // transpose sharings into per player batches
-        D::convert_inv(&mut batch_a[..], &self.share_a[..]);
-        D::convert_inv(&mut batch_b[..], &self.share_b[..]);
+        D::convert_inv(batch_a, &self.share_a[..]);
+        D::convert_inv(batch_b, &self.share_b[..]);
         self.share_a.clear();
         self.share_b.clear();
 

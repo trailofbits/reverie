@@ -1,9 +1,9 @@
 use super::*;
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
-pub struct GF2P8 {}
+pub struct Gf2P8 {}
 
-impl GF2P8 {
+impl Gf2P8 {
     // This codes assumes that a bounds check has been done prior to the call.
     #[cfg(any(all(not(target_feature = "avx2"), not(target_feature = "sse2")), test))]
     fn convert_generic(dst: &mut [BitSharing8], src: &[BitBatch]) {
@@ -382,7 +382,7 @@ impl GF2P8 {
     }
 }
 
-impl Domain for GF2P8 {
+impl Domain for Gf2P8 {
     type Scalar = BitScalar;
     type Batch = BitBatch;
     type Sharing = BitSharing8;
@@ -469,14 +469,14 @@ mod test {
 
             let mut shares_1 = [BitSharing8::ZERO; 64];
             let mut shares_2 = [BitSharing8::ZERO; 64];
-            GF2P8::convert(&mut shares_1, &batches);
-            GF2P8::convert_generic(&mut shares_2, &batches);
+            Gf2P8::convert(&mut shares_1, &batches);
+            Gf2P8::convert_generic(&mut shares_2, &batches);
             assert_eq!(&shares_1[..], &shares_2[..]);
 
             let mut batches_1 = [BitBatch::ZERO; 8];
             let mut batches_2 = [BitBatch::ZERO; 8];
-            GF2P8::convert_inv(&mut batches_1, &shares_1);
-            GF2P8::convert_inv_generic(&mut batches_2, &shares_1);
+            Gf2P8::convert_inv(&mut batches_1, &shares_1);
+            Gf2P8::convert_inv_generic(&mut batches_2, &shares_1);
             assert_eq!(batches_1, batches);
             assert_eq!(batches_2, batches);
         }
@@ -585,7 +585,7 @@ mod benchmark {
         b.iter(|| {
             black_box({
                 let mut sharing: [BitSharing8; 64] = [BitSharing8::ZERO; 64];
-                GF2P8::convert(&mut sharing[..], &v[..]);
+                Gf2P8::convert(&mut sharing[..], &v[..]);
                 sharing
             })
         });
@@ -610,7 +610,7 @@ mod benchmark {
         b.iter(|| {
             black_box({
                 let mut sharing: [BitSharing8; 64] = [BitSharing8::ZERO; 64];
-                GF2P8::convert_generic(&mut sharing[..], &v[..]);
+                Gf2P8::convert_generic(&mut sharing[..], &v[..]);
                 sharing
             })
         });
@@ -633,12 +633,12 @@ mod benchmark {
         ];
 
         let mut shares = [BitSharing8::ZERO; 64];
-        GF2P8::convert(&mut shares, &batches);
+        Gf2P8::convert(&mut shares, &batches);
 
         b.iter(|| {
             black_box({
                 let mut b = [BitBatch::ZERO; 8];
-                GF2P8::convert_inv(&mut b, &shares);
+                Gf2P8::convert_inv(&mut b, &shares);
                 b
             })
         });
@@ -661,12 +661,12 @@ mod benchmark {
         ];
 
         let mut shares = [BitSharing8::ZERO; 64];
-        GF2P8::convert(&mut shares, &batches);
+        Gf2P8::convert(&mut shares, &batches);
 
         b.iter(|| {
             black_box({
                 let mut b = [BitBatch::ZERO; 8];
-                GF2P8::convert_inv_generic(&mut b, &shares);
+                Gf2P8::convert_inv_generic(&mut b, &shares);
                 b
             })
         });

@@ -1,6 +1,6 @@
 use crate::algebra::{Domain, RingElement, RingModule, Samplable};
 use crate::consts::{BATCH_SIZE, CONTEXT_ORACLE_PREPROCESSING, CONTEXT_RNG_CORRECTION};
-use crate::crypto::{hash, kdf, Hash, Hasher, RingHasher, TreePRF, KEY_SIZE, PRG};
+use crate::crypto::{hash, kdf, Hash, Hasher, RingHasher, TreePrf, KEY_SIZE, Prg};
 use crate::fieldswitching::util::{convert_bit_domain, PartialSharesGenerator, SharesGenerator};
 use crate::oracle::RandomOracle;
 use crate::util::Writer;
@@ -14,7 +14,7 @@ const DEFAULT_CAPACITY: usize = BATCH_SIZE;
 
 pub struct Proof<D: Domain, D2: Domain> {
     pub hidden: Vec<Hash>,
-    pub random: TreePRF,
+    pub random: TreePrf,
     pub preprocessing1: preprocessing::Proof<D>,
     pub preprocessing2: preprocessing::Proof<D2>,
 }
@@ -51,12 +51,12 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
 
         // expand root seed into seed per program + field switching seed
         let mut global_seeds: Vec<[u8; KEY_SIZE]> = vec![[0u8; KEY_SIZE]; 3];
-        TreePRF::expand_full(&mut global_seeds, root_seed);
+        TreePrf::expand_full(&mut global_seeds, root_seed);
 
         // expand the global seed into per-repetition roots
         let mut fieldswitching_exec_roots: Vec<[u8; KEY_SIZE]> =
             vec![[0; KEY_SIZE]; D::PREPROCESSING_REPETITIONS];
-        TreePRF::expand_full(&mut fieldswitching_exec_roots, global_seeds[0]);
+        TreePrf::expand_full(&mut fieldswitching_exec_roots, global_seeds[0]);
 
         let mut oracle = RandomOracle::new(CONTEXT_ORACLE_PREPROCESSING, None);
         let mut results = Vec::new();
@@ -131,7 +131,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             Vec::with_capacity(D::ONLINE_REPETITIONS);
         let mut hidden_hashes: Vec<Hash> = Vec::with_capacity(D::ONLINE_REPETITIONS);
         let mut results1 = results.into_iter().enumerate();
-        let mut tree: TreePRF = TreePRF::new(D::PREPROCESSING_REPETITIONS, global_seeds[0]);
+        let mut tree: TreePrf = TreePrf::new(D::PREPROCESSING_REPETITIONS, global_seeds[0]);
 
         for i in hidden.iter().cloned() {
             tree = tree.puncture(i);
@@ -316,7 +316,7 @@ pub struct PreprocessingExecution<D: Domain, D2: Domain> {
     // sharings
     shares: SharesGenerator<D2, D>,
 
-    corrections_prg: Vec<PRG>,
+    corrections_prg: Vec<Prg>,
     corrections: RingHasher<D2::Batch>, // player 0 corrections
 }
 
@@ -324,7 +324,7 @@ impl<D: Domain, D2: Domain> PreprocessingExecution<D, D2> {
     pub fn new(root: [u8; KEY_SIZE]) -> Self {
         // expand repetition seed into per-player seeds
         let mut player_seeds: Vec<[u8; KEY_SIZE]> = vec![[0u8; KEY_SIZE]; D::PLAYERS];
-        TreePRF::expand_full(&mut player_seeds, root);
+        TreePrf::expand_full(&mut player_seeds, root);
 
         // commit to per-player randomness
         let commitments: Vec<Hash> = player_seeds.iter().map(|seed| hash(seed)).collect();
@@ -338,7 +338,7 @@ impl<D: Domain, D2: Domain> PreprocessingExecution<D, D2> {
             eda_bits_shares: Vec::with_capacity(D2::Batch::DIMENSION),
             corrections_prg: player_seeds
                 .iter()
-                .map(|seed| PRG::new(kdf(CONTEXT_RNG_CORRECTION, seed)))
+                .map(|seed| Prg::new(kdf(CONTEXT_RNG_CORRECTION, seed)))
                 .collect(),
             corrections: RingHasher::new(),
         }
@@ -524,12 +524,12 @@ pub(crate) struct PartialPreprocessingExecution<D: Domain, D2: Domain> {
     // sharings
     shares: PartialSharesGenerator<D2, D>,
 
-    corrections_prg: Vec<PRG>,
+    corrections_prg: Vec<Prg>,
     corrections: RingHasher<D2::Batch>, // player 0 corrections
 }
 
 impl<D: Domain, D2: Domain> PartialPreprocessingExecution<D, D2> {
-    pub fn new(tree: TreePRF) -> Self {
+    pub fn new(tree: TreePrf) -> Self {
         // expand repetition seed into per-player seeds
         let mut player_seeds: Vec<Option<[u8; KEY_SIZE]>> = vec![None; D::PLAYERS];
         tree.expand(&mut player_seeds);
@@ -554,7 +554,7 @@ impl<D: Domain, D2: Domain> PartialPreprocessingExecution<D, D2> {
         // aggregate branch hashes into Merkle tree and return pre-processor for circuit
         let corrections_prg = player_seeds
             .iter()
-            .map(|seed| PRG::new(kdf(CONTEXT_RNG_CORRECTION, seed)))
+            .map(|seed| Prg::new(kdf(CONTEXT_RNG_CORRECTION, seed)))
             .collect();
 
         let shares = PartialSharesGenerator::new(&player_seeds[..], omitted);

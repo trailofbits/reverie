@@ -12,18 +12,18 @@ use async_std::task;
 
 use serde::{Deserialize, Serialize};
 
-use crate::fieldswitching::util::FieldSwitchingIO;
+use crate::fieldswitching::util::FieldSwitchingIo;
 use std::sync::Arc;
 
 const CHANNEL_CAPACITY: usize = 100;
 
-pub type ProofGF2P8 = Proof<gf2::GF2P8>;
+pub type ProofGf2P8 = Proof<gf2::Gf2P8>;
 
-pub type ProofGF2P64 = Proof<gf2::GF2P64>;
+pub type ProofGf2P64 = Proof<gf2::Gf2P64>;
 
-pub type ProofGF2P64_64 = Proof<gf2_vec::GF2P64_64>;
+pub type ProofGf2P64_64 = Proof<gf2_vec::Gf2P64_64>;
 
-pub type ProofGF2P64_85 = Proof<gf2_vec85::GF2P64_85>;
+pub type ProofGf2P64_85 = Proof<gf2_vec85::Gf2P64_85>;
 
 /// Simplified interface for in-memory proofs
 /// with pre-processing verified simultaneously with online execution.
@@ -59,7 +59,7 @@ impl<D: Domain> Proof<D> {
         branches: Arc<Vec<Vec<D::Scalar>>>,
         branch_index: usize,
         witness: Arc<Vec<D::Scalar>>,
-        fieldswitching_io: FieldSwitchingIO,
+        fieldswitching_io: FieldSwitchingIo,
     ) -> Self {
         async fn online_proof<D: Domain>(
             send: Sender<Vec<u8>>,
@@ -67,7 +67,7 @@ impl<D: Domain> Proof<D> {
             program: Arc<Vec<Instruction<D::Scalar>>>,
             branch_index: usize,
             witness: Arc<Vec<D::Scalar>>,
-            fieldswitching_io: FieldSwitchingIO,
+            fieldswitching_io: FieldSwitchingIo,
             pp_output: preprocessing::PreprocessingOutput<D>,
         ) -> Option<online::Proof<D>> {
             let (online, prover) = online::StreamingProver::new(
@@ -139,14 +139,14 @@ impl<D: Domain> Proof<D> {
         bind: Option<Vec<u8>>,
         branches: Arc<Vec<Vec<D::Scalar>>>,
         program: Arc<Vec<Instruction<D::Scalar>>>,
-        fieldswitching_io: FieldSwitchingIO,
+        fieldswitching_io: FieldSwitchingIo,
     ) -> Result<Vec<D::Scalar>, String> {
         async fn online_verification<D: Domain>(
             bind: Option<Vec<u8>>,
             program: Arc<Vec<Instruction<D::Scalar>>>,
             proof: online::Proof<D>,
             recv: Receiver<Vec<u8>>,
-            fieldswitching_io: FieldSwitchingIO,
+            fieldswitching_io: FieldSwitchingIo,
         ) -> Result<online::Output<D>, String> {
             let verifier = online::StreamingVerifier::new(program.iter().cloned(), proof);
             verifier
@@ -158,7 +158,7 @@ impl<D: Domain> Proof<D> {
             branches: Arc<Vec<Vec<D::Scalar>>>,
             program: Arc<Vec<Instruction<D::Scalar>>>,
             proof: preprocessing::Proof<D>,
-            fieldswitching_io: FieldSwitchingIO,
+            fieldswitching_io: FieldSwitchingIo,
         ) -> Option<preprocessing::Output<D>> {
             let branches: Vec<&[D::Scalar]> = branches.iter().map(|b| &b[..]).collect();
             proof
@@ -232,7 +232,7 @@ impl<D: Domain> Proof<D> {
         branches: Vec<Vec<D::Scalar>>,
         witness: Vec<D::Scalar>,
         branch_index: usize,
-        fieldswitching_io: FieldSwitchingIO,
+        fieldswitching_io: FieldSwitchingIo,
     ) -> Self {
         task::block_on(Self::new_async(
             bind,
@@ -261,7 +261,7 @@ impl<D: Domain> Proof<D> {
         bind: Option<Vec<u8>>,
         program: Vec<Instruction<D::Scalar>>,
         branches: Vec<Vec<D::Scalar>>,
-        fieldswitching_io: FieldSwitchingIO,
+        fieldswitching_io: FieldSwitchingIo,
     ) -> Result<Vec<D::Scalar>, String> {
         task::block_on(self.verify_async(
             bind,
@@ -276,8 +276,8 @@ impl<D: Domain> Proof<D> {
 mod tests {
     use super::*;
     use crate::algebra::gf2::*;
-    use crate::algebra::gf2_vec::GF2P64_64;
-    use crate::algebra::gf2_vec85::GF2P64_85;
+    use crate::algebra::gf2_vec::Gf2P64_64;
+    use crate::algebra::gf2_vec85::Gf2P64_85;
     use crate::tests::*;
 
     use rand::thread_rng;
@@ -321,7 +321,7 @@ mod tests {
 
     #[test]
     fn test_proof_gf2p8_regression() {
-        let test_vectors: Vec<TestVector<GF2P8>> = vec![
+        let test_vectors: Vec<TestVector<Gf2P8>> = vec![
             /*
             TestVector {
                 program: vec![
@@ -665,12 +665,12 @@ mod tests {
         ];
 
         for test in test_vectors.iter() {
-            let (_wires, output) = evaluate_program::<GF2P8>(
+            let (_wires, output) = evaluate_program::<Gf2P8>(
                 &test.program[..],
                 &test.input[..],
                 &test.branches[test.branch_index][..],
             );
-            let proof = ProofGF2P8::new(
+            let proof = ProofGf2P8::new(
                 None,
                 test.program.clone(),
                 test.branches.clone(),
@@ -695,8 +695,9 @@ mod tests {
     #[test]
     fn test_random_proof_gf2p8() {
         for _ in 0..10 {
-            let (program, input, branches, branch_index, output) = random_instance::<GF2P8>();
-            let proof = ProofGF2P8::new(
+            let (program, input, branches, branch_index, output) = random_instance::<Gf2P8>();
+            println!("first gate: {:?}", program[0]);
+            let proof = ProofGf2P8::new(
                 None,
                 program.clone(),
                 branches.clone(),
@@ -716,8 +717,8 @@ mod tests {
     #[test]
     fn test_random_proof_gf2p64() {
         for _ in 0..10 {
-            let (program, input, branches, branch_index, output) = random_instance::<GF2P64>();
-            let proof = ProofGF2P64::new(
+            let (program, input, branches, branch_index, output) = random_instance::<Gf2P64>();
+            let proof = ProofGf2P64::new(
                 None,
                 program.clone(),
                 branches.clone(),
@@ -737,8 +738,8 @@ mod tests {
     #[test]
     fn test_random_proof_gf2p64_64() {
         for _ in 0..10 {
-            let (program, input, branches, branch_index, output) = random_instance::<GF2P64_64>();
-            let proof = ProofGF2P64_64::new(
+            let (program, input, branches, branch_index, output) = random_instance::<Gf2P64_64>();
+            let proof = ProofGf2P64_64::new(
                 None,
                 program.clone(),
                 branches.clone(),
@@ -758,8 +759,8 @@ mod tests {
     #[test]
     fn test_random_proof_gf2p64_85() {
         for _ in 0..10 {
-            let (program, input, branches, branch_index, output) = random_instance::<GF2P64_85>();
-            let proof = ProofGF2P64_85::new(
+            let (program, input, branches, branch_index, output) = random_instance::<Gf2P64_85>();
+            let proof = ProofGf2P64_85::new(
                 None,
                 program.clone(),
                 branches.clone(),

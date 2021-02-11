@@ -18,7 +18,7 @@ use std::fmt;
 
 pub use merkle::{MerkleSet, MerkleSetProof};
 pub use ring::RingHasher;
-pub use tree::TreePRF;
+pub use tree::TreePrf;
 
 // we target 128-bits of PQ security
 pub const KEY_SIZE: usize = 32;
@@ -38,7 +38,7 @@ impl fmt::Debug for Hash {
 }
 
 #[derive(Debug)]
-pub struct PRG(ChaCha12Rng);
+pub struct Prg(ChaCha12Rng);
 
 pub fn commit(key: &[u8; KEY_SIZE], value: &[u8]) -> Hash {
     let mut hasher = blake3::Hasher::new_keyed(key);
@@ -129,13 +129,13 @@ impl io::Write for Hasher {
     }
 }
 
-impl PRG {
+impl Prg {
     pub fn new(seed: [u8; KEY_SIZE]) -> Self {
         Self(ChaCha12Rng::from_seed(seed))
     }
 }
 
-impl RngCore for PRG {
+impl RngCore for Prg {
     fn fill_bytes(&mut self, dest: &mut [u8]) {
         self.0.fill_bytes(dest)
     }

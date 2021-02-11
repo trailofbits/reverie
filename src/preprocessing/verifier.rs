@@ -2,8 +2,8 @@ use super::util::PartialSharesGenerator;
 
 use crate::algebra::{Domain, LocalOperation, RingElement, RingModule, Samplable};
 use crate::consts::CONTEXT_RNG_CORRECTION;
-use crate::crypto::{hash, kdf, Hash, Hasher, RingHasher, TreePRF, KEY_SIZE, PRG};
-use crate::fieldswitching::util::FieldSwitchingIO;
+use crate::crypto::{hash, kdf, Hash, Hasher, RingHasher, TreePrf, KEY_SIZE, Prg};
+use crate::fieldswitching::util::FieldSwitchingIo;
 use crate::util::{VecMap, Writer};
 use crate::Instruction;
 use std::iter::Cloned;
@@ -25,7 +25,7 @@ pub struct PreprocessingExecution<D: Domain> {
     scratch: Vec<D::Batch>,
 
     // Beaver multiplication state
-    corrections_prg: Vec<PRG>,
+    corrections_prg: Vec<Prg>,
     share_a: Vec<D::Sharing>,
     // beta sharings (from input)
     share_b: Vec<D::Sharing>, // alpha sharings (from input)
@@ -61,7 +61,7 @@ impl<D: Domain> PreprocessingExecution<D> {
         hasher.finalize()
     }
 
-    pub fn new(tree: &TreePRF) -> Self {
+    pub fn new(tree: &TreePrf) -> Self {
         // expand repetition seed into per-player seeds
         let mut player_seeds: Vec<Option<[u8; KEY_SIZE]>> = vec![None; D::PLAYERS];
         tree.expand(&mut player_seeds);
@@ -86,7 +86,7 @@ impl<D: Domain> PreprocessingExecution<D> {
         // aggregate branch hashes into Merkle tree and return pre-processor for circuit
         let corrections_prg = player_seeds
             .iter()
-            .map(|seed| PRG::new(kdf(CONTEXT_RNG_CORRECTION, seed)))
+            .map(|seed| Prg::new(kdf(CONTEXT_RNG_CORRECTION, seed)))
             .collect();
 
         let shares = PartialSharesGenerator::new(&player_seeds[..], omitted);
@@ -117,8 +117,8 @@ impl<D: Domain> PreprocessingExecution<D> {
         debug_assert_eq!(self.share_b.len(), D::Batch::DIMENSION);
 
         // transpose sharings into per player batches
-        D::convert_inv(&mut batch_a[..], &self.share_a[..]);
-        D::convert_inv(&mut batch_b[..], &self.share_b[..]);
+        D::convert_inv(batch_a, &self.share_a[..]);
+        D::convert_inv(batch_b, &self.share_b[..]);
         self.share_a.clear();
         self.share_b.clear();
 
@@ -151,7 +151,7 @@ impl<D: Domain> PreprocessingExecution<D> {
         corrections: &[D::Batch],           // player 0 corrections
         masks: &mut Vec<D::Sharing>,        // resulting sharings consumed by online phase
         ab_gamma: &mut Vec<D::Sharing>,     // a * b + \gamma sharings for online phase
-        fieldswitching_io: FieldSwitchingIO,
+        fieldswitching_io: FieldSwitchingIo,
     ) -> Option<()> {
         let fieldswitching_input = fieldswitching_io.0;
         let fieldswitching_output = fieldswitching_io.1;

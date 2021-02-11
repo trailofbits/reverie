@@ -18,22 +18,22 @@ mod tests {
         let mut rng = thread_rng();
 
         let conn_program = connection_program();
-        let program1 = mini_program::<GF2P8>();
-        let program2 = mini_program::<GF2P8>();
-        let input = random_scalars::<GF2P8, ThreadRng>(&mut rng, 4);
+        let program1 = mini_program::<Gf2P8>();
+        let program2 = mini_program::<Gf2P8>();
+        let input = random_scalars::<Gf2P8, ThreadRng>(&mut rng, 4);
         let num_branch = 0;
         let num_branches = 1 + rng.gen::<usize>() % 32;
         let mut branches1: Vec<Vec<BitScalar>> = Vec::with_capacity(num_branches);
         for _ in 0..num_branches {
-            branches1.push(random_scalars::<GF2P8, _>(&mut rng, num_branch));
+            branches1.push(random_scalars::<Gf2P8, _>(&mut rng, num_branch));
         }
         let mut branches2: Vec<Vec<BitScalar>> = Vec::with_capacity(num_branches);
         for _ in 0..num_branches {
-            branches2.push(random_scalars::<GF2P8, _>(&mut rng, num_branch));
+            branches2.push(random_scalars::<Gf2P8, _>(&mut rng, num_branch));
         }
         let branch_index = rng.gen::<usize>() % num_branches;
 
-        let output = evaluate_fieldswitching_btoa_program::<GF2P8, GF2P8>(
+        let output = evaluate_fieldswitching_btoa_program::<Gf2P8, Gf2P8>(
             &conn_program[..],
             &program1[..],
             &program2[..],
@@ -44,14 +44,14 @@ mod tests {
         assert_eq!(input, output);
 
         let (preprocessed_proof, pp_output) =
-            fieldswitching::preprocessing::Proof::<GF2P8, GF2P8>::new(
+            fieldswitching::preprocessing::Proof::<Gf2P8, Gf2P8>::new(
                 conn_program.clone(),
                 program1.clone(),
                 program2.clone(),
                 branches1.clone(),
                 branches2.clone(),
             );
-        let proof = task::block_on(fieldswitching::online::Proof::<GF2P8, GF2P8>::new(
+        let proof = task::block_on(fieldswitching::online::Proof::<Gf2P8, Gf2P8>::new(
             None,
             conn_program.clone(),
             program1.clone(),
@@ -85,14 +85,14 @@ mod tests {
         let mut rng = thread_rng();
 
         let conn_program = connection_program();
-        let program1 = mini_program::<GF2P8>();
+        let program1 = mini_program::<Gf2P8>();
         let program2 = mini_program::<Z64P8>();
-        let input = random_scalars::<GF2P8, ThreadRng>(&mut rng, 4);
+        let input = random_scalars::<Gf2P8, ThreadRng>(&mut rng, 4);
         let num_branch = 0;
         let num_branches = 1 + rng.gen::<usize>() % 32;
         let mut branches1: Vec<Vec<BitScalar>> = Vec::with_capacity(num_branches);
         for _ in 0..num_branches {
-            branches1.push(random_scalars::<GF2P8, _>(&mut rng, num_branch));
+            branches1.push(random_scalars::<Gf2P8, _>(&mut rng, num_branch));
         }
         let mut branches2: Vec<Vec<Scalar>> = Vec::with_capacity(num_branches);
         for _ in 0..num_branches {
@@ -100,7 +100,7 @@ mod tests {
         }
         let branch_index = rng.gen::<usize>() % num_branches;
 
-        let output = evaluate_fieldswitching_btoa_program::<GF2P8, Z64P8>(
+        let output = evaluate_fieldswitching_btoa_program::<Gf2P8, Z64P8>(
             &conn_program[..],
             &program1[..],
             &program2[..],
@@ -113,14 +113,14 @@ mod tests {
         // assert_eq!(input, output);
 
         let (preprocessed_proof, pp_output) =
-            fieldswitching::preprocessing::Proof::<GF2P8, Z64P8>::new(
+            fieldswitching::preprocessing::Proof::<Gf2P8, Z64P8>::new(
                 conn_program.clone(),
                 program1.clone(),
                 program2.clone(),
                 branches1.clone(),
                 branches2.clone(),
             );
-        let proof = task::block_on(fieldswitching::online::Proof::<GF2P8, Z64P8>::new(
+        let proof = task::block_on(fieldswitching::online::Proof::<Gf2P8, Z64P8>::new(
             None,
             conn_program.clone(),
             program1.clone(),
@@ -153,16 +153,16 @@ mod tests {
         let mut rng = thread_rng();
 
         let conn_program = connection_program();
-        let program1 = mini_program::<GF2P8>();
-        let program2 = mini_program::<GF2P8>();
+        let program1 = mini_program::<Gf2P8>();
+        let program2 = mini_program::<Gf2P8>();
         let num_branch = 0;
         let num_branches = 1 + rng.gen::<usize>() % 32;
         let mut branches: Vec<Vec<BitScalar>> = Vec::with_capacity(num_branches);
         for _ in 0..num_branches {
-            branches.push(random_scalars::<GF2P8, _>(&mut rng, num_branch));
+            branches.push(random_scalars::<Gf2P8, _>(&mut rng, num_branch));
         }
 
-        let (preprocessed_proof, _) = fieldswitching::preprocessing::Proof::<GF2P8, GF2P8>::new(
+        let (preprocessed_proof, _) = fieldswitching::preprocessing::Proof::<Gf2P8, Gf2P8>::new(
             conn_program.clone(),
             program1.clone(),
             program2.clone(),
@@ -304,7 +304,7 @@ mod tests {
         }
         add.push(Instruction::Output(carry_out));
 
-        let (_wires, output) = evaluate_program::<GF2P8>(
+        let (_wires, output) = evaluate_program::<Gf2P8>(
             &add[..],
             &[
                 BitScalar::ZERO,
@@ -328,7 +328,7 @@ mod tests {
                 BitScalar::ZERO
             ]
         );
-        let (_wires, output) = evaluate_program::<GF2P8>(
+        let (_wires, output) = evaluate_program::<Gf2P8>(
             &add[..],
             &[
                 BitScalar::ONE,
@@ -352,7 +352,7 @@ mod tests {
                 BitScalar::ZERO
             ]
         );
-        let (_wires, output) = evaluate_program::<GF2P8>(
+        let (_wires, output) = evaluate_program::<Gf2P8>(
             &add[..],
             &[
                 BitScalar::ONE,
@@ -376,7 +376,7 @@ mod tests {
                 BitScalar::ONE
             ]
         );
-        let (_wires, output) = evaluate_program::<GF2P8>(
+        let (_wires, output) = evaluate_program::<Gf2P8>(
             &add[..],
             &[
                 BitScalar::ONE,
@@ -400,7 +400,7 @@ mod tests {
                 BitScalar::ZERO
             ]
         );
-        let (_wires, output) = evaluate_program::<GF2P8>(
+        let (_wires, output) = evaluate_program::<Gf2P8>(
             &add[..],
             &[
                 BitScalar::ONE,
@@ -437,49 +437,49 @@ mod tests {
         add.push(Instruction::Output(output_bit));
         add.push(Instruction::Output(carry_out));
 
-        let (_wires, output) = evaluate_program::<GF2P8>(
+        let (_wires, output) = evaluate_program::<Gf2P8>(
             &add[..],
             &[BitScalar::ZERO, BitScalar::ZERO, BitScalar::ZERO],
             &[],
         );
         assert_eq!(&output[..], &[BitScalar::ZERO, BitScalar::ZERO]);
-        let (_wires, output) = evaluate_program::<GF2P8>(
+        let (_wires, output) = evaluate_program::<Gf2P8>(
             &add[..],
             &[BitScalar::ZERO, BitScalar::ZERO, BitScalar::ONE],
             &[],
         );
         assert_eq!(&output[..], &[BitScalar::ONE, BitScalar::ZERO]);
-        let (_wires, output) = evaluate_program::<GF2P8>(
+        let (_wires, output) = evaluate_program::<Gf2P8>(
             &add[..],
             &[BitScalar::ZERO, BitScalar::ONE, BitScalar::ZERO],
             &[],
         );
         assert_eq!(&output[..], &[BitScalar::ONE, BitScalar::ZERO]);
-        let (_wires, output) = evaluate_program::<GF2P8>(
+        let (_wires, output) = evaluate_program::<Gf2P8>(
             &add[..],
             &[BitScalar::ZERO, BitScalar::ONE, BitScalar::ONE],
             &[],
         );
         assert_eq!(&output[..], &[BitScalar::ZERO, BitScalar::ONE]);
-        let (_wires, output) = evaluate_program::<GF2P8>(
+        let (_wires, output) = evaluate_program::<Gf2P8>(
             &add[..],
             &[BitScalar::ONE, BitScalar::ZERO, BitScalar::ZERO],
             &[],
         );
         assert_eq!(&output[..], &[BitScalar::ONE, BitScalar::ZERO]);
-        let (_wires, output) = evaluate_program::<GF2P8>(
+        let (_wires, output) = evaluate_program::<Gf2P8>(
             &add[..],
             &[BitScalar::ONE, BitScalar::ZERO, BitScalar::ONE],
             &[],
         );
         assert_eq!(&output[..], &[BitScalar::ZERO, BitScalar::ONE]);
-        let (_wires, output) = evaluate_program::<GF2P8>(
+        let (_wires, output) = evaluate_program::<Gf2P8>(
             &add[..],
             &[BitScalar::ONE, BitScalar::ONE, BitScalar::ZERO],
             &[],
         );
         assert_eq!(&output[..], &[BitScalar::ZERO, BitScalar::ONE]);
-        let (_wires, output) = evaluate_program::<GF2P8>(
+        let (_wires, output) = evaluate_program::<Gf2P8>(
             &add[..],
             &[BitScalar::ONE, BitScalar::ONE, BitScalar::ONE],
             &[],

@@ -2,7 +2,7 @@ use crate::algebra::*;
 use crate::util::VecMap;
 use crate::{ConnectionInstruction, Instruction};
 
-use crate::algebra::gf2::{BitScalar, GF2P8};
+use crate::algebra::gf2::{BitScalar, Gf2P8};
 use rand::RngCore;
 use rand::{thread_rng, Rng};
 
@@ -144,7 +144,7 @@ pub fn random_program<D: Domain, R: RngCore>(
 
     program.push(Instruction::Input(0));
 
-    let mut largest = 0;
+    let mut largest = 1;
     while program.len() < length {
         // random source and destination indexes
         let dst: usize = rng.gen::<usize>() % memory;
@@ -204,15 +204,15 @@ pub fn random_program<D: Domain, R: RngCore>(
 pub fn test_evaluate_program() {
     let mut rng = thread_rng();
 
-    let program1 = mini_program::<GF2P8>();
-    let program2 = mini_program::<GF2P8>();
+    let program1 = mini_program::<Gf2P8>();
+    let program2 = mini_program::<Gf2P8>();
     let conn_program = connection_program();
-    let input = random_scalars::<GF2P8, _>(&mut rng, 4);
+    let input = random_scalars::<Gf2P8, _>(&mut rng, 4);
 
     let branch: Vec<BitScalar> = vec![];
     let branches: Vec<Vec<BitScalar>> = vec![branch];
 
-    let output = evaluate_fieldswitching_btoa_program::<GF2P8, GF2P8>(
+    let output = evaluate_fieldswitching_btoa_program::<Gf2P8, Gf2P8>(
         &conn_program[..],
         &program1[..],
         &program2[..],

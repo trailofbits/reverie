@@ -1,11 +1,11 @@
 use crate::algebra::{Domain, RingElement, RingModule};
 use crate::consts::{CONTEXT_RNG_EDA, CONTEXT_RNG_EDA_2};
-use crate::crypto::{kdf, KEY_SIZE, PRG};
+use crate::crypto::{kdf, KEY_SIZE, Prg};
 use crate::preprocessing::util::{PartialShareGenerator, ShareGenerator};
 use crate::{ConnectionInstruction, Instruction};
 use std::sync::Arc;
 
-pub type FieldSwitchingIO = (Vec<usize>, Vec<Vec<usize>>);
+pub type FieldSwitchingIo = (Vec<usize>, Vec<Vec<usize>>);
 pub type FullProgram<D, D2> = (
     Vec<ConnectionInstruction>,
     Arc<Vec<Instruction<<D as Domain>::Scalar>>>,
@@ -23,13 +23,13 @@ pub struct SharesGenerator<D: Domain, D2: Domain> {
 
 impl<D: Domain, D2: Domain> SharesGenerator<D, D2> {
     pub fn new(player_seeds: &[[u8; KEY_SIZE]]) -> Self {
-        let eda_prgs: Vec<PRG> = player_seeds
+        let eda_prgs: Vec<Prg> = player_seeds
             .iter()
-            .map(|seed| PRG::new(kdf(CONTEXT_RNG_EDA, seed)))
+            .map(|seed| Prg::new(kdf(CONTEXT_RNG_EDA, seed)))
             .collect();
-        let eda_prgs2: Vec<PRG> = player_seeds
+        let eda_prgs2: Vec<Prg> = player_seeds
             .iter()
-            .map(|seed| PRG::new(kdf(CONTEXT_RNG_EDA_2, seed)))
+            .map(|seed| Prg::new(kdf(CONTEXT_RNG_EDA_2, seed)))
             .collect();
 
         Self {
@@ -46,13 +46,13 @@ pub struct PartialSharesGenerator<D: Domain, D2: Domain> {
 
 impl<D: Domain, D2: Domain> PartialSharesGenerator<D, D2> {
     pub fn new(player_seeds: &[[u8; KEY_SIZE]], omit: usize) -> Self {
-        let eda_prgs: Vec<PRG> = player_seeds
+        let eda_prgs: Vec<Prg> = player_seeds
             .iter()
-            .map(|seed| PRG::new(kdf(CONTEXT_RNG_EDA, seed)))
+            .map(|seed| Prg::new(kdf(CONTEXT_RNG_EDA, seed)))
             .collect();
-        let eda_prgs2: Vec<PRG> = player_seeds
+        let eda_prgs2: Vec<Prg> = player_seeds
             .iter()
-            .map(|seed| PRG::new(kdf(CONTEXT_RNG_EDA_2, seed)))
+            .map(|seed| Prg::new(kdf(CONTEXT_RNG_EDA_2, seed)))
             .collect();
 
         Self {
@@ -89,7 +89,7 @@ pub fn convert_bit<D: Domain, D2: Domain>(input: D::Scalar) -> D2::Scalar {
 mod tests {
     use rand::thread_rng;
 
-    use crate::algebra::gf2::{BitBatch, GF2P64, GF2P8};
+    use crate::algebra::gf2::{BitBatch, Gf2P64, Gf2P8};
     use crate::algebra::{RingElement, Samplable, RingModule};
     use crate::fieldswitching::util::convert_bit_domain;
     use crate::algebra::z64::{Z64P8, Batch};
@@ -103,17 +103,17 @@ mod tests {
 
         assert_eq!(
             BitBatch::ONE,
-            convert_bit_domain::<GF2P8, GF2P64>(one).unwrap()
+            convert_bit_domain::<Gf2P8, Gf2P64>(one).unwrap()
         );
         assert_eq!(
             BitBatch::ZERO,
-            convert_bit_domain::<GF2P8, GF2P64>(zero).unwrap()
+            convert_bit_domain::<Gf2P8, Gf2P64>(zero).unwrap()
         );
         assert_eq!(
             BitBatch::ZERO,
-            convert_bit_domain::<GF2P8, GF2P64>(two).unwrap()
+            convert_bit_domain::<Gf2P8, Gf2P64>(two).unwrap()
         );
-        assert!(convert_bit_domain::<GF2P8, GF2P64>(batch).is_ok());
+        assert!(convert_bit_domain::<Gf2P8, Gf2P64>(batch).is_ok());
     }
 
     #[test]
@@ -136,6 +136,6 @@ mod tests {
         //     vec![Batch::ONE + Batch::ONE; BitBatch::DIMENSION],
         //     convert_bit_domain::<GF2P8, Z64P8>(two).unwrap()
         // );
-        assert!(convert_bit_domain::<GF2P8, Z64P8>(batch).is_ok());
+        assert!(convert_bit_domain::<Gf2P8, Z64P8>(batch).is_ok());
     }
 }

@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use async_channel::{Receiver, Sender};
 
-use crate::fieldswitching::util::FieldSwitchingIO;
+use crate::fieldswitching::util::FieldSwitchingIo;
 use async_std::task;
 use std::iter::Cloned;
 use std::slice::Iter;
@@ -110,7 +110,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
         self,
         bind: Option<&[u8]>,
         mut proof: Receiver<Vec<u8>>,
-        fieldswitching_io: FieldSwitchingIO,
+        fieldswitching_io: FieldSwitchingIo,
     ) -> Result<Output<D>, String> {
         let mut oracle = RandomOracle::new(CONTEXT_ORACLE_ONLINE, bind);
 
@@ -138,7 +138,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
     pub async fn verify_round_1(
         self,
         proof: &mut Receiver<Vec<u8>>,
-        fieldswitching_io: FieldSwitchingIO,
+        fieldswitching_io: FieldSwitchingIo,
     ) -> Result<(Vec<[u8; 32]>, Vec<usize>, Output<D>), String> {
         let runs = self.proof.runs.clone();
         if runs.len() != D::ONLINE_REPETITIONS {
@@ -150,7 +150,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
     pub(crate) async fn do_verify_round_1(
         mut self,
         proof: &mut Receiver<Vec<u8>>,
-        fieldswitching_io: FieldSwitchingIO,
+        fieldswitching_io: FieldSwitchingIo,
         runs: Vec<OnlineRun<D>>,
     ) -> Result<(Vec<[u8; 32]>, Vec<usize>, Output<D>), String> {
         async fn process<D: Domain>(
@@ -160,7 +160,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                 Arc<Instructions<D>>, // next slice of program
                 Vec<u8>,              // next chunk
             )>,
-            fieldswitching_io: FieldSwitchingIO,
+            fieldswitching_io: FieldSwitchingIo,
         ) -> Option<(Hash, Hash, usize, Vec<D::Scalar>)> {
             let mut wires = VecMap::new();
             let mut transcript: RingHasher<_> = RingHasher::new();

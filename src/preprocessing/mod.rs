@@ -18,7 +18,7 @@ use std::sync::Arc;
 use async_channel::{Receiver, SendError, Sender};
 use async_std::task;
 
-use crate::fieldswitching::util::FieldSwitchingIO;
+use crate::fieldswitching::util::FieldSwitchingIo;
 use serde::{Deserialize, Serialize};
 
 type Round1Output<D> = (
@@ -50,7 +50,7 @@ async fn feed<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>>(
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Proof<D: Domain> {
     hidden: Vec<Hash>, // commitments to the hidden pre-processing executions
-    random: TreePRF, // punctured PRF used to derive the randomness for the opened pre-processing executions
+    random: TreePrf, // punctured PRF used to derive the randomness for the opened pre-processing executions
     _ph: PhantomData<D>,
 }
 
@@ -115,7 +115,7 @@ impl<D: Domain> Proof<D> {
         seeds: &[[u8; KEY_SIZE]],
         branches: Arc<Vec<Vec<D::Batch>>>,
         mut program: PI,
-        fieldswitching_io: FieldSwitchingIO,
+        fieldswitching_io: FieldSwitchingIo,
     ) -> Vec<(Hash, Vec<Hash>)> {
         assert!(
             branches.len() > 0,
@@ -127,7 +127,7 @@ impl<D: Domain> Proof<D> {
             branches: Arc<Vec<Vec<D::Batch>>>,
             outputs: Sender<()>,
             inputs: Receiver<Arc<Instructions<D>>>,
-            fieldswitching_io: FieldSwitchingIO,
+            fieldswitching_io: FieldSwitchingIo,
         ) -> Result<(Hash, Vec<Hash>), SendError<()>> {
             let mut preprocessing: preprocessing::PreprocessingExecution<D> =
                 preprocessing::PreprocessingExecution::new(root, &branches[..]);
@@ -200,7 +200,7 @@ impl<D: Domain> Proof<D> {
         &self,
         branches: &[&[D::Scalar]],
         program: PI,
-        fieldswitching_io: FieldSwitchingIO,
+        fieldswitching_io: FieldSwitchingIo,
     ) -> Option<Output<D>> {
         let mut oracle = RandomOracle::new(CONTEXT_ORACLE_PREPROCESSING, None);
 
@@ -223,7 +223,7 @@ impl<D: Domain> Proof<D> {
         &self,
         branches: &[&[<D as Domain>::Scalar]],
         program: PI,
-        fieldswitching_io: FieldSwitchingIO,
+        fieldswitching_io: FieldSwitchingIo,
         oracle: &mut RandomOracle,
     ) -> Option<(Vec<usize>, Output<D>)> {
         // pack branch scalars into batches for efficiency
@@ -315,7 +315,7 @@ impl<D: Domain> Proof<D> {
         global: [u8; KEY_SIZE],
         branches: &[&[D::Scalar]],
         program: PI,
-        fieldswitching_io: FieldSwitchingIO,
+        fieldswitching_io: FieldSwitchingIo,
     ) -> (Self, PreprocessingOutput<D>) {
         let mut oracle = RandomOracle::new(CONTEXT_ORACLE_PREPROCESSING, None);
 
@@ -336,7 +336,7 @@ impl<D: Domain> Proof<D> {
     ) -> (Proof<D>, PreprocessingOutput<D>) {
         // puncture the prf at the hidden indexes
         // (implicitly: pass the randomness for all other executions to the verifier)
-        let mut tree: TreePRF = TreePRF::new(D::PREPROCESSING_REPETITIONS, global);
+        let mut tree: TreePrf = TreePrf::new(D::PREPROCESSING_REPETITIONS, global);
         for i in hidden.iter().cloned() {
             tree = tree.puncture(i);
         }
@@ -397,7 +397,7 @@ impl<D: Domain> Proof<D> {
         global: [u8; 32],
         branches: &[&[<D as Domain>::Scalar]],
         program: PI,
-        fieldswitching_io: FieldSwitchingIO,
+        fieldswitching_io: FieldSwitchingIo,
         oracle: &mut RandomOracle,
     ) -> Round1Output<D> {
         // pack branch scalars into batches for efficiency
@@ -405,7 +405,7 @@ impl<D: Domain> Proof<D> {
 
         // expand the global seed into per-repetition roots
         let mut roots: Vec<[u8; KEY_SIZE]> = vec![[0; KEY_SIZE]; D::PREPROCESSING_REPETITIONS];
-        TreePRF::expand_full(&mut roots, global);
+        TreePrf::expand_full(&mut roots, global);
 
         // block and wait for hashes to compute
         let results = task::block_on(Self::preprocess(
@@ -425,7 +425,7 @@ impl<D: Domain> Proof<D> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::algebra::gf2::{BitScalar, GF2P8};
+    use super::super::algebra::gf2::{BitScalar, Gf2P8};
     use super::*;
 
     use rand::Rng;
@@ -442,7 +442,7 @@ mod tests {
         let seed: [u8; KEY_SIZE] = rng.gen();
         let branch: Vec<BitScalar> = vec![];
         let branches: Vec<&[BitScalar]> = vec![&branch];
-        let proof = Proof::<GF2P8>::new(
+        let proof = Proof::<Gf2P8>::new(
             seed,
             &branches[..],
             program.iter().cloned(),
@@ -460,7 +460,7 @@ mod tests {
 #[cfg(test)]
 #[cfg(not(debug_assertions))] // omit for testing
 mod benchmark {
-    use super::super::algebra::gf2::{BitScalar, GF2P8};
+    use super::super::algebra::gf2::{BitScalar, Gf2P8};
     use super::*;
 
     use test::Bencher;
@@ -479,7 +479,7 @@ mod benchmark {
         program.resize(MULT + 2, Instruction::Mul(0, 1, 2));
         let branch: Vec<BitScalar> = vec![];
         let branches: Vec<&[BitScalar]> = vec![&branch];
-        b.iter(|| Proof::<GF2P8>::new([0u8; KEY_SIZE], &branches, program.iter().cloned()));
+        b.iter(|| Proof::<Gf2P8>::new([0u8; KEY_SIZE], &branches, program.iter().cloned()));
     }
 
     /*
@@ -509,7 +509,7 @@ mod benchmark {
         program.resize(MULT + 2, Instruction::Mul(0, 1, 2));
         let branch: Vec<BitScalar> = vec![];
         let branches: Vec<&[BitScalar]> = vec![&branch];
-        let (proof, _) = Proof::<GF2P8>::new([0u8; KEY_SIZE], &branches, program.iter().cloned());
+        let (proof, _) = Proof::<Gf2P8>::new([0u8; KEY_SIZE], &branches, program.iter().cloned());
         b.iter(|| task::block_on(proof.verify(&branches, program.iter().cloned())));
     }
 }

@@ -1,6 +1,6 @@
 use crate::algebra::{Domain, Packable, RingElement};
 use crate::consts::CONTEXT_ORACLE_ONLINE;
-use crate::crypto::{Hash, MerkleSetProof, TreePRF};
+use crate::crypto::{Hash, MerkleSetProof, TreePrf};
 use crate::fieldswitching::preprocessing::{
     FsPreprocessingRun, PartialPreprocessingExecution, PreprocessingExecution,
 };
@@ -29,7 +29,7 @@ pub struct Proof<D: Domain, D2: Domain> {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct OnlineRun<D: Domain, D2: Domain> {
-    open: TreePRF,
+    open: TreePrf,
     // randomness for opened players
     commitment: Hash,
     // commitment for hidden preprocessing player
@@ -244,7 +244,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
                 .zip(masked_branches_2.into_iter())
                 .map(
                     |(((((omit, run), run1), run2), (branch1, proof1)), (branch2, proof2))| {
-                        let tree1 = TreePRF::new(D::PLAYERS, run1.seed);
+                        let tree1 = TreePrf::new(D::PLAYERS, run1.seed);
                         let run1 = super::super::online::OnlineRun {
                             proof: proof1,
                             branch: branch1,
@@ -252,7 +252,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
                             open: tree1.puncture(omit),
                             _ph: PhantomData,
                         };
-                        let tree2 = TreePRF::new(D::PLAYERS, run2.seed);
+                        let tree2 = TreePrf::new(D::PLAYERS, run2.seed);
                         let run2 = super::super::online::OnlineRun {
                             proof: proof2,
                             branch: branch2,
@@ -260,7 +260,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
                             open: tree2.puncture(omit),
                             _ph: PhantomData,
                         };
-                        let tree = TreePRF::new(D::PLAYERS, run.seed);
+                        let tree = TreePrf::new(D::PLAYERS, run.seed);
                         let mut corrections: Vec<u8> = Vec::new();
                         Packable::pack(&mut corrections, run.corrections.iter()).unwrap();
                         // println!("omit: {:?}", omit);
