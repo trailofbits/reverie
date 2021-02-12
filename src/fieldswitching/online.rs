@@ -1,9 +1,7 @@
 use crate::algebra::{Domain, Packable, RingElement};
 use crate::consts::CONTEXT_ORACLE_ONLINE;
 use crate::crypto::{Hash, MerkleSetProof, TreePrf};
-use crate::fieldswitching::preprocessing::{
-    FsPreprocessingRun, PartialPreprocessingExecution, PreprocessingExecution,
-};
+use crate::fieldswitching::preprocessing::{FsPreprocessingRun, PartialPreprocessingExecution, PreprocessingExecution, Output};
 use crate::fieldswitching::util::{convert_bit, FullProgram};
 use crate::online::{StreamingProver, StreamingVerifier};
 use crate::oracle::RandomOracle;
@@ -409,6 +407,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
         let mut omitted2 = Vec::new();
         let mut output = Vec::new();
         let mut oracle = RandomOracle::new(CONTEXT_ORACLE_ONLINE, bind.as_ref().map(|x| &x[..]));
+        let mut start = true;
         for t in tasks {
             let result = t.await;
             if result.is_err() {
@@ -417,13 +416,13 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             let (oracle_feed, mut _omitted1, mut _omitted2, _result, _commitment) = result.unwrap();
             omitted1.append(&mut _omitted1);
             omitted2.append(&mut _omitted2);
+            if !start && output != _result {
+                return Err(String::from("results are inconsistent between rounds"));
+            } else {
+                start = false;
+            }
             output = _result;
-            // TODO(gvl): Why is this not the case?
-            // if output != _result {
-            //     println!("output: {:?}", output);
-            //     println!("output: {:?}", _result);
-            //     return Err(String::from("results are inconsistent between rounds"));
-            // }
+
             for feed in oracle_feed {
                 // println!("verifier: {:?}", feed);
                 oracle.feed(&feed);
@@ -443,11 +442,6 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
         ) {
             return Err(String::from("omitted values for proof 2 are incorrect"));
         }
-
-        //TODO(gvl): both preprocessed checking
-        // Ok(out) => Ok(out.check(&preprocessed.output2).ok_or_else(|| {
-        //     String::from("Online task output did not match preprocessing output")
-        // })?),
 
         Ok(output)
     }

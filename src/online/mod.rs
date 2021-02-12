@@ -61,7 +61,7 @@ impl<'de, D: Domain + Deserialize<'de>> Proof<D> {
 ///
 /// Avoiding potential misuse where the user fails to check the pre-processing.
 pub struct Output<D: Domain> {
-    pub(crate) result: Vec<D::Scalar>, //TODO(gvl): make private again
+    pub(crate) result: Vec<D::Scalar>,
     pp_hashes: Vec<Hash>,
 }
 
