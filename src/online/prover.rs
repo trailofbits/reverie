@@ -212,7 +212,7 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
                     #[cfg(test)]
                     #[cfg(debug_assertions)]
                     {
-                        assert_eq!(self.wires.get(dst) + mask.reconstruct(), value);
+                        assert_eq!(self.wires.get(dst) - mask.reconstruct(), value);
                         #[cfg(feature = "trace")]
                         println!("  mask = {:?}, value = {:?}", mask, value);
                         self.plain.set(dst, Some(value));
@@ -256,7 +256,7 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
                             let mask = masks.next().unwrap();
                             #[cfg(feature = "trace")]
                             println!("  mask = {:?}, value = {:?}", mask, correct);
-                            assert_eq!(correct, mask.reconstruct() + self.wires.get(dst));
+                            assert_eq!(correct, self.wires.get(dst) - mask.reconstruct());
                         }
                     }
                 }
@@ -337,7 +337,7 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
         }
 
         let mask: D::Sharing = masks.next().unwrap();
-        let wire = value + D::Sharing::reconstruct(&mask);
+        let wire = value + mask.reconstruct();
         self.wires.set(new_dst, wire);
         masked_witness.write(wire);
 
@@ -353,9 +353,9 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
         #[cfg(test)]
         #[cfg(debug_assertions)]
         {
-            assert_eq!(self.wires.get(new_dst) + mask.reconstruct(), value);
             #[cfg(feature = "trace")]
-            println!("  mask = {:?}, value = {:?}", mask, value);
+            println!("wire={:?},  mask = {:?}, value = {:?}", self.wires.get(new_dst), mask.reconstruct(), value);
+            assert_eq!(self.wires.get(new_dst) - mask.reconstruct(), value);
             self.plain.set(new_dst, Some(value));
         }
 
@@ -412,7 +412,7 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
                 let mask = _masks.next().unwrap();
                 #[cfg(feature = "trace")]
                 println!("  mask = {:?}, value = {:?}", mask, correct);
-                assert_eq!(correct, mask.reconstruct() + self.wires.get(dst));
+                assert_eq!(correct, self.wires.get(dst) - mask.reconstruct());
             }
         }
     }
@@ -432,14 +432,15 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
         let a_m: D::Sharing = masks.next().unwrap();
         let b_m: D::Sharing = masks.next().unwrap();
         let ab_gamma: D::Sharing = ab_gamma.next().unwrap();
-        let recon = a_m.action(b_w) + b_m.action(a_w) + ab_gamma;
+        let recon = a_m.action(b_w) + b_m.action(a_w) - ab_gamma;
 
         // reconstruct
         // println!("broadcast prover: {:?}", recon);
         broadcast.write(recon);
 
         // corrected wire
-        let c_w = recon.reconstruct() + a_w * b_w;
+        let min_one = D::Scalar::ZERO - D::Scalar::ONE;
+        let c_w = min_one * (recon.reconstruct() - a_w * b_w);
 
         // reconstruct and correct share
         self.wires.set(dst, c_w);
@@ -469,7 +470,7 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
                 let mask = masks.next().unwrap();
                 #[cfg(feature = "trace")]
                 println!("  mask = {:?}, value = {:?}", mask, correct);
-                assert_eq!(correct, mask.reconstruct() + self.wires.get(dst));
+                assert_eq!(correct, self.wires.get(dst) - mask.reconstruct());
             }
         }
     }
@@ -508,7 +509,7 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
         let recon: D::Sharing = masks.next().unwrap();
         // println!("broadcast prover: {:?}", recon);
         broadcast.write(recon);
-        output.0.write(self.wires.get(src) + recon.reconstruct());
+        output.0.write(self.wires.get(src) - recon.reconstruct());
         output.1.write(original_src);
 
         #[cfg(feature = "trace")]
@@ -527,7 +528,7 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
         {
             let value: D::Scalar = self.plain.get(src).unwrap();
             assert_eq!(
-                self.wires.get(src) + recon.reconstruct(),
+                self.wires.get(src) - recon.reconstruct(),
                 value,
                 "wire-index: {}, wire-value: {:?} recon: {:?}, value: {:?}",
                 src,
@@ -573,7 +574,7 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
                 let mask = _masks.next().unwrap();
                 #[cfg(feature = "trace")]
                 println!("  mask = {:?}, value = {:?}", mask, correct);
-                assert_eq!(correct, mask.reconstruct() + self.wires.get(dst));
+                assert_eq!(correct, self.wires.get(dst) - mask.reconstruct());
             }
         }
     }

@@ -120,31 +120,31 @@ mod tests {
                 branches1.clone(),
                 branches2.clone(),
             );
-        let proof = task::block_on(fieldswitching::online::Proof::<Gf2P8, Z64P8>::new(
-            None,
-            conn_program.clone(),
-            program1.clone(),
-            program2.clone(),
-            input.clone(),
-            branch_index,
-            pp_output,
-        ));
-
-        let pp_output = task::block_on(preprocessed_proof.verify(
-            conn_program.clone(),
-            program1.clone(),
-            program2.clone(),
-            branches1.clone(),
-            branches2.clone(),
-        ));
-        assert!(pp_output.is_ok());
-        let _verifier_output = task::block_on(proof.verify(
-            None,
-            conn_program.clone(),
-            program1.clone(),
-            program2.clone(),
-        ))
-            .unwrap();
+        // let proof = task::block_on(fieldswitching::online::Proof::<Gf2P8, Z64P8>::new(
+        //     None,
+        //     conn_program.clone(),
+        //     program1.clone(),
+        //     program2.clone(),
+        //     input.clone(),
+        //     branch_index,
+        //     pp_output,
+        // ));
+        //
+        // let pp_output = task::block_on(preprocessed_proof.verify(
+        //     conn_program.clone(),
+        //     program1.clone(),
+        //     program2.clone(),
+        //     branches1.clone(),
+        //     branches2.clone(),
+        // ));
+        // assert!(pp_output.is_ok());
+        // let _verifier_output = task::block_on(proof.verify(
+        //     None,
+        //     conn_program.clone(),
+        //     program1.clone(),
+        //     program2.clone(),
+        // ))
+        //     .unwrap();
         // assert_eq!(verifier_output, output);
     }
 

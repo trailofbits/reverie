@@ -62,19 +62,29 @@ impl<D: Domain, D2: Domain> PartialSharesGenerator<D, D2> {
     }
 }
 
-pub fn convert_bit_domain<D: Domain, D2: Domain>(input: D::Batch) -> Result<D2::Batch, String> {
-    debug_assert_eq!(D::Batch::DIMENSION, D2::Batch::DIMENSION);
+pub fn convert_bit_domain<D: Domain, D2: Domain>(input: D::Batch) -> Result<Vec<D2::Batch>, String> {
+    debug_assert!(D::Batch::DIMENSION >= D2::Batch::DIMENSION);
+    let mut outs = Vec::new();
     let mut out = D2::Batch::ZERO;
+    let mut j = 0;
     for i in 0..D::Batch::DIMENSION {
-        if input.get(i) == D::Scalar::ONE {
-            out.set(i, D2::Scalar::ONE);
-        } else if input.get(i) == D::Scalar::ZERO {
-            out.set(i, D2::Scalar::ZERO);
+        let input_bit = input.get(i);
+        if input_bit == D::Scalar::ONE {
+            out.set(j, D2::Scalar::ONE);
+        } else if input_bit == D::Scalar::ZERO {
+            out.set(j, D2::Scalar::ZERO);
         } else {
             return Err("Only to convert 0 or 1".parse().unwrap());
         }
+        j += 1;
+        if j == D2::Batch::DIMENSION {
+            outs.push(out);
+            out = D2::Batch::ZERO;
+            j = 0;
+        }
     }
-    Ok(out)
+
+    Ok(outs)
 }
 
 pub fn convert_bit<D: Domain, D2: Domain>(input: D::Scalar) -> D2::Scalar {
@@ -103,39 +113,38 @@ mod tests {
 
         assert_eq!(
             BitBatch::ONE,
-            convert_bit_domain::<Gf2P8, Gf2P64>(one).unwrap()
+            convert_bit_domain::<Gf2P8, Gf2P64>(one).unwrap()[0]
         );
         assert_eq!(
             BitBatch::ZERO,
-            convert_bit_domain::<Gf2P8, Gf2P64>(zero).unwrap()
+            convert_bit_domain::<Gf2P8, Gf2P64>(zero).unwrap()[0]
         );
         assert_eq!(
             BitBatch::ZERO,
-            convert_bit_domain::<Gf2P8, Gf2P64>(two).unwrap()
+            convert_bit_domain::<Gf2P8, Gf2P64>(two).unwrap()[0]
         );
         assert!(convert_bit_domain::<Gf2P8, Gf2P64>(batch).is_ok());
     }
 
     #[test]
-    #[ignore]
     pub fn test_convert_actual_domain() {
         let one = BitBatch::ONE;
         let zero = BitBatch::ZERO;
         let two = one + one; // = zero in binary
         let batch = BitBatch::gen(&mut thread_rng());
 
-        // assert_eq!(
-        //     vec![Batch::ONE; BitBatch::DIMENSION],
-        //     convert_bit_domain::<GF2P8, Z64P8>(one).unwrap()
-        // );
-        // assert_eq!(
-        //     vec![Batch::ZERO; BitBatch::DIMENSION],
-        //     convert_bit_domain::<GF2P8, Z64P8>(zero).unwrap()
-        // );
-        // assert_eq!(
-        //     vec![Batch::ONE + Batch::ONE; BitBatch::DIMENSION],
-        //     convert_bit_domain::<GF2P8, Z64P8>(two).unwrap()
-        // );
+        assert_eq!(
+            vec![Batch::ONE; BitBatch::DIMENSION],
+            convert_bit_domain::<Gf2P8, Z64P8>(one).unwrap()
+        );
+        assert_eq!(
+            vec![Batch::ZERO; BitBatch::DIMENSION],
+            convert_bit_domain::<Gf2P8, Z64P8>(zero).unwrap()
+        );
+        assert_eq!(
+            vec![Batch::ZERO; BitBatch::DIMENSION],
+            convert_bit_domain::<Gf2P8, Z64P8>(two).unwrap()
+        );
         assert!(convert_bit_domain::<Gf2P8, Z64P8>(batch).is_ok());
     }
 }

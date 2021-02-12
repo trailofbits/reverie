@@ -430,7 +430,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
             // println!("broadcast verifier: {:?}", recon);
             transcript.write(recon);
 
-            output.write(wires.get(src) + recon.reconstruct());
+            output.write(wires.get(src) - recon.reconstruct());
 
             #[cfg(feature = "trace")]
             {
@@ -453,12 +453,13 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
             let b_m: D::Sharing = masks.next().unwrap();
             let ab_gamma: D::Sharing = ab_gamma.next().unwrap();
             let omit_msg: D::Sharing = broadcast.next().unwrap();
-            let recon = a_m.action(b_w) + b_m.action(a_w) + ab_gamma + omit_msg;
+            let recon = a_m.action(b_w) + b_m.action(a_w) - ab_gamma + omit_msg;
             // println!("broadcast verifier: {:?}", recon);
             transcript.write(recon);
 
             // corrected wire
-            let c_w = recon.reconstruct() + a_w * b_w;
+            let min_one = D::Scalar::ZERO - D::Scalar::ONE;
+            let c_w = min_one * (recon.reconstruct() - a_w * b_w);
 
             // reconstruct and correct share
             wires.set(wire_nrs.0, c_w);

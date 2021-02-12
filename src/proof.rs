@@ -282,6 +282,7 @@ mod tests {
 
     use rand::thread_rng;
     use rand::Rng;
+    use crate::algebra::z64::Z64P8;
 
     #[derive(Debug, Clone)]
     struct TestVector<D: Domain> {
@@ -761,6 +762,30 @@ mod tests {
         for _ in 0..10 {
             let (program, input, branches, branch_index, output) = random_instance::<Gf2P64_85>();
             let proof = ProofGf2P64_85::new(
+                None,
+                program.clone(),
+                branches.clone(),
+                input,
+                branch_index,
+                (vec![], vec![]),
+            );
+            let verifier_output = proof
+                .verify(None, program, branches, (vec![], vec![]))
+                .unwrap();
+            assert_eq!(verifier_output, output);
+        }
+    }
+
+    // This test takes a while.
+    // Running the prover in debug build is very slow.
+    #[test]
+    fn test_random_proof_z64p8() {
+        for _ in 0..10 {
+            let (program, input, branches, branch_index, output) = random_instance::<Z64P8>();
+            println!("program: {:?}", program);
+            println!("input: {:?}", input);
+            println!("output: {:?}", output);
+            let proof = Proof::<Z64P8>::new(
                 None,
                 program.clone(),
                 branches.clone(),

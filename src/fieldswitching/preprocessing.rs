@@ -371,7 +371,7 @@ impl<D: Domain, D2: Domain> PreprocessingExecution<D, D2> {
         for i in 0..D2::PLAYERS {
             let corr = D2::Batch::gen(&mut self.corrections_prg[i]);
             for j in 0..len {
-                eda[j] = eda[j] + convert_bit_domain::<D, D2>(batch_eda[j][i]).unwrap();
+                eda[j] = eda[j] + convert_bit_domain::<D, D2>(batch_eda[j][i]).unwrap()[0];
                 self.scratch2[j][i] = self.scratch2[j][i] + batch_eda[j][i];
             }
             eda_out = eda_out + corr;
