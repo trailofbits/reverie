@@ -470,11 +470,11 @@ impl<D: Domain> PreprocessingExecution<D> {
             ab_gamma,
             batch_a,
             batch_b,
-            (inputs.0[0], inputs.1[0], inputs.2),
+            (inputs.0[0], inputs.1[0], start_new_wires_mut),
         );
         output_bits.push(output_bit);
         for i in 1..inputs.0.len() {
-            start_new_wires_mut += carry_out;
+            start_new_wires_mut = carry_out + 1;
             let (output_bit1, carry_out1) = self.adder(
                 corrections,
                 masks,

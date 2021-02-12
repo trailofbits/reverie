@@ -667,11 +667,11 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
             masks,
             start_input1[0],
             start_input2[0],
-            start_new_wires,
+            start_new_wires_mut,
         );
         output_bits.push(output_bit);
         for i in 1..start_input1.len() {
-            start_new_wires_mut += carry_out;
+            start_new_wires_mut = carry_out + 1;
             let (output_bit1, carry_out1) = self.adder(
                 broadcast,
                 ab_gamma,
@@ -1040,11 +1040,6 @@ impl<D: Domain> StreamingProver<D> {
                                 (&mut Vec::new(), &mut Vec::new()),
                             );
                         }
-
-                        debug_assert_eq!(
-                            masked.len(),
-                            witness.len() + fieldswitching_io.0.len() + fieldswitching_io.1.len()
-                        );
 
                         // serialize the chunk
 

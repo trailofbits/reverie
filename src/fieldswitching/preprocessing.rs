@@ -45,6 +45,9 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
         branches1: Vec<Vec<D::Scalar>>,
         branches2: Vec<Vec<D2::Scalar>>,
     ) -> (Self, PreprocessingOutput<D, D2>) {
+        assert_eq!(D::PREPROCESSING_REPETITIONS, D2::PREPROCESSING_REPETITIONS);
+        assert_eq!(D::ONLINE_REPETITIONS, D2::ONLINE_REPETITIONS);
+        assert_eq!(D::PLAYERS, D2::PLAYERS);
         // pick global random seed
         let mut root_seed: [u8; KEY_SIZE] = [0; KEY_SIZE];
         OsRng.fill_bytes(&mut root_seed);
@@ -371,6 +374,7 @@ impl<D: Domain, D2: Domain> PreprocessingExecution<D, D2> {
         for i in 0..D2::PLAYERS {
             let corr = D2::Batch::gen(&mut self.corrections_prg[i]);
             for j in 0..len {
+                //TODO: Fix batching to be more optimal
                 eda[j] = eda[j] + convert_bit_domain::<D, D2>(batch_eda[j][i]).unwrap()[0];
                 self.scratch2[j][i] = self.scratch2[j][i] + batch_eda[j][i];
             }

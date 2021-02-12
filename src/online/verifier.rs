@@ -602,11 +602,11 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                 masks,
                 ab_gamma,
                 broadcast,
-                (inputs.0[0], inputs.1[0], inputs.2),
+                (inputs.0[0], inputs.1[0], start_new_wires_mut),
             );
             output_bits.push(output_bit);
             for i in 1..inputs.0.len() {
-                start_new_wires_mut += carry_out;
+                start_new_wires_mut = carry_out + 1;
                 let (output_bit1, carry_out1) = adder(
                     wires,
                     transcript,

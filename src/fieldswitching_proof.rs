@@ -80,7 +80,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_mini_proof_gf2p8_z64() {
         let mut rng = thread_rng();
 
@@ -108,9 +107,6 @@ mod tests {
             &branches1[branch_index][..],
             &branches2[branch_index][..],
         );
-        println!("input: {:?}", input);
-        println!("output: {:?}", output);
-        // assert_eq!(input, output);
 
         let (preprocessed_proof, pp_output) =
             fieldswitching::preprocessing::Proof::<Gf2P8, Z64P8>::new(
@@ -120,32 +116,32 @@ mod tests {
                 branches1.clone(),
                 branches2.clone(),
             );
-        // let proof = task::block_on(fieldswitching::online::Proof::<Gf2P8, Z64P8>::new(
-        //     None,
-        //     conn_program.clone(),
-        //     program1.clone(),
-        //     program2.clone(),
-        //     input.clone(),
-        //     branch_index,
-        //     pp_output,
-        // ));
-        //
-        // let pp_output = task::block_on(preprocessed_proof.verify(
-        //     conn_program.clone(),
-        //     program1.clone(),
-        //     program2.clone(),
-        //     branches1.clone(),
-        //     branches2.clone(),
-        // ));
-        // assert!(pp_output.is_ok());
-        // let _verifier_output = task::block_on(proof.verify(
-        //     None,
-        //     conn_program.clone(),
-        //     program1.clone(),
-        //     program2.clone(),
-        // ))
-        //     .unwrap();
-        // assert_eq!(verifier_output, output);
+        let proof = task::block_on(fieldswitching::online::Proof::<Gf2P8, Z64P8>::new(
+            None,
+            conn_program.clone(),
+            program1.clone(),
+            program2.clone(),
+            input.clone(),
+            branch_index,
+            pp_output,
+        ));
+
+        let pp_output = task::block_on(preprocessed_proof.verify(
+            conn_program.clone(),
+            program1.clone(),
+            program2.clone(),
+            branches1.clone(),
+            branches2.clone(),
+        ));
+        assert!(pp_output.is_ok());
+        let verifier_output = task::block_on(proof.verify(
+            None,
+            conn_program.clone(),
+            program1.clone(),
+            program2.clone(),
+        ))
+            .unwrap();
+        assert_eq!(verifier_output, output);
     }
 
     #[test]
@@ -265,11 +261,11 @@ mod tests {
         let mut start_new_wires_mut = start_new_wires.clone();
 
         let (mut output_bit, mut carry_out, mut add) =
-            first_adder(start_input1[0], start_input2[0], start_new_wires);
+            first_adder(start_input1[0], start_input2[0], start_new_wires_mut);
         output.append(&mut add);
         output_bits.push(output_bit);
         for i in 1..start_input1.len() {
-            start_new_wires_mut += carry_out;
+            start_new_wires_mut = carry_out + 1;
             let (output_bit1, carry_out1, mut add1) = adder(
                 start_input1[i],
                 start_input2[i],

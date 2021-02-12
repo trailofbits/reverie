@@ -383,11 +383,11 @@ impl<D: Domain> PreprocessingExecution<D> {
             batch_b,
             start_input1[0],
             start_input2[0],
-            start_new_wires,
+            start_new_wires_mut,
         );
         output_bits.push(output_bit);
         for i in 1..start_input1.len() {
-            start_new_wires_mut += carry_out;
+            start_new_wires_mut = carry_out + 1;
             let (output_bit1, carry_out1) = self.adder(
                 batch_a,
                 batch_b,
