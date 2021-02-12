@@ -58,7 +58,7 @@ impl RingModule<Scalar> for Batch {
         debug_assert_eq!(i, 0);
         Scalar(self.0)
     }
-    
+
     fn set(&mut self, i: usize, s: Scalar) {
         debug_assert_eq!(i, 0);
         self.0 = s.0;
@@ -95,7 +95,7 @@ impl Packable for Batch {
         if bytes.len() % 8 != 0 {
             return Err(());
         }
-        
+
         for chunk in bytes.chunks(8) {
             let batch = u64::from_le_bytes(chunk.try_into().unwrap());
             dst.write(Batch(batch));

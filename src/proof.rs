@@ -280,9 +280,9 @@ mod tests {
     use crate::algebra::gf2_vec85::Gf2P64_85;
     use crate::tests::*;
 
+    use crate::algebra::z64::Z64P8;
     use rand::thread_rng;
     use rand::Rng;
-    use crate::algebra::z64::Z64P8;
 
     #[derive(Debug, Clone)]
     struct TestVector<D: Domain> {
@@ -315,7 +315,7 @@ mod tests {
         let branch_index = rng.gen::<usize>() % num_branches;
 
         let (_wires, output) =
-            evaluate_program::<D>(&program[..], &input[..], &branches[branch_index][..]);
+            evaluate_program::<D>(&program[..], &input[..], &branches[branch_index][..], None);
 
         (program, input, branches, branch_index, output)
     }
@@ -670,6 +670,7 @@ mod tests {
                 &test.program[..],
                 &test.input[..],
                 &test.branches[test.branch_index][..],
+                None,
             );
             let proof = ProofGf2P8::new(
                 None,

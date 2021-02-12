@@ -3,9 +3,9 @@ use crate::util::VecMap;
 use crate::{ConnectionInstruction, Instruction};
 
 use crate::algebra::gf2::{BitScalar, Gf2P8};
+use crate::algebra::z64::{Scalar, Z64P8};
 use rand::RngCore;
 use rand::{thread_rng, Rng};
-use crate::algebra::z64::{Scalar, Z64P8};
 
 pub fn random_scalar<D: Domain, R: RngCore>(rng: &mut R) -> D::Scalar {
     let mut share = vec![D::Sharing::ZERO; D::Batch::DIMENSION];
@@ -28,6 +28,7 @@ pub fn evaluate_program<D: Domain>(
     program: &[Instruction<D::Scalar>],
     inputs: &[D::Scalar],
     branch: &[D::Scalar],
+    challenge: Option<(usize, D::Scalar)>,
 ) -> (Vec<usize>, Vec<D::Scalar>) {
     let mut wires = VecMap::new();
     let mut output = Vec::new();
@@ -54,7 +55,11 @@ pub fn evaluate_program<D: Domain>(
                 wires.set(dst, wires.get(src1) * wires.get(src2));
             }
             Instruction::Const(dst, c) => {
-                wires.set(dst, c);
+                if challenge.is_some() && challenge.unwrap().0 == dst {
+                    wires.set(dst, challenge.unwrap().1);
+                } else {
+                    wires.set(dst, c);
+                }
             }
             Instruction::AddConst(dst, src, c) => {
                 wires.set(dst, wires.get(src) + c);
@@ -81,7 +86,7 @@ pub fn evaluate_fieldswitching_btoa_program<D: Domain, D2: Domain>(
     branch1: &[D::Scalar],
     branch2: &[D2::Scalar],
 ) -> Vec<D2::Scalar> {
-    let (out_wires, output1) = evaluate_program::<D>(program1, inputs, branch1);
+    let (out_wires, output1) = evaluate_program::<D>(program1, inputs, branch1, None);
 
     let mut wires1 = Vec::new();
 
@@ -102,27 +107,12 @@ pub fn evaluate_fieldswitching_btoa_program<D: Domain, D2: Domain>(
                 // wires1.set(dst, input);
                 wires1.push(input);
             }
-            ConnectionInstruction::AToB(_dst, _src) => {
-                // let mut output = output1[src].clone();
-                // let mut pow_two = D::Scalar::ONE;
-                // let two = D::Scalar::ONE + D::Scalar::ONE;
-                // while output < pow_two {
-                //     pow_two = two * pow_two;
-                // }
-                // for _dst in dst {
-                //     pow_two = pow_two / two;
-                //     if pow_two < output {
-                //         output = output - pow_two;
-                //         wires2.set(_dst, D2::Scalar::ONE);
-                //     } else {
-                //         wires2.set(_dst, D2::Scalar::ZERO);
-                //     }
-                // }
-            }
+            ConnectionInstruction::AToB(_dst, _src) => {}
+            ConnectionInstruction::Challenge(_dst) => {}
         }
     }
 
-    let (_wires, output2) = evaluate_program::<D2>(program2, &wires1[..], branch2);
+    let (_wires, output2) = evaluate_program::<D2>(program2, &wires1[..], branch2, None);
 
     output2
 }
@@ -305,7 +295,7 @@ pub fn connection_program_64() -> Vec<ConnectionInstruction> {
 
     let mut src: [usize; 64] = [0; 64];
     for i in 64..128 {
-        src[i-64] = i;
+        src[i - 64] = i;
     }
 
     program.push(ConnectionInstruction::BToA(0, src));
@@ -318,10 +308,11 @@ pub fn mini_arith_program_64() -> Vec<Instruction<Scalar>> {
     program.push(Instruction::NrOfWires(3));
     program.push(Instruction::Input(0));
 
-    let min_one = Scalar::ZERO - Scalar::ONE;
-    program.push(Instruction::MulConst(1, 0, min_one));
-    program.push(Instruction::Add(2, 0, 1));
+    let two = Scalar::ONE + Scalar::ONE;
+    program.push(Instruction::MulConst(1, 0, two));
+    program.push(Instruction::Add(2, 0, 0));
 
+    program.push(Instruction::Output(1));
     program.push(Instruction::Output(2));
 
     program

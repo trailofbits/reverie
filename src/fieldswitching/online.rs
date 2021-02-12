@@ -1,7 +1,9 @@
 use crate::algebra::{Domain, Packable, RingElement};
-use crate::consts::CONTEXT_ORACLE_ONLINE;
+use crate::consts::{CONTEXT_ORACLE_INPUT, CONTEXT_ORACLE_ONLINE};
 use crate::crypto::{Hash, MerkleSetProof, TreePrf};
-use crate::fieldswitching::preprocessing::{FsPreprocessingRun, PartialPreprocessingExecution, PreprocessingExecution, Output};
+use crate::fieldswitching::preprocessing::{
+    FsPreprocessingRun, PartialPreprocessingExecution, PreprocessingExecution,
+};
 use crate::fieldswitching::util::{convert_bit, FullProgram};
 use crate::online::{StreamingProver, StreamingVerifier};
 use crate::oracle::RandomOracle;
@@ -9,6 +11,7 @@ use crate::{fieldswitching, online, preprocessing, ConnectionInstruction, Instru
 use async_channel::{bounded, Receiver};
 use async_std::sync::Arc;
 use async_std::task;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::iter::Cloned;
 use std::marker::PhantomData;
@@ -73,11 +76,18 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
                     (vec![], run.fieldswitching_output.clone()),
                     (run.eda_bits.clone(), vec![]),
                     vec![run1],
+                    None,
                 )
                 .await;
             oracle_inputs.append(&mut _oracle_inputs);
+            let mut outs = Vec::new();
+            for bit in run.eda_bits {
+                outs.push(bit[0]);
+            }
+            // println!("eda_bits: {:?}\n output1: {:?}", outs, output1.0.clone());
 
             let mut input2 = Vec::new();
+            let mut challenge = None;
             for gate in program.0 {
                 match gate {
                     ConnectionInstruction::BToA(_dst, src) => {
@@ -95,8 +105,20 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
                         input2.push(next);
                     }
                     ConnectionInstruction::AToB(_dst, _src) => {}
+                    ConnectionInstruction::Challenge(dst) => {
+                        let mut oracle = RandomOracle::new(CONTEXT_ORACLE_INPUT, None);
+                        for feed in oracle_inputs.clone() {
+                            oracle.feed(&feed);
+                        }
+                        let cha_bytes: [u8; 8] = oracle.clone().query().gen::<[u8; 8]>();
+                        let mut cha: Vec<D2::Scalar> = Vec::new();
+                        Packable::unpack(&mut cha, &cha_bytes).unwrap();
+                        challenge = Some((dst, cha[0]));
+                    }
                 }
             }
+            // println!("input: {:?}", input2);
+            // println!("eda_composed: {:?}", run.eda_composed[0].reconstruct());
 
             let run2 = pp_output2.hidden[run_index].clone();
             let (branch_2, masked_branches_2, _output2, mut _oracle_inputs) =
@@ -108,6 +130,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
                     (run.fieldswitching_input.clone(), vec![]),
                     (vec![], run.eda_composed.clone()),
                     vec![run2],
+                    challenge,
                 )
                 .await;
             oracle_inputs.append(&mut _oracle_inputs);
@@ -309,12 +332,14 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
                 Ok(_) => (),
                 Err(e) => return Err(format!("{:?}", e)),
             };
-            execution.process(
-                &program.0[..],
-                &corrections[..],
-                &mut eda_bits,
-                &mut eda_composed,
-            );
+            let challenge_gate = execution
+                .process(
+                    &program.0[..],
+                    &corrections[..],
+                    &mut eda_bits,
+                    &mut eda_composed,
+                )
+                .unwrap();
 
             let (fieldswitching_input, fieldswitching_output) =
                 PreprocessingExecution::<D, D2>::get_fs_input_output(&program.0[..]);
@@ -323,18 +348,43 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
                 online::StreamingVerifier::new(program.1.iter().cloned(), proof1.clone());
             let run1 = verifier1.proof.runs[run_index].clone();
             let (mut oracle_feed1, omitted1, _result1) = match verifier1
-                .do_verify_round_1(&mut recv1, (vec![], fieldswitching_output), vec![run1])
+                .do_verify_round_1(
+                    &mut recv1,
+                    (vec![], fieldswitching_output),
+                    vec![run1],
+                    None,
+                )
                 .await
             {
                 Ok(out) => out,
                 Err(e) => return Err(e),
             };
 
+            let mut challenge = None;
+            if challenge_gate.is_some() {
+                let mut oracle = RandomOracle::new(CONTEXT_ORACLE_INPUT, None);
+                for feed in oracle_feed1.clone() {
+                    oracle.feed(&feed);
+                }
+                let cha_bytes: [u8; 8] = oracle.query().gen::<[u8; 8]>();
+                let mut cha: Vec<D2::Scalar> = Vec::new();
+                Packable::unpack(&mut cha, &cha_bytes).unwrap();
+                challenge = match challenge_gate {
+                    Some(ConnectionInstruction::Challenge(dst)) => Some((dst, cha[0])),
+                    _ => None,
+                }
+            }
+
             let verifier2 =
                 online::StreamingVerifier::new(program.2.iter().cloned(), proof2.clone());
             let run2 = verifier2.proof.runs[run_index].clone();
             let (mut oracle_feed2, omitted2, result2) = match verifier2
-                .do_verify_round_1(&mut recv2, (fieldswitching_input, vec![]), vec![run2])
+                .do_verify_round_1(
+                    &mut recv2,
+                    (fieldswitching_input, vec![]),
+                    vec![run2],
+                    challenge,
+                )
                 .await
             {
                 Ok(out) => out,
@@ -407,7 +457,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
         let mut omitted2 = Vec::new();
         let mut output = Vec::new();
         let mut oracle = RandomOracle::new(CONTEXT_ORACLE_ONLINE, bind.as_ref().map(|x| &x[..]));
-        let mut start = true;
+        // let mut start = true;
         for t in tasks {
             let result = t.await;
             if result.is_err() {
@@ -416,11 +466,11 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             let (oracle_feed, mut _omitted1, mut _omitted2, _result, _commitment) = result.unwrap();
             omitted1.append(&mut _omitted1);
             omitted2.append(&mut _omitted2);
-            if !start && output != _result {
-                return Err(String::from("results are inconsistent between rounds"));
-            } else {
-                start = false;
-            }
+            // if !start && output != _result {
+            //     return Err(String::from("results are inconsistent between rounds"));
+            // } else {
+            //     start = false;
+            // }
             output = _result;
 
             for feed in oracle_feed {

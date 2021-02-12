@@ -57,6 +57,7 @@ pub enum Instruction<E: RingElement> {
 pub enum ConnectionInstruction {
     BToA(usize, [usize; 64]), // Change field from GF(2) to GF(2^k) //TODO(gvl): make more flexible, max size of arithmetic ring is now 64 bits
     AToB([usize; 64], usize), // Change field from GF(2^k) to GF(2) //TODO(gvl): make more flexible, max size of arithmetic ring is now 64 bits
+    Challenge(usize),         // Input a challenge on a wire
 }
 
 type Instructions<D> = Vec<Instruction<<D as algebra::Domain>::Scalar>>;

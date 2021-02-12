@@ -20,7 +20,7 @@ impl Add for Sharing8 {
         for (res_share, self_share, other_share) in izip!(&mut res, &self.0, &other.0) {
             *res_share = MaybeUninit::new(u64::wrapping_add(*self_share, *other_share));
         }
-        Self(unsafe { mem::transmute(res) }) 
+        Self(unsafe { mem::transmute(res) })
     }
 }
 
@@ -33,7 +33,7 @@ impl Sub for Sharing8 {
         for (res_share, self_share, other_share) in izip!(&mut res, &self.0, &other.0) {
             *res_share = MaybeUninit::new(u64::wrapping_sub(*self_share, *other_share));
         }
-        Self(unsafe { mem::transmute(res) }) 
+        Self(unsafe { mem::transmute(res) })
     }
 }
 
@@ -46,7 +46,7 @@ impl Mul for Sharing8 {
         for (res_share, self_share, other_share) in izip!(&mut res, &self.0, &other.0) {
             *res_share = MaybeUninit::new(u64::wrapping_mul(*self_share, *other_share));
         }
-        Self(unsafe { mem::transmute(res) }) 
+        Self(unsafe { mem::transmute(res) })
     }
 }
 
@@ -82,7 +82,7 @@ impl Serializable for Sharing8 {
     fn serialize<W: io::Write>(&self, w: &mut W) -> io::Result<()> {
         for elem in self.0.iter() {
             w.write_all(&elem.to_le_bytes())?;
-        }   
+        }
         Ok(())
     }
 }

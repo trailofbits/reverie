@@ -21,7 +21,7 @@ impl Domain for Z64P8 {
         for i in 0..Self::PLAYERS {
             shares[i] = src[i].0;
         }
-        unsafe { *dst.get_unchecked_mut(0) = Sharing8(shares)};
+        unsafe { *dst.get_unchecked_mut(0) = Sharing8(shares) };
     }
 
     fn convert_inv(dst: &mut [Self::Batch], src: &[Self::Sharing]) {
@@ -33,7 +33,7 @@ impl Domain for Z64P8 {
 
         let sharing = src[0].0;
         for (i, share) in sharing.iter().enumerate() {
-            unsafe { *dst.get_unchecked_mut(i) = Batch(*share)};
+            unsafe { *dst.get_unchecked_mut(i) = Batch(*share) };
         }
     }
 }
@@ -57,7 +57,7 @@ mod test {
                 Batch::gen(&mut rng),
                 Batch::gen(&mut rng),
                 Batch::gen(&mut rng),
-                Batch::gen(&mut rng),    
+                Batch::gen(&mut rng),
             ];
 
             let mut shares = [Sharing8::ZERO; 1];
@@ -70,7 +70,7 @@ mod test {
         }
     }
 
-    // test round trip serialization 
+    // test round trip serialization
     #[test]
     fn test_pack_batch() {
         let mut rng = thread_rng();
@@ -83,7 +83,7 @@ mod test {
                 Batch::gen(&mut rng),
                 Batch::gen(&mut rng),
                 Batch::gen(&mut rng),
-                Batch::gen(&mut rng),    
+                Batch::gen(&mut rng),
             ];
 
             let mut serialized: Vec<u8> = vec![];
@@ -98,4 +98,3 @@ mod test {
         }
     }
 }
-

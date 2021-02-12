@@ -2,7 +2,7 @@ use super::util::PartialSharesGenerator;
 
 use crate::algebra::{Domain, LocalOperation, RingElement, RingModule, Samplable};
 use crate::consts::CONTEXT_RNG_CORRECTION;
-use crate::crypto::{hash, kdf, Hash, Hasher, RingHasher, TreePrf, KEY_SIZE, Prg};
+use crate::crypto::{hash, kdf, Hash, Hasher, Prg, RingHasher, TreePrf, KEY_SIZE};
 use crate::fieldswitching::util::FieldSwitchingIo;
 use crate::util::{VecMap, Writer};
 use crate::Instruction;
@@ -148,9 +148,9 @@ impl<D: Domain> PreprocessingExecution<D> {
     pub fn process(
         &mut self,
         program: (&[Instruction<D::Scalar>], usize), // program slice + nr_of_wires
-        corrections: &[D::Batch],           // player 0 corrections
-        masks: &mut Vec<D::Sharing>,        // resulting sharings consumed by online phase
-        ab_gamma: &mut Vec<D::Sharing>,     // a * b + \gamma sharings for online phase
+        corrections: &[D::Batch],                    // player 0 corrections
+        masks: &mut Vec<D::Sharing>,                 // resulting sharings consumed by online phase
+        ab_gamma: &mut Vec<D::Sharing>,              // a * b + \gamma sharings for online phase
         fieldswitching_io: FieldSwitchingIo,
     ) -> Option<()> {
         let fieldswitching_input = fieldswitching_io.0;
@@ -287,8 +287,14 @@ impl<D: Domain> PreprocessingExecution<D> {
                         }
                     }
                     if found {
-                        if !fieldswitching_output_done.contains(&src) {
-                            fieldswitching_output_done.append(&mut out_list.clone());
+                        fieldswitching_output_done.push(src);
+                        let mut contains_all = true;
+                        for item in out_list.clone() {
+                            if !fieldswitching_output_done.contains(&item) {
+                                contains_all = false;
+                            }
+                        }
+                        if contains_all {
                             let mut zeroes = Vec::new();
                             for _i in 0..out_list.len() {
                                 // check if need for new batch of input masks

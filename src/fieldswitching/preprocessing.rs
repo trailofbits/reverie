@@ -1,6 +1,6 @@
 use crate::algebra::{Domain, RingElement, RingModule, Samplable};
 use crate::consts::{BATCH_SIZE, CONTEXT_ORACLE_PREPROCESSING, CONTEXT_RNG_CORRECTION};
-use crate::crypto::{hash, kdf, Hash, Hasher, RingHasher, TreePrf, KEY_SIZE, Prg};
+use crate::crypto::{hash, kdf, Hash, Hasher, Prg, RingHasher, TreePrf, KEY_SIZE};
 use crate::fieldswitching::util::{convert_bit_domain, PartialSharesGenerator, SharesGenerator};
 use crate::oracle::RandomOracle;
 use crate::util::Writer;
@@ -354,10 +354,10 @@ impl<D: Domain, D2: Domain> PreprocessingExecution<D, D2> {
         eda_composed: &mut Vec<D2::Sharing>,
         corrections: &mut CW, // player 0 corrections
         batch_eda: &mut Vec<Vec<D::Batch>>,
-        len: usize,
     ) {
         debug_assert_eq!(self.eda_composed_shares.len(), D2::Batch::DIMENSION);
         debug_assert!(self.shares.eda_2.is_empty());
+        let len = D2::NR_OF_BITS;
 
         // transpose sharings into per player batches
         batch_eda.resize(len, vec![D::Batch::ZERO; D::Sharing::DIMENSION]);
@@ -366,16 +366,13 @@ impl<D: Domain, D2: Domain> PreprocessingExecution<D, D2> {
         }
         self.eda_bits_shares.clear();
 
-        // generate 3 batches of shares for every player
-        let mut eda = vec![D2::Batch::ZERO; len];
+        let mut eda = vec![D::Batch::ZERO; len];
         let mut eda_out = D2::Batch::ZERO;
 
-        // compute random c sharing and reconstruct a,b sharings
         for i in 0..D2::PLAYERS {
             let corr = D2::Batch::gen(&mut self.corrections_prg[i]);
             for j in 0..len {
-                //TODO: Fix batching to be more optimal
-                eda[j] = eda[j] + convert_bit_domain::<D, D2>(batch_eda[j][i]).unwrap()[0];
+                eda[j] = eda[j] + batch_eda[j][i];
                 self.scratch2[j][i] = self.scratch2[j][i] + batch_eda[j][i];
             }
             eda_out = eda_out + corr;
@@ -385,10 +382,11 @@ impl<D: Domain, D2: Domain> PreprocessingExecution<D, D2> {
         let two = D2::Batch::ONE + D2::Batch::ONE;
         let mut pow_two = D2::Batch::ONE;
         let mut arith = D2::Batch::ZERO;
-        for eda_b in eda {
-            arith = arith + pow_two * eda_b;
+        for eda_b in eda.iter().cloned() {
+            arith = arith + pow_two * convert_bit_domain::<D, D2>(eda_b).unwrap()[0];
             pow_two = pow_two * two;
         }
+        // println!("arith: {:?}", arith);
         // correct shares for player 0 (correction bits)
         let delta = arith - eda_out;
 
@@ -398,6 +396,26 @@ impl<D: Domain, D2: Domain> PreprocessingExecution<D, D2> {
 
         // correct eda (in parallel)
         self.scratch[0] = self.scratch[0] + delta;
+
+        #[cfg(test)]
+        {
+            // let mut eda_comp = D2::Batch::ZERO;
+            let mut recon = D2::Batch::ZERO;
+            for i in 0..D::PLAYERS {
+                // eda_comp = eda_comp + self.shares.eda.batches()[i];
+                recon = recon + self.scratch[i];
+            }
+            let mut arith = D2::Batch::ZERO;
+            let mut pow_two = D2::Batch::ONE;
+            for eda_b in eda.iter().cloned() {
+                let x = convert_bit_domain::<D, D2>(eda_b).unwrap()[0];
+                // println!("x: {:?}", x);
+                arith = arith + pow_two * x;
+                pow_two = pow_two * two;
+            }
+            // println!("eda: {:?}", eda);
+            assert_eq!(arith, recon);
+        }
 
         // transpose into shares
         if eda_bits.len() != len {
@@ -428,6 +446,7 @@ impl<D: Domain, D2: Domain> PreprocessingExecution<D, D2> {
                     fieldswitching_input.push(*dst);
                 }
                 ConnectionInstruction::AToB(_dst, _src) => {}
+                ConnectionInstruction::Challenge(_dst) => {}
             }
         }
 
@@ -447,8 +466,10 @@ impl<D: Domain, D2: Domain> PreprocessingExecution<D, D2> {
         for gate in conn_program {
             match gate {
                 ConnectionInstruction::BToA(_dst, _src) => {
-                    self.eda_composed_shares
-                        .resize(self.eda_composed_shares.len() + 1, D2::Sharing::ZERO); //TODO(gvl): better scaling
+                    self.eda_composed_shares.resize(
+                        self.eda_composed_shares.len() + D2::Batch::DIMENSION,
+                        D2::Sharing::ZERO,
+                    );
                     self.eda_bits_shares
                         .resize(m, Vec::with_capacity(D::Batch::DIMENSION));
                     // push the input masks to the deferred eda stack
@@ -458,20 +479,17 @@ impl<D: Domain, D2: Domain> PreprocessingExecution<D, D2> {
                     }
 
                     // assign mask to output
-                    self.eda_composed_shares.push(self.shares.eda.next());
+                    for _i in 0..D2::Batch::DIMENSION {
+                        self.eda_composed_shares.push(self.shares.eda.next());
+                    }
 
                     // if the batch is full, generate next batch of edaBits shares
                     if self.eda_composed_shares.len() == D2::Batch::DIMENSION {
-                        self.generate(
-                            eda_bits,
-                            eda_composed,
-                            corrections,
-                            &mut batch_eda,
-                            m,
-                        );
+                        self.generate(eda_bits, eda_composed, corrections, &mut batch_eda);
                     }
                 }
                 ConnectionInstruction::AToB(_dst, _src) => {}
+                ConnectionInstruction::Challenge(_dst) => {}
             }
         }
 
@@ -483,7 +501,7 @@ impl<D: Domain, D2: Domain> PreprocessingExecution<D, D2> {
                 self.eda_bits_shares[i].resize(D::Batch::DIMENSION, D::Sharing::ZERO);
             }
             self.shares.eda_2.empty();
-            self.generate(eda_bits, eda_composed, corrections, &mut batch_eda, m);
+            self.generate(eda_bits, eda_composed, corrections, &mut batch_eda);
         }
     }
 
@@ -590,7 +608,6 @@ impl<D: Domain, D2: Domain> PartialPreprocessingExecution<D, D2> {
         }
         self.eda_bits_shares.clear();
 
-        // compute random c sharing and reconstruct a,b sharings
         for i in 0..D2::PLAYERS {
             self.scratch[i] = D2::Batch::gen(&mut self.corrections_prg[i]);
 
@@ -624,7 +641,8 @@ impl<D: Domain, D2: Domain> PartialPreprocessingExecution<D, D2> {
         corrections: &[D2::Batch],           // player 0 corrections
         eda_bits: &mut Vec<Vec<D::Sharing>>, // eda bits in boolean form
         eda_composed: &mut Vec<D2::Sharing>, // eda bits composed in arithmetic form
-    ) -> Option<()> {
+    ) -> Option<Option<ConnectionInstruction>> {
+        let mut out = None;
         let mut corrections = corrections.iter().cloned();
 
         let m = D2::NR_OF_BITS;
@@ -648,16 +666,13 @@ impl<D: Domain, D2: Domain> PartialPreprocessingExecution<D, D2> {
 
                     // if the batch is full, generate next batch of edaBits shares
                     if self.eda_composed_shares.len() == D2::Batch::DIMENSION {
-                        self.generate(
-                            eda_bits,
-                            eda_composed,
-                            &mut corrections,
-                            &mut batch_eda,
-                            m,
-                        );
+                        self.generate(eda_bits, eda_composed, &mut corrections, &mut batch_eda, m);
                     }
                 }
                 ConnectionInstruction::AToB(_dst, _src) => {}
+                ConnectionInstruction::Challenge(dst) => {
+                    out = Some(ConnectionInstruction::Challenge(*dst));
+                }
             }
         }
 
@@ -669,9 +684,14 @@ impl<D: Domain, D2: Domain> PartialPreprocessingExecution<D, D2> {
                 self.eda_bits_shares[i].resize(D::Batch::DIMENSION, D::Sharing::ZERO);
             }
             self.shares.eda_2.empty();
-            self.generate(eda_bits, eda_composed, &mut corrections, &mut batch_eda, m)
+            let option = self.generate(eda_bits, eda_composed, &mut corrections, &mut batch_eda, m);
+            if option.is_some() {
+                Some(out)
+            } else {
+                None
+            }
         } else {
-            Some(())
+            Some(out)
         }
     }
 

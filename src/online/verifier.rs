@@ -144,7 +144,8 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
         if runs.len() != D::ONLINE_REPETITIONS {
             return Err(String::from("Failed to complete all online repetitions"));
         }
-        self.do_verify_round_1(proof, fieldswitching_io, runs).await
+        self.do_verify_round_1(proof, fieldswitching_io, runs, None)
+            .await
     }
 
     pub(crate) async fn do_verify_round_1(
@@ -152,6 +153,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
         proof: &mut Receiver<Vec<u8>>,
         fieldswitching_io: FieldSwitchingIo,
         runs: Vec<OnlineRun<D>>,
+        challenge: Option<(usize, D::Scalar)>,
     ) -> Result<(Vec<[u8; 32]>, Vec<usize>, Output<D>), String> {
         async fn process<D: Domain>(
             run: OnlineRun<D>,
@@ -161,6 +163,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                 Vec<u8>,              // next chunk
             )>,
             fieldswitching_io: FieldSwitchingIo,
+            challenge: Option<(usize, D::Scalar)>,
         ) -> Option<(Hash, Hash, usize, Vec<D::Scalar>)> {
             let mut wires = VecMap::new();
             let mut transcript: RingHasher<_> = RingHasher::new();
@@ -279,7 +282,11 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                                     }
                                     Instruction::Const(dst, c) => {
                                         assert_ne!(nr_of_wires, 0);
-                                        wires.set(dst, c);
+                                        if challenge.is_some() && challenge.unwrap().0 == dst {
+                                            wires.set(dst, challenge.unwrap().1);
+                                        } else {
+                                            wires.set(dst, c);
+                                        }
                                     }
                                     Instruction::AddConst(dst, src, c) => {
                                         assert_ne!(nr_of_wires, 0);
@@ -318,11 +325,17 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                                             }
                                         }
                                         if found {
-                                            if !fieldswitching_output_done.contains(&src) {
-                                                fieldswitching_output_done
-                                                    .append(&mut out_list.clone());
+                                            fieldswitching_output_done.push(src);
+                                            let mut contains_all = true;
+                                            for item in out_list.clone() {
+                                                if !fieldswitching_output_done.contains(&item) {
+                                                    contains_all = false;
+                                                }
+                                            }
+                                            if contains_all {
                                                 let mut zeroes = Vec::new();
                                                 for _i in 0..out_list.len() {
+                                                    zeroes.push(nr_of_wires);
                                                     nr_of_wires = process_input::<D>(
                                                         fieldswitching_input.clone(),
                                                         &mut wires,
@@ -330,7 +343,6 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                                                         nr_of_wires,
                                                         nr_of_wires,
                                                     );
-                                                    zeroes.push(nr_of_wires);
                                                     nr_of_wires += 1;
                                                 }
                                                 let (outs, carry_out) = full_adder(
@@ -635,6 +647,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                 sender_outputs,
                 reader_inputs,
                 fieldswitching_io.clone(),
+                challenge.clone(),
             )));
             inputs.push(sender_inputs);
             outputs.push(reader_outputs);

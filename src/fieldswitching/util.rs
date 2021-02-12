@@ -1,6 +1,6 @@
 use crate::algebra::{Domain, RingElement, RingModule};
 use crate::consts::{CONTEXT_RNG_EDA, CONTEXT_RNG_EDA_2};
-use crate::crypto::{kdf, KEY_SIZE, Prg};
+use crate::crypto::{kdf, Prg, KEY_SIZE};
 use crate::preprocessing::util::{PartialShareGenerator, ShareGenerator};
 use crate::{ConnectionInstruction, Instruction};
 use std::sync::Arc;
@@ -62,7 +62,9 @@ impl<D: Domain, D2: Domain> PartialSharesGenerator<D, D2> {
     }
 }
 
-pub fn convert_bit_domain<D: Domain, D2: Domain>(input: D::Batch) -> Result<Vec<D2::Batch>, String> {
+pub fn convert_bit_domain<D: Domain, D2: Domain>(
+    input: D::Batch,
+) -> Result<Vec<D2::Batch>, String> {
     debug_assert!(D::Batch::DIMENSION >= D2::Batch::DIMENSION);
     let mut outs = Vec::new();
     let mut out = D2::Batch::ZERO;
@@ -100,9 +102,9 @@ mod tests {
     use rand::thread_rng;
 
     use crate::algebra::gf2::{BitBatch, Gf2P64, Gf2P8};
-    use crate::algebra::{RingElement, Samplable, RingModule};
+    use crate::algebra::z64::{Batch, Z64P8};
+    use crate::algebra::{RingElement, RingModule, Samplable};
     use crate::fieldswitching::util::convert_bit_domain;
-    use crate::algebra::z64::{Z64P8, Batch};
 
     #[test]
     pub fn test_convert_domain() {

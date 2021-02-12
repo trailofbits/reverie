@@ -10,8 +10,8 @@ mod tests {
     use rand::thread_rng;
     use rand::Rng;
 
+    use crate::algebra::z64::{Scalar, Z64P8};
     use async_std::task;
-    use crate::algebra::z64::{Z64P8, Scalar};
 
     #[test]
     fn test_mini_proof_gf2p8() {
@@ -80,6 +80,105 @@ mod tests {
     }
 
     #[test]
+    fn test_evaluate_gf2p8_z64() {
+        let mut rng = thread_rng();
+
+        let conn_program = connection_program_64();
+        let mut program1: Vec<Instruction<BitScalar>> = Vec::new();
+        program1.push(Instruction::NrOfWires(128));
+        for i in 0..64 {
+            program1.push(Instruction::Input(i));
+            program1.push(Instruction::AddConst(i + 64, i, BitScalar::ZERO));
+            program1.push(Instruction::Output(i + 64));
+        }
+        let program2 = vec![Instruction::Input(0), Instruction::Output(0)];
+
+        let num_branch = 0;
+        let num_branches = 1 + rng.gen::<usize>() % 32;
+        let mut branches1: Vec<Vec<BitScalar>> = Vec::with_capacity(num_branches);
+        for _ in 0..num_branches {
+            branches1.push(random_scalars::<Gf2P8, _>(&mut rng, num_branch));
+        }
+        let mut branches2: Vec<Vec<Scalar>> = Vec::with_capacity(num_branches);
+        for _ in 0..num_branches {
+            branches2.push(random_scalars::<Z64P8, _>(&mut rng, num_branch));
+        }
+        let branch_index = rng.gen::<usize>() % num_branches;
+
+        let input = vec![BitScalar::ZERO; 64];
+        let output = evaluate_fieldswitching_btoa_program::<Gf2P8, Z64P8>(
+            &conn_program[..],
+            &program1[..],
+            &program2[..],
+            &input[..],
+            &branches1[branch_index][..],
+            &branches2[branch_index][..],
+        );
+        assert_eq!(output[0], Scalar::ZERO);
+
+        let input = vec![BitScalar::ONE; 64];
+        let output = evaluate_fieldswitching_btoa_program::<Gf2P8, Z64P8>(
+            &conn_program[..],
+            &program1[..],
+            &program2[..],
+            &input[..],
+            &branches1[branch_index][..],
+            &branches2[branch_index][..],
+        );
+        assert_eq!(output[0], Scalar::ZERO - Scalar::ONE);
+
+        let mut input = vec![BitScalar::ZERO; 64];
+        input[0] = BitScalar::ONE;
+        let output = evaluate_fieldswitching_btoa_program::<Gf2P8, Z64P8>(
+            &conn_program[..],
+            &program1[..],
+            &program2[..],
+            &input[..],
+            &branches1[branch_index][..],
+            &branches2[branch_index][..],
+        );
+        assert_eq!(output[0], Scalar::ONE);
+
+        let mut input = vec![BitScalar::ZERO; 64];
+        input[2] = BitScalar::ONE;
+        let output = evaluate_fieldswitching_btoa_program::<Gf2P8, Z64P8>(
+            &conn_program[..],
+            &program1[..],
+            &program2[..],
+            &input[..],
+            &branches1[branch_index][..],
+            &branches2[branch_index][..],
+        );
+        let four = Scalar::ONE + Scalar::ONE + Scalar::ONE + Scalar::ONE;
+        assert_eq!(output[0], four);
+
+        let mut input = vec![BitScalar::ZERO; 64];
+        input[3] = BitScalar::ONE;
+        let output = evaluate_fieldswitching_btoa_program::<Gf2P8, Z64P8>(
+            &conn_program[..],
+            &program1[..],
+            &program2[..],
+            &input[..],
+            &branches1[branch_index][..],
+            &branches2[branch_index][..],
+        );
+        assert_eq!(output[0], four + four);
+
+        let mut input = vec![BitScalar::ZERO; 64];
+        input[3] = BitScalar::ONE;
+        input[0] = BitScalar::ONE;
+        let output = evaluate_fieldswitching_btoa_program::<Gf2P8, Z64P8>(
+            &conn_program[..],
+            &program1[..],
+            &program2[..],
+            &input[..],
+            &branches1[branch_index][..],
+            &branches2[branch_index][..],
+        );
+        assert_eq!(output[0], four + four + Scalar::ONE);
+    }
+
+    #[test]
     fn test_mini_proof_gf2p8_z64() {
         let mut rng = thread_rng();
 
@@ -107,6 +206,8 @@ mod tests {
             &branches1[branch_index][..],
             &branches2[branch_index][..],
         );
+        // println!("output: {:?}", output);
+        assert_eq!(output[0], output[1]);
 
         let (preprocessed_proof, pp_output) =
             fieldswitching::preprocessing::Proof::<Gf2P8, Z64P8>::new(
@@ -140,8 +241,9 @@ mod tests {
             program1.clone(),
             program2.clone(),
         ))
-            .unwrap();
+        .unwrap();
         assert_eq!(verifier_output, output);
+        assert_eq!(verifier_output[0], verifier_output[1]);
     }
 
     #[test]
@@ -313,6 +415,7 @@ mod tests {
                 BitScalar::ZERO,
             ],
             &[],
+            None,
         );
         assert_eq!(
             &output[..],
@@ -337,6 +440,7 @@ mod tests {
                 BitScalar::ZERO,
             ],
             &[],
+            None,
         );
         assert_eq!(
             &output[..],
@@ -361,6 +465,7 @@ mod tests {
                 BitScalar::ONE,
             ],
             &[],
+            None,
         );
         assert_eq!(
             &output[..],
@@ -385,6 +490,7 @@ mod tests {
                 BitScalar::ZERO,
             ],
             &[],
+            None,
         );
         assert_eq!(
             &output[..],
@@ -409,6 +515,7 @@ mod tests {
                 BitScalar::ONE,
             ],
             &[],
+            None,
         );
         assert_eq!(
             &output[..],
@@ -437,48 +544,56 @@ mod tests {
             &add[..],
             &[BitScalar::ZERO, BitScalar::ZERO, BitScalar::ZERO],
             &[],
+            None,
         );
         assert_eq!(&output[..], &[BitScalar::ZERO, BitScalar::ZERO]);
         let (_wires, output) = evaluate_program::<Gf2P8>(
             &add[..],
             &[BitScalar::ZERO, BitScalar::ZERO, BitScalar::ONE],
             &[],
+            None,
         );
         assert_eq!(&output[..], &[BitScalar::ONE, BitScalar::ZERO]);
         let (_wires, output) = evaluate_program::<Gf2P8>(
             &add[..],
             &[BitScalar::ZERO, BitScalar::ONE, BitScalar::ZERO],
             &[],
+            None,
         );
         assert_eq!(&output[..], &[BitScalar::ONE, BitScalar::ZERO]);
         let (_wires, output) = evaluate_program::<Gf2P8>(
             &add[..],
             &[BitScalar::ZERO, BitScalar::ONE, BitScalar::ONE],
             &[],
+            None,
         );
         assert_eq!(&output[..], &[BitScalar::ZERO, BitScalar::ONE]);
         let (_wires, output) = evaluate_program::<Gf2P8>(
             &add[..],
             &[BitScalar::ONE, BitScalar::ZERO, BitScalar::ZERO],
             &[],
+            None,
         );
         assert_eq!(&output[..], &[BitScalar::ONE, BitScalar::ZERO]);
         let (_wires, output) = evaluate_program::<Gf2P8>(
             &add[..],
             &[BitScalar::ONE, BitScalar::ZERO, BitScalar::ONE],
             &[],
+            None,
         );
         assert_eq!(&output[..], &[BitScalar::ZERO, BitScalar::ONE]);
         let (_wires, output) = evaluate_program::<Gf2P8>(
             &add[..],
             &[BitScalar::ONE, BitScalar::ONE, BitScalar::ZERO],
             &[],
+            None,
         );
         assert_eq!(&output[..], &[BitScalar::ZERO, BitScalar::ONE]);
         let (_wires, output) = evaluate_program::<Gf2P8>(
             &add[..],
             &[BitScalar::ONE, BitScalar::ONE, BitScalar::ONE],
             &[],
+            None,
         );
         assert_eq!(&output[..], &[BitScalar::ONE, BitScalar::ONE]);
     }

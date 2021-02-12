@@ -2,7 +2,7 @@ use super::util::SharesGenerator;
 
 use crate::algebra::{Domain, LocalOperation, RingElement, RingModule, Samplable};
 use crate::consts::{CONTEXT_RNG_BRANCH_MASK, CONTEXT_RNG_BRANCH_PERMUTE, CONTEXT_RNG_CORRECTION};
-use crate::crypto::{hash, kdf, Hash, Hasher, MerkleSet, RingHasher, TreePrf, KEY_SIZE, Prg};
+use crate::crypto::{hash, kdf, Hash, Hasher, MerkleSet, Prg, RingHasher, TreePrf, KEY_SIZE};
 use crate::util::{VecMap, Writer};
 use crate::Instruction;
 
@@ -230,8 +230,14 @@ impl<D: Domain> PreprocessingExecution<D> {
                             break;
                         }
                     }
-                    if found && !fieldswitching_output_done.contains(&src) {
-                        fieldswitching_output_done.append(&mut out_list.clone());
+                    fieldswitching_output_done.push(src);
+                    let mut contains_all = true;
+                    for item in out_list.clone() {
+                        if !fieldswitching_output_done.contains(&item) {
+                            contains_all = false;
+                        }
+                    }
+                    if found && contains_all {
                         let mut zeroes = Vec::new();
                         for _i in 0..out_list.len() {
                             self.masks.set(nr_of_wires, self.shares.input.next());

@@ -26,7 +26,11 @@ type PreprocessedValues<'a, D> = (
     &'a [Vec<<D as Domain>::Sharing>],
     &'a [<D as Domain>::Sharing],
 );
-type ProgramWitnessNrOfWires<'a, D> = (&'a[Instruction<<D as Domain>::Scalar>], &'a[<D as Domain>::Scalar], usize);
+type ProgramWitnessNrOfWires<'a, D> = (
+    &'a [Instruction<<D as Domain>::Scalar>],
+    &'a [<D as Domain>::Scalar],
+    usize,
+);
 
 const DEFAULT_CAPACITY: usize = BATCH_SIZE;
 
@@ -147,6 +151,7 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
         masked_witness: &mut WW,
         broadcast: &mut BW,
         fieldswitching_io: FieldSwitchingIo,
+        challenge: Option<(usize, D::Scalar)>,
         mut output: (&mut Vec<D::Scalar>, &mut Vec<usize>),
     ) -> usize {
         // println!("prover eda_bits: {:?}", preprocessing_eda_bits);
@@ -220,7 +225,11 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
                 }
                 Instruction::Const(dst, c) => {
                     assert_ne!(nr_of_wires, 0);
-                    self.process_const(&mut masks, dst, c);
+                    if challenge.is_some() && challenge.unwrap().0 == dst {
+                        self.process_const(&mut masks, dst, challenge.unwrap().1);
+                    } else {
+                        self.process_const(&mut masks, dst, c);
+                    }
                 }
                 Instruction::AddConst(dst, src, c) => {
                     assert_ne!(nr_of_wires, 0);
@@ -281,11 +290,18 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
                         }
                     }
                     if found {
-                        if !fieldswitching_output_done.contains(&src) {
-                            fieldswitching_output_done.append(&mut out_list.clone());
+                        fieldswitching_output_done.push(src);
+                        let mut contains_all = true;
+                        for item in out_list.clone() {
+                            if !fieldswitching_output_done.contains(&item) {
+                                contains_all = false;
+                            }
+                        }
+                        if contains_all {
                             let mut zeroes = Vec::new();
                             for eda_bit in eda_bits.iter_mut() {
                                 let added = eda_bit.next().unwrap().reconstruct();
+                                zeroes.push(nr_of_wires);
                                 nr_of_wires = self.process_input(
                                     masked_witness,
                                     fieldswitching_input.clone(),
@@ -294,7 +310,6 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
                                     &mut masks,
                                     (nr_of_wires, nr_of_wires),
                                 );
-                                zeroes.push(nr_of_wires);
                                 nr_of_wires += 1;
                             }
                             let (outputs, carry_out) = self.full_adder(
@@ -307,7 +322,13 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
                             );
                             nr_of_wires = carry_out;
                             for (outs, original) in outputs.iter().cloned().zip(out_list.clone()) {
-                                self.process_output(broadcast, &mut masks, &mut output, outs, original);
+                                self.process_output(
+                                    broadcast,
+                                    &mut masks,
+                                    &mut output,
+                                    outs,
+                                    original,
+                                );
                             }
                         }
                     } else {
@@ -354,7 +375,12 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
         #[cfg(debug_assertions)]
         {
             #[cfg(feature = "trace")]
-            println!("wire={:?},  mask = {:?}, value = {:?}", self.wires.get(new_dst), mask.reconstruct(), value);
+            println!(
+                "wire={:?},  mask = {:?}, value = {:?}",
+                self.wires.get(new_dst),
+                mask.reconstruct(),
+                value
+            );
             assert_eq!(self.wires.get(new_dst) - mask.reconstruct(), value);
             self.plain.set(new_dst, Some(value));
         }
@@ -661,7 +687,7 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
         let mut output_bits = Vec::new();
         let mut start_new_wires_mut = start_new_wires;
 
-        let (mut output_bit, mut carry_out) = self.first_adder(
+        let (output_bit, mut carry_out) = self.first_adder(
             broadcast,
             ab_gamma,
             masks,
@@ -672,7 +698,7 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
         output_bits.push(output_bit);
         for i in 1..start_input1.len() {
             start_new_wires_mut = carry_out + 1;
-            let (output_bit1, carry_out1) = self.adder(
+            let (output_bit, carry_out1) = self.adder(
                 broadcast,
                 ab_gamma,
                 masks,
@@ -683,7 +709,6 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
                     start_new_wires_mut,
                 ),
             );
-            output_bit = output_bit1;
             carry_out = carry_out1;
             output_bits.push(output_bit);
         }
@@ -756,6 +781,7 @@ impl<D: Domain> StreamingProver<D> {
             fieldswitching_io,
             eda,
             runs,
+            None,
         )
         .await
     }
@@ -771,6 +797,7 @@ impl<D: Domain> StreamingProver<D> {
         fieldswitching_io: FieldSwitchingIo,
         eda: Eda<D>,
         runs: Vec<preprocessing::PreprocessingRun>,
+        challenge: Option<(usize, D::Scalar)>,
     ) -> (
         Vec<D::Scalar>,
         Vec<(Vec<u8>, MerkleSetProof)>,
@@ -785,7 +812,9 @@ impl<D: Domain> StreamingProver<D> {
             io: (Sender<()>, Receiver<ProgWitSlice<D>>),
             fieldswitching_io: FieldSwitchingIo,
             eda: Eda<D>,
-        ) -> Result<(Vec<u8>, MerkleSetProof, Hash, (Vec<D::Scalar>, Vec<usize>)), SendError<Vec<u8>>> {
+            challenge: Option<(usize, D::Scalar)>,
+        ) -> Result<(Vec<u8>, MerkleSetProof, Hash, (Vec<D::Scalar>, Vec<usize>)), SendError<Vec<u8>>>
+        {
             // online execution
             let mut online = Prover::<D, _>::new(branch.iter().cloned());
 
@@ -829,6 +858,7 @@ impl<D: Domain> StreamingProver<D> {
                                 &mut VoidWriter::new(),
                                 &mut transcript,
                                 fieldswitching_io.clone(),
+                                challenge.clone(),
                                 (&mut output, &mut out_wires),
                             );
                         }
@@ -871,6 +901,7 @@ impl<D: Domain> StreamingProver<D> {
                 (send_outputs, recv_inputs),
                 fieldswitching_io.clone(),
                 eda.clone(),
+                challenge.clone(),
             )));
             inputs.push(send_inputs);
             outputs.push(recv_outputs);
@@ -1037,6 +1068,7 @@ impl<D: Domain> StreamingProver<D> {
                                 &mut masked,
                                 &mut BatchExtractor::<D, _>::new(omitted, &mut broadcast),
                                 fieldswitching_io.clone(),
+                                None,
                                 (&mut Vec::new(), &mut Vec::new()),
                             );
                         }
