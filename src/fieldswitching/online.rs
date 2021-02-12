@@ -91,7 +91,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
                                 break;
                             }
                             let index = output1.1.iter().position(|&x| x == _src).unwrap();
-                            next = next + convert_bit::<D, D2>(output1.0[index].clone()) * pow_two;
+                            next = next + convert_bit::<D, D2>(output1.0[index]) * pow_two;
                             pow_two = two * pow_two;
                         }
                         input2.push(next);
