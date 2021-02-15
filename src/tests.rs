@@ -55,8 +55,12 @@ pub fn evaluate_program<D: Domain>(
                 wires.set(dst, wires.get(src1) * wires.get(src2));
             }
             Instruction::Const(dst, c) => {
-                if challenge.is_some() && challenge.unwrap().0 == dst {
-                    wires.set(dst, challenge.unwrap().1);
+                if let Some(cha) = challenge {
+                    if cha.0 == dst {
+                        wires.set(dst, cha.1);
+                    } else {
+                        wires.set(dst, c);
+                    }
                 } else {
                     wires.set(dst, c);
                 }
@@ -275,7 +279,7 @@ pub fn test_evaluate_program_64() {
         &branches1[0][..],
         &branches2[0][..],
     );
-    assert_eq!(output, vec![Scalar::ZERO]);
+    assert_eq!(output[0], output[1]);
 }
 
 pub fn mini_bool_program_64() -> Vec<Instruction<BitScalar>> {

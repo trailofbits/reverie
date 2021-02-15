@@ -282,8 +282,12 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                                     }
                                     Instruction::Const(dst, c) => {
                                         assert_ne!(nr_of_wires, 0);
-                                        if challenge.is_some() && challenge.unwrap().0 == dst {
-                                            wires.set(dst, challenge.unwrap().1);
+                                        if let Some(cha) = challenge {
+                                            if cha.0 == dst {
+                                                wires.set(dst, cha.1);
+                                            } else {
+                                                wires.set(dst, c);
+                                            }
                                         } else {
                                             wires.set(dst, c);
                                         }
@@ -647,7 +651,7 @@ impl<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>> StreamingVerifier<D
                 sender_outputs,
                 reader_inputs,
                 fieldswitching_io.clone(),
-                challenge.clone(),
+                challenge,
             )));
             inputs.push(sender_inputs);
             outputs.push(reader_outputs);

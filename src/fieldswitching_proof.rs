@@ -4,7 +4,7 @@ mod tests {
     use crate::tests::*;
 
     use crate::algebra::*;
-    use crate::fieldswitching;
+    use crate::{fieldswitching, ConnectionInstruction};
     use crate::Instruction;
     use rand::rngs::ThreadRng;
     use rand::thread_rng;
@@ -75,7 +75,7 @@ mod tests {
             program1.clone(),
             program2.clone(),
         ))
-        .unwrap();
+            .unwrap();
         assert_eq!(verifier_output, output);
     }
 
@@ -91,7 +91,7 @@ mod tests {
             program1.push(Instruction::AddConst(i + 64, i, BitScalar::ZERO));
             program1.push(Instruction::Output(i + 64));
         }
-        let program2 = vec![Instruction::Input(0), Instruction::Output(0)];
+        let program2 = vec![Instruction::NrOfWires(1), Instruction::Input(0), Instruction::Output(0)];
 
         let num_branch = 0;
         let num_branches = 1 + rng.gen::<usize>() % 32;
@@ -241,7 +241,7 @@ mod tests {
             program1.clone(),
             program2.clone(),
         ))
-        .unwrap();
+            .unwrap();
         assert_eq!(verifier_output, output);
         assert_eq!(verifier_output[0], verifier_output[1]);
     }
@@ -276,6 +276,80 @@ mod tests {
             branches.clone(),
         ));
         assert!(proof_output.is_ok());
+    }
+
+    #[test]
+    fn test_proof_with_challenge() {
+        let mut rng = thread_rng();
+
+        let mut conn_program = connection_program_64();
+        conn_program.push(ConnectionInstruction::Challenge(1));
+        let mut program1: Vec<Instruction<BitScalar>> = Vec::new();
+        program1.push(Instruction::NrOfWires(128));
+        for i in 0..64 {
+            program1.push(Instruction::Input(i));
+            program1.push(Instruction::AddConst(i + 64, i, BitScalar::ZERO));
+            program1.push(Instruction::Output(i + 64));
+        }
+        let program2 = vec![Instruction::NrOfWires(2), Instruction::Input(0), Instruction::Const(1, Scalar::ONE), Instruction::Output(0), Instruction::Output(1)];
+
+        let input = random_scalars::<Gf2P8, ThreadRng>(&mut rng, 64);
+        let num_branch = 0;
+        let num_branches = 1 + rng.gen::<usize>() % 32;
+        let mut branches1: Vec<Vec<BitScalar>> = Vec::with_capacity(num_branches);
+        for _ in 0..num_branches {
+            branches1.push(random_scalars::<Gf2P8, _>(&mut rng, num_branch));
+        }
+        let mut branches2: Vec<Vec<Scalar>> = Vec::with_capacity(num_branches);
+        for _ in 0..num_branches {
+            branches2.push(random_scalars::<Z64P8, _>(&mut rng, num_branch));
+        }
+        let branch_index = rng.gen::<usize>() % num_branches;
+
+        let output = evaluate_fieldswitching_btoa_program::<Gf2P8, Z64P8>(
+            &conn_program[..],
+            &program1[..],
+            &program2[..],
+            &input[..],
+            &branches1[branch_index][..],
+            &branches2[branch_index][..],
+        );
+
+        let (preprocessed_proof, pp_output) =
+            fieldswitching::preprocessing::Proof::<Gf2P8, Z64P8>::new(
+                conn_program.clone(),
+                program1.clone(),
+                program2.clone(),
+                branches1.clone(),
+                branches2.clone(),
+            );
+        let proof = task::block_on(fieldswitching::online::Proof::<Gf2P8, Z64P8>::new(
+            None,
+            conn_program.clone(),
+            program1.clone(),
+            program2.clone(),
+            input.clone(),
+            branch_index,
+            pp_output,
+        ));
+
+        let pp_output = task::block_on(preprocessed_proof.verify(
+            conn_program.clone(),
+            program1.clone(),
+            program2.clone(),
+            branches1.clone(),
+            branches2.clone(),
+        ));
+        assert!(pp_output.is_ok());
+        let verifier_output = task::block_on(proof.verify(
+            None,
+            conn_program.clone(),
+            program1.clone(),
+            program2.clone(),
+        ))
+            .unwrap();
+        assert_eq!(verifier_output[0], output[0]);
+        assert_ne!(verifier_output[1], output[1]);
     }
 
     /// 1 bit adder with carry
