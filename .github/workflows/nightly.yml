@@ -28,7 +28,7 @@ jobs:
         run: cargo fmt
 
       - name: Lint
-        run: cargo clippy -- -D warnings
+        run: cargo clippy -- -D warnings -A clippy::upper-case-acronyms
 
       - name: Build
         run: cargo build
