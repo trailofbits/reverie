@@ -2,7 +2,7 @@ use super::util::PartialSharesGenerator;
 
 use crate::algebra::{Domain, LocalOperation, RingElement, RingModule, Samplable};
 use crate::consts::CONTEXT_RNG_CORRECTION;
-use crate::crypto::{hash, kdf, Hash, Hasher, RingHasher, TreePRF, KEY_SIZE, PRG};
+use crate::crypto::{hash, kdf, Hash, Hasher, RingHasher, TreePrf, KEY_SIZE, Prg};
 use crate::util::{VecMap, Writer};
 use crate::Instruction;
 
@@ -22,7 +22,7 @@ pub struct PreprocessingExecution<D: Domain> {
     scratch: Vec<D::Batch>,
 
     // Beaver multiplication state
-    corrections_prg: Vec<PRG>,
+    corrections_prg: Vec<Prg>,
     share_a: Vec<D::Sharing>, // beta sharings (from input)
     share_b: Vec<D::Sharing>, // alpha sharings (from input)
 }
@@ -57,7 +57,7 @@ impl<D: Domain> PreprocessingExecution<D> {
         hasher.finalize()
     }
 
-    pub fn new(tree: &TreePRF) -> Self {
+    pub fn new(tree: &TreePrf) -> Self {
         // expand repetition seed into per-player seeds
         let mut player_seeds: Vec<Option<[u8; KEY_SIZE]>> = vec![None; D::PLAYERS];
         tree.expand(&mut player_seeds);
@@ -82,7 +82,7 @@ impl<D: Domain> PreprocessingExecution<D> {
         // aggregate branch hashes into Merkle tree and return pre-processor for circuit
         let corrections_prg = player_seeds
             .iter()
-            .map(|seed| PRG::new(kdf(CONTEXT_RNG_CORRECTION, seed)))
+            .map(|seed| Prg::new(kdf(CONTEXT_RNG_CORRECTION, seed)))
             .collect();
 
         let shares = PartialSharesGenerator::new(&player_seeds[..], omitted);

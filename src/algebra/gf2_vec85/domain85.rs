@@ -6,9 +6,9 @@ use super::Domain;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
-pub struct GF2P64_85();
+pub struct Gf2P64_85();
 
-impl Domain for GF2P64_85 {
+impl Domain for Gf2P64_85 {
     const PLAYERS: usize = 64;
     const PREPROCESSING_REPETITIONS: usize = 1662;
     const ONLINE_REPETITIONS: usize = 44;

@@ -10,19 +10,19 @@ pub struct SharesGenerator<D: Domain> {
 
 impl<D: Domain> SharesGenerator<D> {
     pub fn new(player_seeds: &[[u8; KEY_SIZE]]) -> Self {
-        let input_prgs: Vec<PRG> = player_seeds
+        let input_prgs: Vec<Prg> = player_seeds
             .iter()
-            .map(|seed| PRG::new(kdf(CONTEXT_RNG_INPUT_MASK, seed)))
+            .map(|seed| Prg::new(kdf(CONTEXT_RNG_INPUT_MASK, seed)))
             .collect();
 
-        let branch_prgs: Vec<PRG> = player_seeds
+        let branch_prgs: Vec<Prg> = player_seeds
             .iter()
-            .map(|seed| PRG::new(kdf(CONTEXT_RNG_BRANCH_MASK, seed)))
+            .map(|seed| Prg::new(kdf(CONTEXT_RNG_BRANCH_MASK, seed)))
             .collect();
 
-        let beaver_prgs: Vec<PRG> = player_seeds
+        let beaver_prgs: Vec<Prg> = player_seeds
             .iter()
-            .map(|seed| PRG::new(kdf(CONTEXT_RNG_BEAVER, seed)))
+            .map(|seed| Prg::new(kdf(CONTEXT_RNG_BEAVER, seed)))
             .collect();
 
         Self {
@@ -41,19 +41,19 @@ pub struct PartialSharesGenerator<D: Domain> {
 
 impl<D: Domain> PartialSharesGenerator<D> {
     pub fn new(player_seeds: &[[u8; KEY_SIZE]], omit: usize) -> Self {
-        let input_prgs: Vec<PRG> = player_seeds
+        let input_prgs: Vec<Prg> = player_seeds
             .iter()
-            .map(|seed| PRG::new(kdf(CONTEXT_RNG_INPUT_MASK, seed)))
+            .map(|seed| Prg::new(kdf(CONTEXT_RNG_INPUT_MASK, seed)))
             .collect();
 
-        let branch_prgs: Vec<PRG> = player_seeds
+        let branch_prgs: Vec<Prg> = player_seeds
             .iter()
-            .map(|seed| PRG::new(kdf(CONTEXT_RNG_BRANCH_MASK, seed)))
+            .map(|seed| Prg::new(kdf(CONTEXT_RNG_BRANCH_MASK, seed)))
             .collect();
 
-        let beaver_prgs: Vec<PRG> = player_seeds
+        let beaver_prgs: Vec<Prg> = player_seeds
             .iter()
-            .map(|seed| PRG::new(kdf(CONTEXT_RNG_BEAVER, seed)))
+            .map(|seed| Prg::new(kdf(CONTEXT_RNG_BEAVER, seed)))
             .collect();
 
         Self {
@@ -68,11 +68,11 @@ pub struct ShareGenerator<D: Domain> {
     batches: Vec<D::Batch>,
     shares: Vec<D::Sharing>,
     next: usize,
-    prgs: Vec<PRG>,
+    prgs: Vec<Prg>,
 }
 
 impl<D: Domain> ShareGenerator<D> {
-    pub fn new(prgs: Vec<PRG>) -> Self {
+    pub fn new(prgs: Vec<Prg>) -> Self {
         debug_assert_eq!(prgs.len(), D::PLAYERS);
         ShareGenerator {
             batches: vec![D::Batch::ZERO; D::PLAYERS],
@@ -114,11 +114,11 @@ pub struct PartialShareGenerator<D: Domain> {
     shares: Vec<D::Sharing>,
     omit: usize,
     next: usize,
-    prgs: Vec<PRG>,
+    prgs: Vec<Prg>,
 }
 
 impl<D: Domain> PartialShareGenerator<D> {
-    pub fn new(prgs: Vec<PRG>, omit: usize) -> Self {
+    pub fn new(prgs: Vec<Prg>, omit: usize) -> Self {
         debug_assert_eq!(prgs.len(), D::PLAYERS);
         PartialShareGenerator {
             batches: vec![D::Batch::ZERO; D::PLAYERS],
