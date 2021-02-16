@@ -154,7 +154,7 @@ impl TreePrf {
     /// Does an in-order traversal on the tree to extract the first "leafs" nodes.
     pub fn expand(&self, dst: &mut [Option<[u8; KEY_SIZE]>]) {
         assert_eq!(dst.len(), self.size);
-        self.root.expand(&mut dst[..], num_levels(self.size));
+        self.root.expand(dst, num_levels(self.size));
     }
 
     pub fn expand_full(result: &mut [[u8; KEY_SIZE]], root: [u8; KEY_SIZE]) {

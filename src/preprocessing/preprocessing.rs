@@ -88,8 +88,8 @@ impl<D: Domain> PreprocessingExecution<D> {
         debug_assert!(self.shares.beaver.is_empty());
 
         // transpose sharings into per player batches
-        D::convert_inv(&mut batch_a[..], &self.share_a[..]);
-        D::convert_inv(&mut batch_b[..], &self.share_b[..]);
+        D::convert_inv(batch_a, &self.share_a[..]);
+        D::convert_inv(batch_b, &self.share_b[..]);
         self.share_a.clear();
         self.share_b.clear();
 
