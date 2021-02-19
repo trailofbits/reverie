@@ -4,8 +4,8 @@ mod tests {
     use crate::tests::*;
 
     use crate::algebra::*;
-    use crate::{fieldswitching, ConnectionInstruction};
     use crate::Instruction;
+    use crate::{fieldswitching, ConnectionInstruction};
     use rand::rngs::ThreadRng;
     use rand::thread_rng;
     use rand::Rng;
@@ -75,7 +75,7 @@ mod tests {
             program1.clone(),
             program2.clone(),
         ))
-            .unwrap();
+        .unwrap();
         assert_eq!(verifier_output, output);
     }
 
@@ -91,7 +91,11 @@ mod tests {
             program1.push(Instruction::AddConst(i + 64, i, BitScalar::ZERO));
             program1.push(Instruction::Output(i + 64));
         }
-        let program2 = vec![Instruction::NrOfWires(1), Instruction::Input(0), Instruction::Output(0)];
+        let program2 = vec![
+            Instruction::NrOfWires(1),
+            Instruction::Input(0),
+            Instruction::Output(0),
+        ];
 
         let num_branch = 0;
         let num_branches = 1 + rng.gen::<usize>() % 32;
@@ -241,7 +245,7 @@ mod tests {
             program1.clone(),
             program2.clone(),
         ))
-            .unwrap();
+        .unwrap();
         assert_eq!(verifier_output, output);
         assert_eq!(verifier_output[0], verifier_output[1]);
     }
@@ -291,7 +295,13 @@ mod tests {
             program1.push(Instruction::AddConst(i + 64, i, BitScalar::ZERO));
             program1.push(Instruction::Output(i + 64));
         }
-        let program2 = vec![Instruction::NrOfWires(2), Instruction::Input(0), Instruction::Const(1, Scalar::ONE), Instruction::Output(0), Instruction::Output(1)];
+        let program2 = vec![
+            Instruction::NrOfWires(2),
+            Instruction::Input(0),
+            Instruction::Const(1, Scalar::ONE),
+            Instruction::Output(0),
+            Instruction::Output(1),
+        ];
 
         let input = random_scalars::<Gf2P8, ThreadRng>(&mut rng, 64);
         let num_branch = 0;
@@ -347,7 +357,7 @@ mod tests {
             program1.clone(),
             program2.clone(),
         ))
-            .unwrap();
+        .unwrap();
         assert_eq!(verifier_output[0], output[0]);
         assert_ne!(verifier_output[1], output[1]);
     }
