@@ -235,26 +235,6 @@ impl<D: Domain, I: Iterator<Item=D::Scalar>> Prover<D, I> {
                         self.process_const(&mut masks, dst, c);
                     }
                 }
-                Instruction::Const(dst, c) => {
-                    self.wires.set(dst, c);
-
-                    #[cfg(feature = "trace")]
-                    {
-                        println!(
-                            "prover-addconst : Const({}, {:?}) ; wire = {:?}",
-                            dst,
-                            c,
-                            self.wires.get(dst),
-                        );
-                    }
-
-                    // evaluate the circuit in plain for testing
-                    #[cfg(test)]
-                    #[cfg(debug_assertions)]
-                    {
-                        self.plain.set(dst, Some(c));
-                    }
-                }
                 Instruction::AddConst(dst, src, c) => {
                     assert_ne!(nr_of_wires, 0);
                     self.process_add_const(&mut masks, dst, src, c);

@@ -231,10 +231,6 @@ impl<D: Domain> PreprocessingExecution<D> {
                     self.masks.set(dst, D::Sharing::ZERO);
                     // We don't need to mask constant inputs because the circuit is public
                 }
-                Instruction::Const(dst, _c) => {
-                    // We don't need to mask constant inputs because the circuit is public
-                    self.masks.set(dst, D::Sharing::ZERO);
-                }
                 Instruction::AddConst(dst, src, _c) => {
                     assert_ne!(
                         nr_of_wires, 0,
