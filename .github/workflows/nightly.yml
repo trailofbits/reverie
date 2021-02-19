@@ -25,7 +25,7 @@ jobs:
             components: rustfmt, clippy
 
       - name: Format
-        run: cargo fmt
+        run: cargo fmt -- --check
 
       - name: Lint
         run: cargo clippy -- -D warnings
