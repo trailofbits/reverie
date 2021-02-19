@@ -205,6 +205,26 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
                         self.plain.set(dst, Some(value));
                     }
                 }
+                Instruction::Const(dst, c) => {
+                    self.wires.set(dst, c);
+
+                    #[cfg(feature = "trace")]
+                    {
+                        println!(
+                            "prover-addconst : Const({}, {:?}) ; wire = {:?}",
+                            dst,
+                            c,
+                            self.wires.get(dst),
+                        );
+                    }
+
+                    // evaluate the circuit in plain for testing
+                    #[cfg(test)]
+                    #[cfg(debug_assertions)]
+                    {
+                        self.plain.set(dst, Some(c));
+                    }
+                }
                 Instruction::AddConst(dst, src, c) => {
                     let a_w = self.wires.get(src);
                     self.wires.set(dst, a_w + c);

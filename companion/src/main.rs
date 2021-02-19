@@ -46,15 +46,12 @@ fn write_vec<W: io::Write>(dst: &mut W, src: &[u8]) -> io::Result<()> {
 fn read_vec<R: io::Read>(src: &mut R) -> io::Result<Option<Vec<u8>>> {
     // obtain the length of the following vector
     let mut len = [0u8; 4];
-    match src.read_exact(&mut len) {
-        Err(err) => {
-            if let io::ErrorKind::UnexpectedEof = err.kind() {
-                return Ok(None);
-            } else {
-                return Err(err);
-            }
+    if let Err(err) = src.read_exact(&mut len) {
+        if let io::ErrorKind::UnexpectedEof = err.kind() {
+            return Ok(None);
+        } else {
+            return Err(err);
         }
-        _ => (),
     }
 
     // sanity check the length (un-trusted input)
@@ -65,15 +62,12 @@ fn read_vec<R: io::Read>(src: &mut R) -> io::Result<Option<Vec<u8>>> {
 
     // read the vector
     let mut vec = vec![0u8; len];
-    match src.read_exact(&mut vec[..]) {
-        Err(err) => {
-            if let io::ErrorKind::UnexpectedEof = err.kind() {
-                return Ok(None);
-            } else {
-                return Err(err);
-            }
+    if let Err(err) = src.read_exact(&mut vec[..]) {
+        if let io::ErrorKind::UnexpectedEof = err.kind() {
+            return Ok(None);
+        } else {
+            return Err(err);
         }
-        _ => (),
     }
     Ok(Some(vec))
 }
@@ -148,7 +142,7 @@ impl<E: Clone, P: Parser<E>> Iterator for FileStream<E, P> {
             FileStream::File(parser) => parser.next().unwrap(),
             FileStream::Memory(vec, n) => {
                 let res = vec.get(*n).cloned();
-                *n = *n + 1;
+                *n += 1;
                 res
             }
         }
