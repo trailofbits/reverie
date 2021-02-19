@@ -171,22 +171,22 @@ fn test_domain<D: Domain>() {
 
 #[test]
 fn test_gf2_p8() {
-    test_domain::<gf2::GF2P8>();
+    test_domain::<gf2::Gf2P8>();
 }
 
 #[test]
 fn test_gf2_p64() {
-    test_domain::<gf2::GF2P64>();
+    test_domain::<gf2::Gf2P64>();
 }
 
 #[test]
 fn test_gf2_p64_64() {
-    test_domain::<gf2_vec::GF2P64_64>();
+    test_domain::<gf2_vec::Gf2P64_64>();
 }
 
 #[test]
 fn test_gf2_p64_85() {
-    test_domain::<gf2_vec85::GF2P64_85>();
+    test_domain::<gf2_vec85::Gf2P64_85>();
 }
 
 #[test]
