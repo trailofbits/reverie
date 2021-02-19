@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 mod serialize;
 
 #[derive(Eq, PartialEq, Debug, Clone, Serialize, Deserialize)]
-pub struct TreePRF {
+pub struct TreePrf {
     size: usize,
     root: Node,
 }
@@ -29,7 +29,7 @@ const fn num_levels(n: usize) -> usize {
 
 // The length-doubling prng used for the PRF tree
 fn doubling_prg(key: [u8; KEY_SIZE]) -> ([u8; KEY_SIZE], [u8; KEY_SIZE]) {
-    let mut rng = PRG::new(key);
+    let mut rng = Prg::new(key);
     let mut left = [0u8; KEY_SIZE];
     let mut right = [0u8; KEY_SIZE];
     let _ = rng.fill_bytes(&mut left);
@@ -133,16 +133,16 @@ impl Node {
     }
 }
 
-impl TreePRF {
-    pub fn new(size: usize, key: [u8; KEY_SIZE]) -> TreePRF {
-        TreePRF {
+impl TreePrf {
+    pub fn new(size: usize, key: [u8; KEY_SIZE]) -> TreePrf {
+        TreePrf {
             size,
             root: Node::Leaf(key),
         }
     }
 
     /// Puncture the PRF at the provided index:
-    pub fn puncture(&self, idx: usize) -> TreePRF {
+    pub fn puncture(&self, idx: usize) -> TreePrf {
         assert!(idx < self.size);
         Self {
             size: self.size,
@@ -150,11 +150,11 @@ impl TreePRF {
         }
     }
 
-    /// Expand a TreePRF into an array of PRFs (one for every leaf).
+    /// Expand a TreePrf into an array of PRFs (one for every leaf).
     /// Does an in-order traversal on the tree to extract the first "leafs" nodes.
     pub fn expand(&self, dst: &mut [Option<[u8; KEY_SIZE]>]) {
         assert_eq!(dst.len(), self.size);
-        self.root.expand(&mut dst[..], num_levels(self.size));
+        self.root.expand(dst, num_levels(self.size));
     }
 
     pub fn expand_full(result: &mut [[u8; KEY_SIZE]], root: [u8; KEY_SIZE]) {
@@ -194,10 +194,10 @@ mod tests {
         let size = 324;
         let mut rng = rand::thread_rng();
         let seed: [u8; KEY_SIZE] = rng.gen();
-        let tree: TreePRF = TreePRF::new(size, seed);
+        let tree: TreePrf = TreePrf::new(size, seed);
         let mut results_full = vec![[0u8; KEY_SIZE]; size];
         let mut results = vec![None; size];
-        TreePRF::expand_full(&mut results_full, seed);
+        TreePrf::expand_full(&mut results_full, seed);
         tree.expand(&mut results);
         for (a, b) in results.iter().zip(results_full.iter()) {
             debug_assert_eq!(a.unwrap(), *b);
@@ -216,7 +216,7 @@ mod tests {
     fn rnd_puncture(size: usize) {
         // original tree
         let mut rng = rand::thread_rng();
-        let tree: TreePRF = TreePRF::new(size, rng.gen());
+        let tree: TreePrf = TreePrf::new(size, rng.gen());
 
         // generate punctured tree
         let mut p_tree = tree.clone();

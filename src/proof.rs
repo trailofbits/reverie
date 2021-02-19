@@ -16,13 +16,13 @@ use std::sync::Arc;
 
 const CHANNEL_CAPACITY: usize = 100;
 
-pub type ProofGF2P8 = Proof<gf2::GF2P8>;
+pub type ProofGf2P8 = Proof<gf2::Gf2P8>;
 
-pub type ProofGF2P64 = Proof<gf2::GF2P64>;
+pub type ProofGf2P64 = Proof<gf2::Gf2P64>;
 
-pub type ProofGF2P64_64 = Proof<gf2_vec::GF2P64_64>;
+pub type ProofGf2P64_64 = Proof<gf2_vec::Gf2P64_64>;
 
-pub type ProofGF2P64_85 = Proof<gf2_vec85::GF2P64_85>;
+pub type ProofGf2P64_85 = Proof<gf2_vec85::Gf2P64_85>;
 
 /// Simplified interface for in-memory proofs
 /// with pre-processing verified simultaneously with online execution.
@@ -235,8 +235,8 @@ impl<D: Domain> Proof<D> {
 mod tests {
     use super::*;
     use crate::algebra::gf2::*;
-    use crate::algebra::gf2_vec::GF2P64_64;
-    use crate::algebra::gf2_vec85::GF2P64_85;
+    use crate::algebra::gf2_vec::Gf2P64_64;
+    use crate::algebra::gf2_vec85::Gf2P64_85;
     use crate::tests::*;
 
     use rand::thread_rng;
@@ -279,7 +279,7 @@ mod tests {
 
     #[test]
     fn test_proof_gf2p8_regression() {
-        let test_vectors: Vec<TestVector<GF2P8>> = vec![
+        let test_vectors: Vec<TestVector<Gf2P8>> = vec![
             /*
             TestVector {
                 program: vec![
@@ -620,12 +620,12 @@ mod tests {
         ];
 
         for test in test_vectors.iter() {
-            let output = evaluate_program::<GF2P8>(
+            let output = evaluate_program::<Gf2P8>(
                 &test.program[..],
                 &test.input[..],
                 &test.branches[test.branch_index][..],
             );
-            let proof = ProofGF2P8::new(
+            let proof = ProofGf2P8::new(
                 None,
                 test.program.clone(),
                 test.branches.clone(),
@@ -644,9 +644,9 @@ mod tests {
     #[test]
     fn test_random_proof_gf2p8() {
         for _ in 0..10 {
-            let (program, input, branches, branch_index, output) = random_instance::<GF2P8>();
+            let (program, input, branches, branch_index, output) = random_instance::<Gf2P8>();
             let proof =
-                ProofGF2P8::new(None, program.clone(), branches.clone(), input, branch_index);
+                ProofGf2P8::new(None, program.clone(), branches.clone(), input, branch_index);
             let verifier_output = proof.verify(None, program, branches).unwrap();
             assert_eq!(verifier_output, output);
         }
@@ -657,9 +657,9 @@ mod tests {
     #[test]
     fn test_random_proof_gf2p64() {
         for _ in 0..10 {
-            let (program, input, branches, branch_index, output) = random_instance::<GF2P64>();
+            let (program, input, branches, branch_index, output) = random_instance::<Gf2P64>();
             let proof =
-                ProofGF2P64::new(None, program.clone(), branches.clone(), input, branch_index);
+                ProofGf2P64::new(None, program.clone(), branches.clone(), input, branch_index);
             let verifier_output = proof.verify(None, program, branches).unwrap();
             assert_eq!(verifier_output, output);
         }
@@ -670,9 +670,9 @@ mod tests {
     #[test]
     fn test_random_proof_gf2p64_64() {
         for _ in 0..10 {
-            let (program, input, branches, branch_index, output) = random_instance::<GF2P64_64>();
+            let (program, input, branches, branch_index, output) = random_instance::<Gf2P64_64>();
             let proof =
-                ProofGF2P64_64::new(None, program.clone(), branches.clone(), input, branch_index);
+                ProofGf2P64_64::new(None, program.clone(), branches.clone(), input, branch_index);
             let verifier_output = proof.verify(None, program, branches).unwrap();
             assert_eq!(verifier_output, output);
         }
@@ -683,9 +683,9 @@ mod tests {
     #[test]
     fn test_random_proof_gf2p64_85() {
         for _ in 0..10 {
-            let (program, input, branches, branch_index, output) = random_instance::<GF2P64_85>();
+            let (program, input, branches, branch_index, output) = random_instance::<Gf2P64_85>();
             let proof =
-                ProofGF2P64_85::new(None, program.clone(), branches.clone(), input, branch_index);
+                ProofGf2P64_85::new(None, program.clone(), branches.clone(), input, branch_index);
             let verifier_output = proof.verify(None, program, branches).unwrap();
             assert_eq!(verifier_output, output);
         }

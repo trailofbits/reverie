@@ -17,8 +17,8 @@ pub use scalar::BitScalar;
 pub use share64::BitSharing64;
 pub use share8::BitSharing8;
 
-pub use domain64::GF2P64;
-pub use domain8::GF2P8;
+pub use domain64::Gf2P64;
+pub use domain8::Gf2P8;
 
 use batch::BATCH_SIZE_BYTES;
 
