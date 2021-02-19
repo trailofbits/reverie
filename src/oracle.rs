@@ -1,4 +1,4 @@
-use crate::crypto::{kdf, Hasher, PRG};
+use crate::crypto::{kdf, Hasher, Prg};
 
 pub struct RandomOracle(Hasher);
 
@@ -12,7 +12,7 @@ impl RandomOracle {
         self.0.update(input);
     }
 
-    pub fn query(self) -> PRG {
-        PRG::new(*self.0.finalize().as_bytes())
+    pub fn query(self) -> Prg {
+        Prg::new(*self.0.finalize().as_bytes())
     }
 }

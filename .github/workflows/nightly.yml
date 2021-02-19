@@ -35,3 +35,8 @@ jobs:
 
       - name: Test
         run: cargo test
+        
+      - name: Build Companion
+        run: |
+          cd companion
+          cargo build

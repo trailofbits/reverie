@@ -3,7 +3,7 @@ use super::*;
 use crate::algebra::Packable;
 use crate::algebra::{Domain, LocalOperation, RingModule, Sharing};
 use crate::consts::*;
-use crate::crypto::{Hash, TreePRF};
+use crate::crypto::{Hash, TreePrf};
 use crate::oracle::RandomOracle;
 use crate::preprocessing::prover::PreprocessingExecution;
 use crate::preprocessing::PreprocessingOutput;
@@ -203,6 +203,26 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
                         #[cfg(feature = "trace")]
                         println!("  mask = {:?}, value = {:?}", mask, value);
                         self.plain.set(dst, Some(value));
+                    }
+                }
+                Instruction::Const(dst, c) => {
+                    self.wires.set(dst, c);
+
+                    #[cfg(feature = "trace")]
+                    {
+                        println!(
+                            "prover-addconst : Const({}, {:?}) ; wire = {:?}",
+                            dst,
+                            c,
+                            self.wires.get(dst),
+                        );
+                    }
+
+                    // evaluate the circuit in plain for testing
+                    #[cfg(test)]
+                    #[cfg(debug_assertions)]
+                    {
+                        self.plain.set(dst, Some(c));
                     }
                 }
                 Instruction::AddConst(dst, src, c) => {
@@ -541,14 +561,14 @@ impl<D: Domain> StreamingProver<D> {
 
         (
             Proof {
-                // omit player from TreePRF and provide pre-processing commitment
+                // omit player from TreePrf and provide pre-processing commitment
                 runs: omitted
                     .iter()
                     .cloned()
                     .zip(preprocessing.hidden.iter())
                     .zip(masked_branches.into_iter())
                     .map(|((omit, run), (branch, proof))| {
-                        let tree = TreePRF::new(D::PLAYERS, run.seed);
+                        let tree = TreePrf::new(D::PLAYERS, run.seed);
                         Run {
                             proof,
                             branch,
@@ -585,7 +605,7 @@ impl<D: Domain> StreamingProver<D> {
             inputs: Receiver<ProgWitSlice<D>>,
         ) -> Result<(), SendError<Vec<u8>>> {
             let mut seeds = vec![[0u8; KEY_SIZE]; D::PLAYERS];
-            TreePRF::expand_full(&mut seeds, root);
+            TreePrf::expand_full(&mut seeds, root);
 
             let mut online = Prover::<D, _>::new(branch.iter().cloned());
             let mut preprocessing = PreprocessingExecution::<D>::new(root);

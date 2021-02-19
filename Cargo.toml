@@ -26,7 +26,7 @@ maintenance = { status = "actively-developed" }
 
 [dependencies]
 async-channel = "1.5"
-async-scoped = "0.5"
+async-scoped = "0.6"
 async-std = "1.7"
 async-stream = "0.3"
 bincode = "1.3"

@@ -1,5 +1,5 @@
 use super::tree::{MerkleProof, MerkleTree};
-use crate::crypto::{commit, Hash, KEY_SIZE, PRG};
+use crate::crypto::{commit, Hash, KEY_SIZE, Prg};
 
 use rand::prelude::SliceRandom;
 use rand::Rng;
@@ -34,7 +34,7 @@ impl MerkleSetProof {
 
 impl MerkleSet {
     pub fn new(seed: [u8; KEY_SIZE], elems: &[Hash]) -> MerkleSet {
-        let mut rng = PRG::new(seed);
+        let mut rng = Prg::new(seed);
 
         // generate commitment randomness
         let mut rand = Vec::with_capacity(elems.len());

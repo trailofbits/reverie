@@ -3,9 +3,9 @@ use super::*;
 use std::mem::MaybeUninit;
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
-pub struct GF2P64 {}
+pub struct Gf2P64 {}
 
-impl GF2P64 {
+impl Gf2P64 {
     // x86 / x86_64 AVX2 impl.
     #[target_feature(enable = "avx2")]
     #[cfg(target_feature = "avx2")]
@@ -419,7 +419,7 @@ impl GF2P64 {
     }
 }
 
-impl Domain for GF2P64 {
+impl Domain for Gf2P64 {
     type Scalar = BitScalar;
     type Batch = BitBatch;
     type Sharing = BitSharing64;

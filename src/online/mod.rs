@@ -7,7 +7,7 @@ mod tests;
 */
 
 use crate::algebra::{Domain, RingElement};
-use crate::crypto::{Hash, MerkleSetProof, RingHasher, TreePRF, KEY_SIZE};
+use crate::crypto::{Hash, MerkleSetProof, RingHasher, TreePrf, KEY_SIZE};
 
 use crate::preprocessing;
 use crate::Instruction;
@@ -28,7 +28,7 @@ pub struct Chunk {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Run<D: Domain> {
-    open: TreePRF,         // randomness for opened players
+    open: TreePrf,         // randomness for opened players
     proof: MerkleSetProof, // merkle proof for masked branch
     branch: Vec<u8>,       // masked branch (packed)
     commitment: Hash,      // commitment for hidden preprocessing player
@@ -495,11 +495,11 @@ mod test {
                 BitScalar::ONE,
                 BitScalar::ONE,
             ];
-            test_proof::<GF2P8>(&program[..], &inputs[..]);
+            test_proof::<Gf2P8>(&program[..], &inputs[..]);
         }
 
         for _ in 0..1000 {
-            test_random_proof::<GF2P8>();
+            test_random_proof::<Gf2P8>();
         }
     }
 }

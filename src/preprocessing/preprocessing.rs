@@ -2,7 +2,7 @@ use super::util::SharesGenerator;
 
 use crate::algebra::{Domain, LocalOperation, RingElement, RingModule, Samplable};
 use crate::consts::{CONTEXT_RNG_BRANCH_MASK, CONTEXT_RNG_BRANCH_PERMUTE, CONTEXT_RNG_CORRECTION};
-use crate::crypto::{hash, kdf, Hash, Hasher, MerkleSet, RingHasher, TreePRF, KEY_SIZE, PRG};
+use crate::crypto::{hash, kdf, Hash, Hasher, MerkleSet, RingHasher, TreePrf, KEY_SIZE, Prg};
 use crate::util::{VecMap, Writer};
 use crate::Instruction;
 
@@ -22,7 +22,7 @@ pub struct PreprocessingExecution<D: Domain> {
     shares: SharesGenerator<D>,
 
     // Beaver multiplication state
-    corrections_prg: Vec<PRG>,
+    corrections_prg: Vec<Prg>,
     corrections: RingHasher<D::Batch>, // player 0 corrections
     share_a: Vec<D::Sharing>,          // beta sharings (from input)
     share_b: Vec<D::Sharing>,          // alpha sharings (from input)
@@ -33,16 +33,16 @@ impl<D: Domain> PreprocessingExecution<D> {
     pub fn new(root: [u8; KEY_SIZE], branches: &[Vec<D::Batch>]) -> Self {
         // expand repetition seed into per-player seeds
         let mut player_seeds: Vec<[u8; KEY_SIZE]> = vec![[0u8; KEY_SIZE]; D::PLAYERS];
-        TreePRF::expand_full(&mut player_seeds, root);
+        TreePrf::expand_full(&mut player_seeds, root);
 
         // mask the branches and compute the root of the Merkle tree
         let root: Hash = {
             let mut hashes: Vec<RingHasher<D::Batch>> =
                 (0..branches.len()).map(|_| RingHasher::new()).collect();
 
-            let mut prgs: Vec<PRG> = player_seeds
+            let mut prgs: Vec<Prg> = player_seeds
                 .iter()
-                .map(|seed| PRG::new(kdf(CONTEXT_RNG_BRANCH_MASK, seed)))
+                .map(|seed| Prg::new(kdf(CONTEXT_RNG_BRANCH_MASK, seed)))
                 .collect();
 
             for j in 0..branches[0].len() {
@@ -70,7 +70,7 @@ impl<D: Domain> PreprocessingExecution<D> {
             commitments,
             corrections_prg: player_seeds
                 .iter()
-                .map(|seed| PRG::new(kdf(CONTEXT_RNG_CORRECTION, seed)))
+                .map(|seed| Prg::new(kdf(CONTEXT_RNG_CORRECTION, seed)))
                 .collect(),
             corrections: RingHasher::new(),
             shares: SharesGenerator::new(&player_seeds[..]),
@@ -88,8 +88,8 @@ impl<D: Domain> PreprocessingExecution<D> {
         debug_assert!(self.shares.beaver.is_empty());
 
         // transpose sharings into per player batches
-        D::convert_inv(&mut batch_a[..], &self.share_a[..]);
-        D::convert_inv(&mut batch_b[..], &self.share_b[..]);
+        D::convert_inv(batch_a, &self.share_a[..]);
+        D::convert_inv(batch_b, &self.share_b[..]);
         self.share_a.clear();
         self.share_b.clear();
 
@@ -138,6 +138,10 @@ impl<D: Domain> PreprocessingExecution<D> {
                 }
                 Instruction::Branch(dst) => {
                     self.masks.set(dst, self.shares.branch.next());
+                }
+                Instruction::Const(dst, _c) => {
+                    // We don't need to mask constant inputs because the circuit is public
+                    self.masks.set(dst, D::Sharing::ZERO);
                 }
                 Instruction::AddConst(dst, src, _c) => {
                     self.masks.set(dst, self.masks.get(src));

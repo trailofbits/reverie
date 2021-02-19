@@ -105,9 +105,9 @@ mod tests {
     use bincode;
     #[test]
     fn serde_tree() {
-        let tree: TreePRF = TreePRF::new(256, [7u8; KEY_SIZE]);
+        let tree: TreePrf = TreePrf::new(256, [7u8; KEY_SIZE]);
         let serialized = bincode::serialize(&tree).unwrap();
-        let tree_new: TreePRF = bincode::deserialize(&serialized[..]).unwrap();
+        let tree_new: TreePrf = bincode::deserialize(&serialized[..]).unwrap();
         assert_eq!(tree, tree_new);
     }
 }

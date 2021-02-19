@@ -31,7 +31,7 @@ mod consts;
 
 mod proof;
 
-pub use proof::{ProofGF2P64, ProofGF2P64_64, ProofGF2P64_85, ProofGF2P8};
+pub use proof::{ProofGf2P64, ProofGf2P64_64, ProofGf2P64_85, ProofGf2P8};
 
 use crate::algebra::RingElement;
 
@@ -45,6 +45,7 @@ pub enum Instruction<E: RingElement> {
     Branch(usize),             // load next branch element
     Input(usize),              // read next field element from input tape
     Output(usize),             // output wire (write wire-value to output tape)
+    Const(usize, E),           // fixed constant value
 }
 
 type Instructions<D> = Vec<Instruction<<D as algebra::Domain>::Scalar>>;

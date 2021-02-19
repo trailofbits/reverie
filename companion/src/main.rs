@@ -46,15 +46,12 @@ fn write_vec<W: io::Write>(dst: &mut W, src: &[u8]) -> io::Result<()> {
 fn read_vec<R: io::Read>(src: &mut R) -> io::Result<Option<Vec<u8>>> {
     // obtain the length of the following vector
     let mut len = [0u8; 4];
-    match src.read_exact(&mut len) {
-        Err(err) => {
-            if let io::ErrorKind::UnexpectedEof = err.kind() {
-                return Ok(None);
-            } else {
-                return Err(err);
-            }
+    if let Err(err) = src.read_exact(&mut len) {
+        if let io::ErrorKind::UnexpectedEof = err.kind() {
+            return Ok(None);
+        } else {
+            return Err(err);
         }
-        _ => (),
     }
 
     // sanity check the length (un-trusted input)
@@ -65,15 +62,12 @@ fn read_vec<R: io::Read>(src: &mut R) -> io::Result<Option<Vec<u8>>> {
 
     // read the vector
     let mut vec = vec![0u8; len];
-    match src.read_exact(&mut vec[..]) {
-        Err(err) => {
-            if let io::ErrorKind::UnexpectedEof = err.kind() {
-                return Ok(None);
-            } else {
-                return Err(err);
-            }
+    if let Err(err) = src.read_exact(&mut vec[..]) {
+        if let io::ErrorKind::UnexpectedEof = err.kind() {
+            return Ok(None);
+        } else {
+            return Err(err);
         }
-        _ => (),
     }
     Ok(Some(vec))
 }
@@ -148,7 +142,7 @@ impl<E: Clone, P: Parser<E>> Iterator for FileStream<E, P> {
             FileStream::File(parser) => parser.next().unwrap(),
             FileStream::Memory(vec, n) => {
                 let res = vec.get(*n).cloned();
-                *n = *n + 1;
+                *n += 1;
                 res
             }
         }
@@ -207,7 +201,7 @@ async fn prove<
 
     // prove preprocessing
     println!("preprocessing...");
-    let (preprocessing, pp_output) = preprocessing::Proof::<GF2P8>::new(
+    let (preprocessing, pp_output) = preprocessing::Proof::<Gf2P8>::new(
         OsRng.gen(),       // seed
         &branches[..],     // branches
         program.rewind()?, // program
@@ -216,7 +210,7 @@ async fn prove<
 
     // create streaming prover instance
     println!("oracle pass...");
-    let (online, prover) = online::StreamingProver::<GF2P8>::new(
+    let (online, prover) = online::StreamingProver::<Gf2P8>::new(
         None,
         pp_output,
         branch_index,
@@ -262,8 +256,8 @@ async fn verify<
     let mut proof = BufReader::new(File::open(proof_path)?);
 
     // parse preprocessing
-    let preprocessing: preprocessing::Proof<GF2P8> = read_vec(&mut proof)?
-        .and_then(|v| preprocessing::Proof::<GF2P8>::deserialize(&v))
+    let preprocessing: preprocessing::Proof<Gf2P8> = read_vec(&mut proof)?
+        .and_then(|v| preprocessing::Proof::<Gf2P8>::deserialize(&v))
         .expect("Failed to deserialize proof after preprocessing");
 
     let pp_output = match preprocessing.verify(&branches[..], program.rewind()?).await {
@@ -272,7 +266,7 @@ async fn verify<
     };
 
     let online = read_vec(&mut proof)?
-        .and_then(|v| online::Proof::<GF2P8>::deserialize(&v))
+        .and_then(|v| online::Proof::<Gf2P8>::deserialize(&v))
         .expect("Failed to deserialize online proof");
 
     // verify the online execution
