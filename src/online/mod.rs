@@ -495,11 +495,11 @@ mod test {
                 BitScalar::ONE,
                 BitScalar::ONE,
             ];
-            test_proof::<GF2P8>(&program[..], &inputs[..]);
+            test_proof::<Gf2P8>(&program[..], &inputs[..]);
         }
 
         for _ in 0..1000 {
-            test_random_proof::<GF2P8>();
+            test_random_proof::<Gf2P8>();
         }
     }
 }

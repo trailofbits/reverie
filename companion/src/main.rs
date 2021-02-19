@@ -201,7 +201,7 @@ async fn prove<
 
     // prove preprocessing
     println!("preprocessing...");
-    let (preprocessing, pp_output) = preprocessing::Proof::<GF2P8>::new(
+    let (preprocessing, pp_output) = preprocessing::Proof::<Gf2P8>::new(
         OsRng.gen(),       // seed
         &branches[..],     // branches
         program.rewind()?, // program
@@ -210,7 +210,7 @@ async fn prove<
 
     // create streaming prover instance
     println!("oracle pass...");
-    let (online, prover) = online::StreamingProver::<GF2P8>::new(
+    let (online, prover) = online::StreamingProver::<Gf2P8>::new(
         None,
         pp_output,
         branch_index,
@@ -256,8 +256,8 @@ async fn verify<
     let mut proof = BufReader::new(File::open(proof_path)?);
 
     // parse preprocessing
-    let preprocessing: preprocessing::Proof<GF2P8> = read_vec(&mut proof)?
-        .and_then(|v| preprocessing::Proof::<GF2P8>::deserialize(&v))
+    let preprocessing: preprocessing::Proof<Gf2P8> = read_vec(&mut proof)?
+        .and_then(|v| preprocessing::Proof::<Gf2P8>::deserialize(&v))
         .expect("Failed to deserialize proof after preprocessing");
 
     let pp_output = match preprocessing.verify(&branches[..], program.rewind()?).await {
@@ -266,7 +266,7 @@ async fn verify<
     };
 
     let online = read_vec(&mut proof)?
-        .and_then(|v| online::Proof::<GF2P8>::deserialize(&v))
+        .and_then(|v| online::Proof::<Gf2P8>::deserialize(&v))
         .expect("Failed to deserialize online proof");
 
     // verify the online execution
