@@ -2,7 +2,7 @@ use super::util::PartialSharesGenerator;
 
 use crate::algebra::{Domain, LocalOperation, RingElement, RingModule, Samplable};
 use crate::consts::CONTEXT_RNG_CORRECTION;
-use crate::crypto::{hash, kdf, Hash, Hasher, RingHasher, TreePrf, KEY_SIZE, Prg};
+use crate::crypto::{hash, kdf, Hash, Hasher, Prg, RingHasher, TreePrf, KEY_SIZE};
 use crate::util::{VecMap, Writer};
 use crate::Instruction;
 

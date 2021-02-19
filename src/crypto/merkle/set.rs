@@ -1,5 +1,5 @@
 use super::tree::{MerkleProof, MerkleTree};
-use crate::crypto::{commit, Hash, KEY_SIZE, Prg};
+use crate::crypto::{commit, Hash, Prg, KEY_SIZE};
 
 use rand::prelude::SliceRandom;
 use rand::Rng;
