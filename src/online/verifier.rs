@@ -253,9 +253,11 @@ impl<D: Domain> StreamingVerifier<D> {
             }
         }
 
+        type TaskHandle<T> =
+            task::JoinHandle<Option<(Hash, Hash, usize, Vec<<T as Domain>::Scalar>)>>;
         async fn collect_transcript_hashes<D: Domain>(
             bind: Option<Vec<u8>>,
-            tasks: Vec<task::JoinHandle<Option<(Hash, Hash, usize, Vec<<D as Domain>::Scalar>)>>>,
+            tasks: Vec<TaskHandle<D>>,
         ) -> Result<(Vec<<D as Domain>::Scalar>, Vec<Hash>), String> {
             // collect transcript hashes from all executions
             let mut result: Vec<D::Scalar> = vec![];
@@ -320,13 +322,12 @@ impl<D: Domain> StreamingVerifier<D> {
 
         let chunk_size = chunk_size(self.program.len(), inputs.len());
 
-        while !inputs.is_empty(){
-            for sender in inputs.drain(..chunk_size){
+        while !inputs.is_empty() {
+            for sender in inputs.drain(..chunk_size) {
                 let chunk = proof.recv().await.unwrap();
-                sender
-                    .send((self.program.clone(), chunk)).await.unwrap();
+                sender.send((self.program.clone(), chunk)).await.unwrap();
             }
-            for rx in outputs.drain(..chunk_size){
+            for rx in outputs.drain(..chunk_size) {
                 let _ = rx.recv().await;
             }
         }

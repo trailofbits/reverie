@@ -116,8 +116,9 @@ impl<D: Domain> Proof<D> {
             }
         }
 
+        type TaskHandle = task::JoinHandle<Result<(Hash, Vec<Hash>), SendError<()>>>;
         async fn collect_commitments<D: Domain>(
-            mut tasks: Vec<task::JoinHandle<Result<(Hash, Vec<Hash>), SendError<()>>>>,
+            mut tasks: Vec<TaskHandle>,
         ) -> Vec<(Hash, Vec<Hash>)> {
             let mut results: Vec<(Hash, Vec<Hash>)> = Vec::new();
             for t in tasks.drain(..) {
@@ -148,11 +149,11 @@ impl<D: Domain> Proof<D> {
 
         let chunk_size = chunk_size(program.len(), inputs.len());
 
-        while !inputs.is_empty(){
-                for sender in inputs.drain(..chunk_size){
+        while !inputs.is_empty() {
+            for sender in inputs.drain(..chunk_size) {
                 sender.send(program.clone()).await.unwrap();
             }
-            for rx in outputs.drain(..chunk_size){
+            for rx in outputs.drain(..chunk_size) {
                 let _ = rx.recv().await;
             }
         }

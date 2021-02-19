@@ -10,8 +10,8 @@ pub use writer::*;
 
 use std::mem;
 
-use sysinfo::SystemExt;
 use crate::consts::*;
+use sysinfo::SystemExt;
 
 pub const fn log2(x: usize) -> usize {
     (mem::size_of::<usize>() * 8) - (x.leading_zeros() as usize) - 1
@@ -24,7 +24,9 @@ pub fn available_memory_bytes() -> i64 {
 }
 
 pub fn ceil_divide(x: usize, divided_by: usize) -> usize {
-    if divided_by == x { return 1; }
+    if divided_by == x {
+        return 1;
+    }
     ((x + divided_by) - 1) / divided_by
 }
 
@@ -32,12 +34,15 @@ pub fn chunk_size(ngates: usize, ncopies: usize) -> usize {
     let estimated_bytes = BYTES_PER_GATE * (ngates as i64) - GATE_MEM_INTERCEPT;
     let available_bytes = available_memory_bytes();
 
-    if available_bytes > estimated_bytes{
+    if available_bytes > estimated_bytes {
         return ncopies;
     }
 
     let split = ceil_divide(estimated_bytes as usize, available_bytes as usize);
-    println!("{} bytes of memory available, want {}. Breaking tasking into {} chunks", available_bytes, estimated_bytes, split);
+    println!(
+        "{} bytes of memory available, want {}. Breaking tasking into {} chunks",
+        available_bytes, estimated_bytes, split
+    );
     ceil_divide(ncopies, split)
 }
 

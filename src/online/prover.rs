@@ -442,13 +442,13 @@ impl<D: Domain> StreamingProver<D> {
             }
         }
 
+        type TaskHandle =
+            task::JoinHandle<Result<(Vec<u8>, MerkleSetProof, Hash), SendError<Vec<u8>>>>;
         async fn extract_output<D: Domain>(
             bind: Option<Vec<u8>>,
             preprocessing: PreprocessingOutput<D>,
             branch: Arc<Vec<<D as Domain>::Scalar>>,
-            tasks: Vec<
-                task::JoinHandle<Result<(Vec<u8>, MerkleSetProof, Hash), SendError<Vec<u8>>>>,
-            >,
+            tasks: Vec<TaskHandle>,
         ) -> (Proof<D>, StreamingProver<D>) {
             // extract which players to omit in every run (Fiat-Shamir)
             let mut oracle =
@@ -531,14 +531,14 @@ impl<D: Domain> StreamingProver<D> {
 
         let chunk_size = chunk_size(program.len(), inputs.len());
 
-        while !inputs.is_empty(){
-            for sender in inputs.drain(..chunk_size){
+        while !inputs.is_empty() {
+            for sender in inputs.drain(..chunk_size) {
                 sender
                     .send((program.clone(), witness.clone()))
                     .await
                     .unwrap();
             }
-            for rx in outputs.drain(..chunk_size){
+            for rx in outputs.drain(..chunk_size) {
                 let _ = rx.recv().await;
             }
         }
@@ -662,14 +662,14 @@ impl<D: Domain> StreamingProver<D> {
         let tasks_finished = task::spawn(wait_for_all(tasks));
 
         let chunk_size = chunk_size(program.len(), inputs.len());
-        while !inputs.is_empty(){
-            for sender in inputs.drain(..chunk_size){
+        while !inputs.is_empty() {
+            for sender in inputs.drain(..chunk_size) {
                 sender
                     .send((program.clone(), witness.clone()))
                     .await
                     .unwrap();
             }
-            for rx in outputs.drain(..chunk_size){
+            for rx in outputs.drain(..chunk_size) {
                 let output = rx.recv().await;
                 dst.send(output.unwrap()).await?; // can fail
             }

@@ -2,7 +2,7 @@ use super::util::SharesGenerator;
 
 use crate::algebra::{Domain, LocalOperation, RingElement, RingModule, Samplable};
 use crate::consts::{CONTEXT_RNG_BRANCH_MASK, CONTEXT_RNG_BRANCH_PERMUTE, CONTEXT_RNG_CORRECTION};
-use crate::crypto::{kdf, Hash, MerkleSet, MerkleSetProof, RingHasher, TreePrf, KEY_SIZE, Prg};
+use crate::crypto::{kdf, Hash, MerkleSet, MerkleSetProof, Prg, RingHasher, TreePrf, KEY_SIZE};
 use crate::util::{VecMap, Writer};
 use crate::Instruction;
 
