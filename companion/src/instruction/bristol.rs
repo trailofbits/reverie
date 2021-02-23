@@ -123,6 +123,7 @@ impl Parser<Instruction<BitScalar>> for InsParser {
     }
 
     fn next(&mut self) -> io::Result<Option<Instruction<BitScalar>>> {
+        // Add number of wires gate at the beginning of the circuit
         if self.header.pending_n_wire {
             self.header.pending_n_wire = false;
             return Ok(Some(Instruction::NrOfWires(self.header.n_wire)));
