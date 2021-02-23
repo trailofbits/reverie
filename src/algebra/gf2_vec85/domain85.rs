@@ -12,6 +12,7 @@ impl Domain for Gf2P64_85 {
     const PLAYERS: usize = 64;
     const PREPROCESSING_REPETITIONS: usize = 1662;
     const ONLINE_REPETITIONS: usize = 44;
+    const NR_OF_BITS: usize = 1;
 
     type Scalar = Scalar;
     type Batch = Batch;

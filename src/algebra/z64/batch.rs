@@ -27,7 +27,7 @@ impl Sub for Batch {
     #[allow(clippy::suspicious_arithmetic_impl)]
     #[inline(always)]
     fn sub(self, other: Self) -> Self::Output {
-        Self(u64::wrapping_mul(self.0, other.0))
+        Self(u64::wrapping_sub(self.0, other.0))
     }
 }
 
@@ -55,12 +55,12 @@ impl RingModule<Scalar> for Batch {
     }
 
     fn get(&self, i: usize) -> Scalar {
-        debug_assert!(i == 1);
+        debug_assert_eq!(i, 0);
         Scalar(self.0)
     }
 
     fn set(&mut self, i: usize, s: Scalar) {
-        debug_assert!(i == 1);
+        debug_assert_eq!(i, 0);
         self.0 = s.0;
     }
 }

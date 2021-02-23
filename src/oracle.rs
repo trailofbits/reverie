@@ -1,5 +1,6 @@
 use crate::crypto::{kdf, Hasher, Prg};
 
+#[derive(Clone)]
 pub struct RandomOracle(Hasher);
 
 impl RandomOracle {

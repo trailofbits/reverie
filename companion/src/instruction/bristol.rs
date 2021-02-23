@@ -15,6 +15,7 @@ pub struct BristolHeader {
     pub n_wire: usize,
     pub n_input: usize,
     pub n_output: usize,
+    pub pending_n_wire: bool,
     pub pending_input: usize,
     pub pending_output: usize,
 }
@@ -92,6 +93,7 @@ impl FromStr for BristolHeader {
             n_wire,
             n_input: 0,
             n_output: 0,
+            pending_n_wire: true,
             pending_input: n_input,
             pending_output: n_output,
         })
@@ -121,6 +123,12 @@ impl Parser<Instruction<BitScalar>> for InsParser {
     }
 
     fn next(&mut self) -> io::Result<Option<Instruction<BitScalar>>> {
+        // Add number of wires gate at the beginning of the circuit
+        if self.header.pending_n_wire {
+            self.header.pending_n_wire = false;
+            return Ok(Some(Instruction::NrOfWires(self.header.n_wire)));
+        }
+
         // Add input gates at the beginning of the circuit
         if self.header.pending_input > 0 {
             let idx = self.header.n_input;
