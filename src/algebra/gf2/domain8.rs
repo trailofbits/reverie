@@ -390,6 +390,7 @@ impl Domain for Gf2P8 {
     const PLAYERS: usize = 8;
     const PREPROCESSING_REPETITIONS: usize = 252;
     const ONLINE_REPETITIONS: usize = 44;
+    const NR_OF_BITS: usize = 1;
 
     fn convert(dst: &mut [Self::Sharing], src: &[Self::Batch]) {
         // do a single bounds check up front

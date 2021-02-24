@@ -27,12 +27,12 @@ pub struct Chunk {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Run<D: Domain> {
-    open: TreePrf,         // randomness for opened players
-    proof: MerkleSetProof, // merkle proof for masked branch
-    branch: Vec<u8>,       // masked branch (packed)
-    commitment: Hash,      // commitment for hidden preprocessing player
-    _ph: PhantomData<D>,
+pub struct OnlineRun<D: Domain> {
+    pub(crate) open: TreePrf,         // randomness for opened players
+    pub(crate) proof: MerkleSetProof, // merkle proof for masked branch
+    pub(crate) branch: Vec<u8>,       // masked branch (packed)
+    pub(crate) commitment: Hash,      // commitment for hidden preprocessing player
+    pub(crate) _ph: PhantomData<D>,
 }
 
 /// Online execution "proof header"
@@ -40,7 +40,7 @@ pub struct Run<D: Domain> {
 /// Holds the (constant sized) state required to initialize the streaming online verifier
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Proof<D: Domain> {
-    runs: Vec<Run<D>>,
+    pub(crate) runs: Vec<OnlineRun<D>>,
     _ph: PhantomData<D>,
 }
 
@@ -61,7 +61,7 @@ impl<'de, D: Domain + Deserialize<'de>> Proof<D> {
 ///
 /// Avoiding potential misuse where the user fails to check the pre-processing.
 pub struct Output<D: Domain> {
-    result: Vec<D::Scalar>,
+    pub(crate) result: Vec<D::Scalar>,
     pp_hashes: Vec<Hash>,
 }
 

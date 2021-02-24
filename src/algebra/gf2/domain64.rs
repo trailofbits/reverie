@@ -427,6 +427,7 @@ impl Domain for Gf2P64 {
     const PLAYERS: usize = 64;
     const PREPROCESSING_REPETITIONS: usize = 631;
     const ONLINE_REPETITIONS: usize = 23;
+    const NR_OF_BITS: usize = 1;
 
     fn convert(dst: &mut [Self::Sharing], src: &[Self::Batch]) {
         // do a single bounds check up front

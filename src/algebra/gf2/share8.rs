@@ -42,7 +42,7 @@ impl Mul for BitSharing8 {
 }
 
 impl RingElement for BitSharing8 {
-    const ONE: Self = Self(0xff);
+    const ONE: Self = Self(0xfe);
     const ZERO: Self = Self(0x00);
 }
 

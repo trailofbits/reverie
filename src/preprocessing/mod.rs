@@ -1,4 +1,4 @@
-mod util;
+pub(crate) mod util;
 
 #[allow(clippy::module_inception)]
 pub mod preprocessing;
@@ -18,12 +18,19 @@ use std::sync::Arc;
 use async_channel::{Receiver, SendError, Sender};
 use async_std::task;
 
+use crate::fieldswitching::util::FieldSwitchingIo;
 use serde::{Deserialize, Serialize};
+
+type Round1Output<D> = (
+    Arc<Vec<Vec<<D as Domain>::Batch>>>,
+    Vec<[u8; 32]>,
+    Vec<(Hash, Vec<Hash>)>,
+);
 
 /// Represents repeated execution of the preprocessing phase.
 /// The preprocessing phase is executed D::ONLINE_REPETITIONS times, then fed to a random oracle,
 /// which dictates the subset of executions to open.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Proof<D: Domain> {
     hidden: Vec<Hash>, // commitments to the hidden pre-processing executions
     random: TreePrf, // punctured PRF used to derive the randomness for the opened pre-processing executions
@@ -40,7 +47,8 @@ impl<D: Domain> Proof<D> {
     }
 }
 
-pub struct Run {
+#[derive(Clone)] //TODO(gvl): remove Clone
+pub struct PreprocessingRun {
     pub(crate) seed: [u8; KEY_SIZE], // root seed
     pub(crate) union: Hash,
     pub(crate) commitments: Vec<Hash>, // preprocessing commitment for every player
@@ -53,9 +61,10 @@ pub struct Run {
 ///
 /// For this reason PreprocessingOutput does not implement Copy/Clone
 /// and the online phase takes ownership of the struct, nor does it expose any fields.
+#[derive(Clone)] //TODO(gvl): remove clone
 pub struct PreprocessingOutput<D: Domain> {
     pub(crate) branches: Arc<Vec<Vec<D::Batch>>>,
-    pub(crate) hidden: Vec<Run>,
+    pub(crate) hidden: Vec<PreprocessingRun>,
 }
 
 pub struct Output<D: Domain> {
@@ -88,6 +97,7 @@ impl<D: Domain> Proof<D> {
         seeds: &[[u8; KEY_SIZE]],
         branches: Arc<Vec<Vec<D::Batch>>>,
         program: Arc<Vec<Instruction<D::Scalar>>>,
+        fieldswitching_io: FieldSwitchingIo,
     ) -> Vec<(Hash, Vec<Hash>)> {
         assert!(
             branches.len() > 0,
@@ -99,14 +109,21 @@ impl<D: Domain> Proof<D> {
             branches: Arc<Vec<Vec<D::Batch>>>,
             outputs: Sender<()>,
             inputs: Receiver<Arc<Instructions<D>>>,
+            fieldswitching_io: FieldSwitchingIo,
         ) -> Result<(Hash, Vec<Hash>), SendError<()>> {
             let mut preprocessing: preprocessing::PreprocessingExecution<D> =
                 preprocessing::PreprocessingExecution::new(root, &branches[..]);
+            let mut nr_of_wires = 0;
 
             loop {
                 match inputs.recv().await {
                     Ok(program) => {
-                        preprocessing.prove(&program[..]);
+                        nr_of_wires = preprocessing.prove(
+                            &program[..],
+                            fieldswitching_io.0.clone(),
+                            fieldswitching_io.1.clone(),
+                            nr_of_wires,
+                        );
                         outputs.send(()).await?;
                     }
                     Err(_) => {
@@ -141,6 +158,7 @@ impl<D: Domain> Proof<D> {
                 branches.clone(),
                 send_outputs,
                 recv_inputs,
+                fieldswitching_io.clone(),
             )));
             inputs.push(send_inputs);
             outputs.push(recv_outputs);
@@ -166,7 +184,32 @@ impl<D: Domain> Proof<D> {
         &self,
         branches: &[&[D::Scalar]],
         program: Arc<Vec<Instruction<D::Scalar>>>,
+        fieldswitching_io: FieldSwitchingIo,
     ) -> Option<Output<D>> {
+        let mut oracle = RandomOracle::new(CONTEXT_ORACLE_PREPROCESSING, None);
+
+        let (hidden, output) = match self
+            .verify_round_1(branches, program, fieldswitching_io, &mut oracle)
+            .await
+        {
+            Some(out) => out,
+            None => return None,
+        };
+
+        if !<Proof<D>>::verify_challenge(&mut oracle, hidden) {
+            return None;
+        }
+
+        Some(output)
+    }
+
+    pub async fn verify_round_1<PI: Iterator<Item = Instruction<D::Scalar>>>(
+        &self,
+        branches: &[&[<D as Domain>::Scalar]],
+        program: PI,
+        fieldswitching_io: FieldSwitchingIo,
+        oracle: &mut RandomOracle,
+    ) -> Option<(Vec<usize>, Output<D>)> {
         // pack branch scalars into batches for efficiency
         let branches = Arc::new(pack_branches::<D>(branches));
 
@@ -201,7 +244,8 @@ impl<D: Domain> Proof<D> {
             D::PREPROCESSING_REPETITIONS - D::ONLINE_REPETITIONS
         );
 
-        let opened_results = Self::preprocess(&opened_roots[..], branches, program).await;
+        let opened_results =
+            Self::preprocess(&opened_roots[..], branches, program, fieldswitching_io).await;
 
         debug_assert_eq!(
             opened_results.len(),
@@ -223,15 +267,21 @@ impl<D: Domain> Proof<D> {
         }
 
         debug_assert_eq!(hashes.len(), D::PREPROCESSING_REPETITIONS);
+        for hash in hashes.iter() {
+            oracle.feed(hash.as_bytes());
+        }
+        Some((
+            hidden,
+            Output {
+                hidden: self.hidden.to_vec(),
+                _ph: PhantomData,
+            },
+        ))
+    }
 
+    pub fn verify_challenge(oracle: &mut RandomOracle, hidden: Vec<usize>) -> bool {
         // feed to the Random-Oracle
-        let mut challenge_prg = {
-            let mut oracle = RandomOracle::new(CONTEXT_ORACLE_PREPROCESSING, None);
-            for hash in hashes.iter() {
-                oracle.feed(hash.as_bytes());
-            }
-            oracle.query()
-        };
+        let mut challenge_prg = oracle.clone().query();
 
         // accept if the hidden indexes where computed correctly (Fiat-Shamir transform)
         let subset: Vec<usize> = random_subset(
@@ -239,14 +289,7 @@ impl<D: Domain> Proof<D> {
             D::PREPROCESSING_REPETITIONS,
             D::ONLINE_REPETITIONS,
         );
-        if hidden[..] == subset[..] {
-            Some(Output {
-                hidden: self.hidden.to_vec(),
-                _ph: PhantomData,
-            })
-        } else {
-            None
-        }
+        hidden[..] == subset[..]
     }
 
     /// Create a new pre-processing proof.
@@ -256,34 +299,25 @@ impl<D: Domain> Proof<D> {
         global: [u8; KEY_SIZE],
         branches: &[&[D::Scalar]],
         program: Arc<Vec<Instruction<D::Scalar>>>,
+        fieldswitching_io: FieldSwitchingIo,
     ) -> (Self, PreprocessingOutput<D>) {
-        // pack branch scalars into batches for efficiency
-        let branches = Arc::new(pack_branches::<D>(branches));
+        let mut oracle = RandomOracle::new(CONTEXT_ORACLE_PREPROCESSING, None);
 
-        // expand the global seed into per-repetition roots
-        let mut roots: Vec<[u8; KEY_SIZE]> = vec![[0; KEY_SIZE]; D::PREPROCESSING_REPETITIONS];
-        TreePrf::expand_full(&mut roots, global);
+        let (branches, roots, results) =
+            <Proof<D>>::new_round_1(global, branches, program, fieldswitching_io, &mut oracle);
 
-        // block and wait for hashes to compute
-        let results = task::block_on(Self::preprocess(&roots[..], branches.clone(), program));
+        let hidden = <Proof<D>>::get_challenge(&mut oracle);
 
-        // send the pre-processing commitments to the random oracle, receive challenges
-        let mut challenge_prg = {
-            let mut oracle = RandomOracle::new(CONTEXT_ORACLE_PREPROCESSING, None);
-            for (hash, _) in results.iter() {
-                oracle.feed(hash.as_bytes());
-            }
-            oracle.query()
-        };
+        <Proof<D>>::new_round_3(global, branches, roots, results, hidden)
+    }
 
-        // interpret the oracle response as a subset of indexes to hide
-        // (implicitly: which executions to open)
-        let hidden: Vec<usize> = random_subset(
-            &mut challenge_prg,
-            D::PREPROCESSING_REPETITIONS,
-            D::ONLINE_REPETITIONS,
-        );
-
+    pub fn new_round_3(
+        global: [u8; 32],
+        branches: Arc<Vec<Vec<<D as Domain>::Batch>>>,
+        roots: Vec<[u8; 32]>,
+        results: Vec<(Hash, Vec<Hash>)>,
+        hidden: Vec<usize>,
+    ) -> (Proof<D>, PreprocessingOutput<D>) {
         // puncture the prf at the hidden indexes
         // (implicitly: pass the randomness for all other executions to the verifier)
         let mut tree: TreePrf = TreePrf::new(D::PREPROCESSING_REPETITIONS, global);
@@ -293,7 +327,7 @@ impl<D: Domain> Proof<D> {
 
         // extract pre-processing key material for the hidden views
         // (returned to the prover for use in the online phase)
-        let mut hidden_runs: Vec<Run> = Vec::with_capacity(D::ONLINE_REPETITIONS);
+        let mut hidden_runs: Vec<PreprocessingRun> = Vec::with_capacity(D::ONLINE_REPETITIONS);
         let mut hidden_hashes: Vec<Hash> = Vec::with_capacity(D::ONLINE_REPETITIONS);
         let mut results = results.into_iter().enumerate();
 
@@ -307,7 +341,7 @@ impl<D: Domain> Proof<D> {
             };
 
             // add to the preprocessing output
-            hidden_runs.push(Run {
+            hidden_runs.push(PreprocessingRun {
                 seed: roots[i],
                 union: result.0.clone(),
                 commitments: result.1,
@@ -331,6 +365,46 @@ impl<D: Domain> Proof<D> {
             },
         )
     }
+
+    pub(crate) fn get_challenge(oracle: &mut RandomOracle) -> Vec<usize> {
+        // interpret the oracle response as a subset of indexes to hide
+        // (implicitly: which executions to open)
+        let hidden: Vec<usize> = random_subset(
+            &mut oracle.clone().query(),
+            D::PREPROCESSING_REPETITIONS,
+            D::ONLINE_REPETITIONS,
+        );
+        hidden
+    }
+
+    pub fn new_round_1<PI: Iterator<Item = Instruction<D::Scalar>>>(
+        global: [u8; 32],
+        branches: &[&[<D as Domain>::Scalar]],
+        program: PI,
+        fieldswitching_io: FieldSwitchingIo,
+        oracle: &mut RandomOracle,
+    ) -> Round1Output<D> {
+        // pack branch scalars into batches for efficiency
+        let branches = Arc::new(pack_branches::<D>(branches));
+
+        // expand the global seed into per-repetition roots
+        let mut roots: Vec<[u8; KEY_SIZE]> = vec![[0; KEY_SIZE]; D::PREPROCESSING_REPETITIONS];
+        TreePrf::expand_full(&mut roots, global);
+
+        // block and wait for hashes to compute
+        let results = task::block_on(Self::preprocess(
+            &roots[..],
+            branches.clone(),
+            program,
+            fieldswitching_io,
+        ));
+
+        // send the pre-processing commitments to the random oracle, receive challenges
+        for (hash, _) in results.iter() {
+            oracle.feed(hash.as_bytes());
+        }
+        (branches, roots, results)
+    }
 }
 
 #[cfg(test)]
@@ -343,6 +417,7 @@ mod tests {
     #[test]
     fn test_preprocessing_n8() {
         let program = Arc::new(vec![
+            Instruction::NrOfWires(3),
             Instruction::Input(1),
             Instruction::Input(2),
             Instruction::Mul(0, 1, 2),
@@ -351,8 +426,18 @@ mod tests {
         let seed: [u8; KEY_SIZE] = rng.gen();
         let branch: Vec<BitScalar> = vec![];
         let branches: Vec<&[BitScalar]> = vec![&branch];
-        let proof = Proof::<Gf2P8>::new(seed, &branches[..], program.clone());
-        assert!(task::block_on(proof.0.verify(&branches[..], program)).is_some());
+        let proof = Proof::<Gf2P8>::new(
+            seed,
+            &branches[..],
+            program.clone(),
+            (vec![], vec![]),
+        );
+        assert!(task::block_on(proof.0.verify(
+            &branches[..],
+            program,
+            (vec![], vec![])
+        ))
+        .is_some());
     }
 }
 

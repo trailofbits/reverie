@@ -1,4 +1,4 @@
-pub struct VecMap<T>(Vec<T>);
+pub struct VecMap<T>(pub(crate) Vec<T>);
 
 impl<T: Copy> From<Vec<T>> for VecMap<T> {
     fn from(vec: Vec<T>) -> VecMap<T> {
