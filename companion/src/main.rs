@@ -93,14 +93,12 @@ impl<E, P: Parser<E>> FileStreamer<E, P> {
         let meta = file.metadata()?;
 
         // parse once and load into memory
-        println!("load into memory");
         let reader = BufReader::new(file);
         let mut contents: Vec<E> = Vec::with_capacity(meta.len() as usize / mem::size_of::<E>());
         let mut parser = P::new(reader)?;
         while let Some(elem) = parser.next()? {
             contents.push(elem)
         }
-        println!("done");
         Ok(FileStreamer::Memory(Arc::new(contents), PhantomData))
     }
 
@@ -202,7 +200,7 @@ async fn prove<
     // create prover for online phase
     println!("stream proof...");
     let (send, recv) = bounded(100);
-    let stream_task = task::spawn(prover.stream(send, program.rewind(), witness.rewind()?, (vec![], vec![]), vec![], vec![]));
+    let stream_task = task::spawn(prover.stream(send, program.rewind(), witness.rewind(), (vec![], vec![]), vec![], vec![]));
 
     // read all chunks from online execution
     // (stream out the proof to disk)

@@ -689,14 +689,14 @@ impl<D: Domain> StreamingProver<D> {
     pub async fn new(
         bind: Option<Vec<u8>>, // included Fiat-Shamir transform (for signatures of knowledge)
         preprocessing: PreprocessingOutput<D>, // output of preprocessing
-        branch_index: usize, // branch index (from preprocessing)
+        branch_index: usize,   // branch index (from preprocessing)
         program: Arc<Vec<Instruction<D::Scalar>>>,
         witness: Arc<Vec<D::Scalar>>,
         fieldswitching_io: FieldSwitchingIo,
         eda: Eda<D>,
     ) -> (Proof<D>, Self) {
         assert_eq!(preprocessing.hidden.len(), D::ONLINE_REPETITIONS);
-        let mut oracle = RandomOracle::new(CONTEXT_ORACLE_ONLINE, bind);
+        let mut oracle = RandomOracle::new(CONTEXT_ORACLE_ONLINE, bind.as_ref().map(|x| &x[..]));
         let (branch, masked_branches, _output, oracle_inputs) = <StreamingProver<D>>::new_round_1(
             preprocessing.clone(),
             branch_index,
@@ -716,14 +716,11 @@ impl<D: Domain> StreamingProver<D> {
         <StreamingProver<D>>::new_round_3(preprocessing, Arc::new(branch), masked_branches, omitted)
     }
 
-    pub async fn new_round_1<
-        PI: Iterator<Item = Instruction<D::Scalar>>,
-        WI: Iterator<Item = D::Scalar>,
-    >(
+    pub async fn new_round_1(
         preprocessing: PreprocessingOutput<D>,
         branch_index: usize,
-        mut program: PI,
-        mut witness: WI,
+        mut program: Arc<Vec<Instruction<D::Scalar>>>,
+        mut witness: Arc<Vec<D::Scalar>>,
         fieldswitching_io: FieldSwitchingIo,
         eda: Eda<D>,
     ) -> (
@@ -746,14 +743,11 @@ impl<D: Domain> StreamingProver<D> {
         .await
     }
 
-    pub(crate) async fn do_runs_round_1<
-        PI: Iterator<Item = Instruction<D::Scalar>>,
-        WI: Iterator<Item = D::Scalar>,
-    >(
+    pub(crate) async fn do_runs_round_1(
         preprocessing: PreprocessingOutput<D>,
         branch_index: usize,
-        mut program: &mut PI,
-        mut witness: &mut WI,
+        program: &mut Arc<Vec<Instruction<D::Scalar>>>,
+        witness: &mut Arc<Vec<D::Scalar>>,
         fieldswitching_io: FieldSwitchingIo,
         eda: Eda<D>,
         runs: Vec<preprocessing::PreprocessingRun>,
@@ -836,60 +830,37 @@ impl<D: Domain> StreamingProver<D> {
             }
         }
 
-        type TaskHandle =
-            task::JoinHandle<Result<(Vec<u8>, MerkleSetProof, Hash), SendError<Vec<u8>>>>;
         async fn extract_output<D: Domain>(
-            bind: Option<Vec<u8>>,
             preprocessing: PreprocessingOutput<D>,
-            branch: Arc<Vec<<D as Domain>::Scalar>>,
-            tasks: Vec<TaskHandle>,
-        ) -> (Proof<D>, StreamingProver<D>) {
+            tasks: Vec<
+                task::JoinHandle<
+                    Result<
+                        (Vec<u8>, MerkleSetProof, Hash, (Vec<D::Scalar>, Vec<usize>)),
+                        SendError<Vec<u8>>,
+                    >,
+                >,
+            >,
+        ) -> (
+            Vec<(Vec<u8>, MerkleSetProof)>,
+            (Vec<D::Scalar>, Vec<usize>),
+            Vec<[u8; 32]>,
+        ) {
             // extract which players to omit in every run (Fiat-Shamir)
-            let mut oracle =
-                RandomOracle::new(CONTEXT_ORACLE_ONLINE, bind.as_ref().map(|x| &x[..]));
             let mut masked_branches = Vec::with_capacity(D::ONLINE_REPETITIONS);
+            let mut output = (Vec::new(), Vec::new());
 
+            let mut oracle_input = Vec::new();
             for (pp, t) in preprocessing.hidden.iter().zip(tasks.into_iter()) {
-                let (masked, proof, transcript) = t.await.unwrap();
+                let (masked, proof, transcript, _output) = t.await.unwrap();
+                output = _output;
                 masked_branches.push((masked, proof));
 
                 // RO((preprocessing, transcript))
-                oracle.feed(pp.union.as_bytes());
-                oracle.feed(transcript.as_bytes());
+                // println!("transcript feed: {:?}", transcript);
+                oracle_input.push(*pp.union.as_bytes());
+                oracle_input.push(*transcript.as_bytes());
             }
-
-            let omitted: Vec<usize> =
-                random_vector(&mut oracle.query(), D::PLAYERS, D::ONLINE_REPETITIONS);
-
-            debug_assert_eq!(omitted.len(), D::ONLINE_REPETITIONS);
-
-            (
-                Proof {
-                    // omit player from TreePrf and provide pre-processing commitment
-                    runs: omitted
-                        .iter()
-                        .cloned()
-                        .zip(preprocessing.hidden.iter())
-                        .zip(masked_branches.into_iter())
-                        .map(|((omit, run), (branch, proof))| {
-                            let tree = TreePrf::new(D::PLAYERS, run.seed);
-                            Run {
-                                proof,
-                                branch,
-                                commitment: run.commitments[omit].clone(),
-                                open: tree.puncture(omit),
-                                _ph: PhantomData,
-                            }
-                        })
-                        .collect(),
-                    _ph: PhantomData,
-                },
-                StreamingProver {
-                    branch,
-                    omitted,
-                    preprocessing,
-                },
-            )
+            (masked_branches, output, oracle_input)
         }
 
         // unpack selected branch into scalars again
@@ -923,7 +894,7 @@ impl<D: Domain> StreamingProver<D> {
             outputs.push(recv_outputs);
         }
 
-        let extraction_task = task::spawn(extract_output::<D>(bind, preprocessing, branch, tasks));
+        let extraction_task = task::spawn(extract_output::<D>(preprocessing, tasks));
 
         let chunk_size = chunk_size(program.len(), inputs.len());
 
@@ -942,22 +913,7 @@ impl<D: Domain> StreamingProver<D> {
         // close input writers
         inputs.clear();
 
-        extraction_task.await
-        // extract which players to omit in every run (Fiat-Shamir)
-        let mut masked_branches = Vec::with_capacity(D::ONLINE_REPETITIONS);
-        let mut output = (Vec::new(), Vec::new());
-
-        let mut oracle_input = Vec::new();
-        for (pp, t) in runs.iter().zip(tasks.into_iter()) {
-            let (masked, proof, transcript, _output) = t.await.unwrap();
-            output = _output;
-            masked_branches.push((masked, proof));
-
-            // RO((preprocessing, transcript))
-            // println!("transcript feed: {:?}", transcript);
-            oracle_input.push(*pp.union.as_bytes());
-            oracle_input.push(*transcript.as_bytes());
-        }
+        let (masked_branches, output, oracle_input) = extraction_task.await;
         (_branch.clone(), masked_branches, output, oracle_input)
     }
 

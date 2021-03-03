@@ -203,10 +203,10 @@ impl<D: Domain> Proof<D> {
         Some(output)
     }
 
-    pub async fn verify_round_1<PI: Iterator<Item = Instruction<D::Scalar>>>(
+    pub async fn verify_round_1(
         &self,
         branches: &[&[<D as Domain>::Scalar]],
-        program: PI,
+        program: Arc<Vec<Instruction<D::Scalar>>>,
         fieldswitching_io: FieldSwitchingIo,
         oracle: &mut RandomOracle,
     ) -> Option<(Vec<usize>, Output<D>)> {
@@ -377,10 +377,10 @@ impl<D: Domain> Proof<D> {
         hidden
     }
 
-    pub fn new_round_1<PI: Iterator<Item = Instruction<D::Scalar>>>(
+    pub fn new_round_1(
         global: [u8; 32],
         branches: &[&[<D as Domain>::Scalar]],
-        program: PI,
+        program: Arc<Vec<Instruction<D::Scalar>>>,
         fieldswitching_io: FieldSwitchingIo,
         oracle: &mut RandomOracle,
     ) -> Round1Output<D> {
@@ -426,18 +426,8 @@ mod tests {
         let seed: [u8; KEY_SIZE] = rng.gen();
         let branch: Vec<BitScalar> = vec![];
         let branches: Vec<&[BitScalar]> = vec![&branch];
-        let proof = Proof::<Gf2P8>::new(
-            seed,
-            &branches[..],
-            program.clone(),
-            (vec![], vec![]),
-        );
-        assert!(task::block_on(proof.0.verify(
-            &branches[..],
-            program,
-            (vec![], vec![])
-        ))
-        .is_some());
+        let proof = Proof::<Gf2P8>::new(seed, &branches[..], program.clone(), (vec![], vec![]));
+        assert!(task::block_on(proof.0.verify(&branches[..], program, (vec![], vec![]))).is_some());
     }
 }
 

@@ -162,11 +162,7 @@ impl<D: Domain> Proof<D> {
         ) -> Option<preprocessing::Output<D>> {
             let branches: Vec<&[D::Scalar]> = branches.iter().map(|b| &b[..]).collect();
             proof
-                .verify(
-                    &branches[..],
-                    program,
-                    fieldswitching_io.clone(),
-                )
+                .verify(&branches[..], program, fieldswitching_io.clone())
                 .await
         }
 

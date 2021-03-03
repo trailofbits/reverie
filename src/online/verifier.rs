@@ -73,7 +73,10 @@ impl<D: Domain> StreamingVerifier<D> {
         }
     }
 
-    pub fn new_fs(program: PI, proof_runs: Vec<OnlineRun<D>>) -> Self {
+    pub fn new_fs(
+        program: Arc<Vec<Instruction<D::Scalar>>>,
+        proof_runs: Vec<OnlineRun<D>>,
+    ) -> Self {
         StreamingVerifier {
             program,
             proof: Proof {
@@ -104,7 +107,7 @@ impl<D: Domain> StreamingVerifier<D> {
             oracle.feed(&feed);
         }
 
-        if !<StreamingVerifier<D, PI>>::verify_omitted(&mut oracle, omitted) {
+        if !<StreamingVerifier<D>>::verify_omitted(&mut oracle, omitted) {
             return Err(String::from(
                 "Omitted shares did not match expected omissions",
             ));
@@ -127,7 +130,7 @@ impl<D: Domain> StreamingVerifier<D> {
     }
 
     pub(crate) async fn do_verify_round_1(
-        mut self,
+        self,
         proof: &mut Receiver<Vec<u8>>,
         fieldswitching_io: FieldSwitchingIo,
         runs: Vec<OnlineRun<D>>,
@@ -378,15 +381,13 @@ impl<D: Domain> StreamingVerifier<D> {
         type TaskHandle<T> =
             task::JoinHandle<Option<(Hash, Hash, usize, Vec<<T as Domain>::Scalar>)>>;
         async fn collect_transcript_hashes<D: Domain>(
-            bind: Option<Vec<u8>>,
             tasks: Vec<TaskHandle<D>>,
-        ) -> Result<(Vec<<D as Domain>::Scalar>, Vec<Hash>), String> {
+        ) -> Result<(Vec<[u8; 32]>, Vec<usize>, Vec<Hash>, Vec<D::Scalar>), String> {
             // collect transcript hashes from all executions
             let mut result: Vec<D::Scalar> = vec![];
-            let mut oracle =
-                RandomOracle::new(CONTEXT_ORACLE_ONLINE, bind.as_ref().map(|x| &x[..]));
             let mut omitted: Vec<usize> = Vec::with_capacity(D::ONLINE_REPETITIONS);
             let mut pp_hashes: Vec<Hash> = Vec::with_capacity(D::ONLINE_REPETITIONS);
+            let mut oracle_feed = Vec::new();
             {
                 for (i, t) in tasks.into_iter().enumerate() {
                     let (preprocessing, transcript, omit, output) = t
@@ -401,27 +402,17 @@ impl<D: Domain> StreamingVerifier<D> {
                         ));
                     }
                     omitted.push(omit);
-                    oracle.feed(preprocessing.as_bytes());
-                    oracle.feed(transcript.as_bytes());
+                    oracle_feed.push(*preprocessing.as_bytes());
+                    oracle_feed.push(*transcript.as_bytes());
                     pp_hashes.push(preprocessing);
                 }
             }
-
-            // verify opening indexes
-            let should_omit = random_vector(&mut oracle.query(), D::PLAYERS, D::ONLINE_REPETITIONS);
-            if omitted[..] != should_omit {
-                return Err(String::from(
-                    "Omitted shares did not match expected omissions",
-                ));
-            }
-
-            debug_assert_eq!(pp_hashes.len(), D::ONLINE_REPETITIONS);
-            debug_assert_eq!(should_omit.len(), D::ONLINE_REPETITIONS);
-            Ok((result, pp_hashes))
+            Ok((oracle_feed, omitted, pp_hashes, result))
         }
 
         if self.proof.runs.len() != D::ONLINE_REPETITIONS {
             return Err(String::from("Failed to complete all online repetitions"));
+        }
 
         fn process_input<D: Domain>(
             fieldswitching_input: Vec<usize>,
@@ -683,7 +674,7 @@ impl<D: Domain> StreamingVerifier<D> {
             outputs.push(reader_outputs);
         }
 
-        let collection_task = task::spawn(collect_transcript_hashes::<D>(bind, tasks));
+        let collection_task = task::spawn(collect_transcript_hashes::<D>(tasks));
 
         let chunk_size = chunk_size(self.program.len(), inputs.len());
 
@@ -698,32 +689,7 @@ impl<D: Domain> StreamingVerifier<D> {
         }
 
         // wait for tasks to finish
-        let (result, pp_hashes) = collection_task.await?;
-
-        // collect transcript hashes from all executions
-        let mut result: Vec<D::Scalar> = vec![];
-        let mut omitted: Vec<usize> = Vec::with_capacity(D::ONLINE_REPETITIONS);
-        let mut pp_hashes: Vec<Hash> = Vec::with_capacity(D::ONLINE_REPETITIONS);
-        let mut oracle_feed = Vec::new();
-        {
-            for (i, t) in tasks.into_iter().enumerate() {
-                let (preprocessing, transcript, omit, output) = t
-                    .await
-                    .ok_or_else(|| String::from("Circuit evaluation failed"))?;
-                if i == 0 {
-                    result = output;
-                } else if result[..] != output[..] {
-                    return Err(format!(
-                        "Output for task {} was {:?}, should be {:?}",
-                        i, output, result
-                    ));
-                }
-                omitted.push(omit);
-                oracle_feed.push(*preprocessing.as_bytes());
-                oracle_feed.push(*transcript.as_bytes());
-                pp_hashes.push(preprocessing);
-            }
-        }
+        let (oracle_feed, omitted, pp_hashes, result) = collection_task.await?;
 
         // return output to verify against pre-processing
         Ok((oracle_feed, omitted, Output { pp_hashes, result }))
