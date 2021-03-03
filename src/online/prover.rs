@@ -842,7 +842,7 @@ impl<D: Domain> StreamingProver<D> {
             >,
         >;
         async fn extract_output<D: Domain>(
-            preprocessing: PreprocessingOutput<D>,
+            runs: Vec<preprocessing::PreprocessingRun>,
             tasks: Vec<TaskHandle<D>>,
         ) -> (
             Vec<(Vec<u8>, MerkleSetProof)>,
@@ -854,7 +854,7 @@ impl<D: Domain> StreamingProver<D> {
             let mut output = (Vec::new(), Vec::new());
 
             let mut oracle_input = Vec::new();
-            for (pp, t) in preprocessing.hidden.iter().zip(tasks.into_iter()) {
+            for (pp, t) in runs.iter().zip(tasks.into_iter()) {
                 let (masked, proof, transcript, _output) = t.await.unwrap();
                 output = _output;
                 masked_branches.push((masked, proof));
@@ -898,7 +898,7 @@ impl<D: Domain> StreamingProver<D> {
             outputs.push(recv_outputs);
         }
 
-        let extraction_task = task::spawn(extract_output::<D>(preprocessing, tasks));
+        let extraction_task = task::spawn(extract_output::<D>(runs, tasks));
 
         let chunk_size = chunk_size(program.len(), inputs.len());
 
