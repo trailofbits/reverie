@@ -692,7 +692,7 @@ impl<D: Domain> StreamingVerifier<D> {
         let (oracle_feed, omitted, pp_hashes, result) = collection_task.await?;
 
         // return output to verify against pre-processing
-        Ok((oracle_feed, omitted, Output { pp_hashes, result }))
+        Ok((oracle_feed, omitted, Output { result, pp_hashes }))
     }
 
     pub fn verify_omitted(oracle: &mut RandomOracle, omitted: Vec<usize>) -> bool {
