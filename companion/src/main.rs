@@ -70,11 +70,6 @@ enum FileStreamer<E, P: Parser<E>> {
     Memory(Arc<Vec<E>>, PhantomData<P>),
 }
 
-enum FileStream<E, P: Parser<E>> {
-    Memory(Arc<Vec<E>>, usize),
-    File(P),
-}
-
 fn load_all<E, P: Parser<E>>(path: &str) -> io::Result<Vec<E>> {
     let file = File::open(path)?;
     let meta = file.metadata()?;
@@ -110,21 +105,6 @@ impl<E, P: Parser<E>> FileStreamer<E, P> {
     fn rewind(&self) -> Arc<Vec<E>> {
         match self {
             FileStreamer::Memory(vec, PhantomData) => vec.clone(),
-        }
-    }
-}
-
-impl<E: Clone, P: Parser<E>> Iterator for FileStream<E, P> {
-    type Item = E;
-
-    fn next(&mut self) -> Option<E> {
-        match self {
-            FileStream::File(parser) => parser.next().unwrap(),
-            FileStream::Memory(vec, n) => {
-                let res = vec.get(*n).cloned();
-                *n += 1;
-                res
-            }
         }
     }
 }
