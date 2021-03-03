@@ -830,16 +830,20 @@ impl<D: Domain> StreamingProver<D> {
             }
         }
 
+        type TaskHandle<T> = task::JoinHandle<
+            Result<
+                (
+                    Vec<u8>,
+                    MerkleSetProof,
+                    Hash,
+                    (Vec<<T as Domain>::Scalar>, Vec<usize>),
+                ),
+                SendError<Vec<u8>>,
+            >,
+        >;
         async fn extract_output<D: Domain>(
             preprocessing: PreprocessingOutput<D>,
-            tasks: Vec<
-                task::JoinHandle<
-                    Result<
-                        (Vec<u8>, MerkleSetProof, Hash, (Vec<D::Scalar>, Vec<usize>)),
-                        SendError<Vec<u8>>,
-                    >,
-                >,
-            >,
+            tasks: Vec<TaskHandle<D>>,
         ) -> (
             Vec<(Vec<u8>, MerkleSetProof)>,
             (Vec<D::Scalar>, Vec<usize>),

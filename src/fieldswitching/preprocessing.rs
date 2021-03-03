@@ -97,7 +97,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
         let (branches_out_1, roots1, results1) = preprocessing::Proof::<D>::new_round_1(
             global_seeds[1],
             &branches1[..],
-            program1.clone(),
+            program1,
             (vec![], fieldswitching_output),
             &mut oracle,
         );
@@ -108,7 +108,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
         let (branches_out_2, roots2, results2) = preprocessing::Proof::<D2>::new_round_1(
             global_seeds[2],
             &branches2[..],
-            program2.clone(),
+            program2,
             (fieldswitching_input, vec![]),
             &mut oracle,
         );
