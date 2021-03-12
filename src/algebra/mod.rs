@@ -18,6 +18,9 @@ pub mod gf2;
 // Ring of integers mod 64
 pub mod z64;
 
+// Ring of integers mod a 32-bit prime
+pub mod p32;
+
 /// These two domains are primarily used for bit-slicing LowMC inside the circuit
 pub mod gf2_vec;
 pub mod gf2_vec85;
