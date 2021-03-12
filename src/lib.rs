@@ -39,7 +39,9 @@ pub use proof::{ProofGf2P64, ProofGf2P64_64, ProofGf2P64_85, ProofGf2P8};
 
 use crate::algebra::RingElement;
 
-#[derive(Copy, Clone, Debug)]
+use serde::{Serialize, Deserialize};
+
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub enum Instruction<E: RingElement> {
     NrOfWires(usize), // Total nr of wires, should be first (and only first) in circuit
     AddConst(usize, usize, E), // addition of constant
