@@ -4,7 +4,9 @@ use crate::util::Writer;
 
 use std::fmt;
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+use serde::{Serialize, Deserialize};
+
+#[derive(Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BitScalar(pub(super) u8);
 
 impl LocalOperation for BitScalar {}

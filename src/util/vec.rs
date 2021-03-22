@@ -14,7 +14,7 @@ impl<T: Copy> VecMap<T> {
     #[inline(always)]
     pub fn set(&mut self, idx: usize, val: T) {
         if idx >= self.0.len() {
-            self.0.resize(idx + 1, val);
+            self.0.resize(idx + 1024, val);
         }
         debug_assert!(idx < self.0.len());
         unsafe {

@@ -71,11 +71,11 @@ impl<D: Domain> Proof<D> {
             pp_output: preprocessing::PreprocessingOutput<D>,
         ) -> Option<online::Proof<D>> {
             let (online, prover) = online::StreamingProver::new(
-                bind.as_ref().map(|x| &x[..]),
+                bind,
                 pp_output,
                 branch_index,
-                program.clone().iter().cloned(),
-                witness.clone().iter().cloned(),
+                program.clone(),
+                witness.clone(),
                 fieldswitching_io.clone(),
                 (vec![], vec![]),
             )
@@ -83,8 +83,8 @@ impl<D: Domain> Proof<D> {
             prover
                 .stream(
                     send,
-                    program.iter().cloned(),
-                    witness.iter().cloned(),
+                    program,
+                    witness,
                     fieldswitching_io.clone(),
                     vec![],
                     vec![],
@@ -104,7 +104,7 @@ impl<D: Domain> Proof<D> {
         let (preprocessing, pp_output) = preprocessing::Proof::new(
             seed,
             &branches[..],
-            program.iter().cloned(),
+            program.clone(),
             fieldswitching_io.clone(),
         );
 
@@ -148,7 +148,7 @@ impl<D: Domain> Proof<D> {
             recv: Receiver<Vec<u8>>,
             fieldswitching_io: FieldSwitchingIo,
         ) -> Result<online::Output<D>, String> {
-            let verifier = online::StreamingVerifier::new(program.iter().cloned(), proof);
+            let verifier = online::StreamingVerifier::new(program, proof);
             verifier
                 .verify(bind.as_ref().map(|x| &x[..]), recv, fieldswitching_io)
                 .await
@@ -162,11 +162,7 @@ impl<D: Domain> Proof<D> {
         ) -> Option<preprocessing::Output<D>> {
             let branches: Vec<&[D::Scalar]> = branches.iter().map(|b| &b[..]).collect();
             proof
-                .verify(
-                    &branches[..],
-                    program.iter().cloned(),
-                    fieldswitching_io.clone(),
-                )
+                .verify(&branches[..], program, fieldswitching_io.clone())
                 .await
         }
 

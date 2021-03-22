@@ -13,9 +13,7 @@ use async_std::sync::Arc;
 use async_std::task;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use std::iter::Cloned;
 use std::marker::PhantomData;
-use std::slice::Iter;
 
 const CHANNEL_CAPACITY: usize = 100;
 
@@ -43,9 +41,9 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
     pub async fn new<'a>(
         bind: Option<Vec<u8>>,
         conn_program: Vec<ConnectionInstruction>,
-        program1: Vec<Instruction<D::Scalar>>,
-        program2: Vec<Instruction<D2::Scalar>>,
-        witness: Vec<D::Scalar>,
+        program1: Arc<Vec<Instruction<D::Scalar>>>,
+        program2: Arc<Vec<Instruction<D2::Scalar>>>,
+        witness: Arc<Vec<D::Scalar>>,
         branch_index: usize,
         pp: fieldswitching::preprocessing::PreprocessingOutput<D, D2>,
     ) -> Self {
@@ -71,8 +69,8 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
                 online::StreamingProver::do_runs_round_1(
                     pp_output1.clone(),
                     branch_index,
-                    &mut program.1.clone().iter().cloned(),
-                    &mut witness.clone().iter().cloned(),
+                    &mut program.1.clone(),
+                    &mut witness.clone(),
                     (vec![], run.fieldswitching_output.clone()),
                     (run.eda_bits.clone(), vec![]),
                     vec![run1],
@@ -120,13 +118,14 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             // println!("input: {:?}", input2);
             // println!("eda_composed: {:?}", run.eda_composed[0].reconstruct());
 
+            let input_arc = Arc::new(input2);
             let run2 = pp_output2.hidden[run_index].clone();
             let (branch_2, masked_branches_2, _output2, mut _oracle_inputs) =
                 online::StreamingProver::do_runs_round_1(
                     pp_output2.clone(),
                     branch_index,
-                    &mut program.2.clone().iter().cloned(),
-                    &mut input2.clone().iter().cloned(),
+                    &mut program.2.clone(),
+                    &mut input_arc.clone(),
                     (run.fieldswitching_input.clone(), vec![]),
                     (vec![], run.eda_composed.clone()),
                     vec![run2],
@@ -141,7 +140,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
                 branch_2,
                 masked_branches_1,
                 masked_branches_2,
-                input2,
+                input_arc.to_vec(),
                 oracle_inputs,
             ))
         }
@@ -154,13 +153,9 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
         let mut eda_composed = Vec::new();
         for (run_index, run) in pp.hidden.iter().cloned().enumerate() {
             prover_tasks.push(task::spawn(online_proof(
-                (
-                    conn_program.clone(),
-                    Arc::new(program1.clone()),
-                    Arc::new(program2.clone()),
-                ),
+                (conn_program.clone(), program1.clone(), program2.clone()),
                 branch_index,
-                Arc::new(witness.clone()),
+                witness.clone(),
                 run.clone(),
                 run_index,
                 pp.pp_output1.clone(),
@@ -228,8 +223,8 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
         prover1
             .stream(
                 send1,
-                program1.iter().cloned(),
-                witness.iter().cloned(),
+                program1.clone(),
+                witness.clone(),
                 (vec![], fieldswitching_output.clone()),
                 eda_bits.clone(),
                 vec![],
@@ -239,8 +234,8 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
         prover2
             .stream(
                 send2,
-                program2.iter().cloned(),
-                input2.iter().cloned(),
+                program2.clone(),
+                Arc::new(input2),
                 (fieldswitching_input.clone(), vec![]),
                 vec![],
                 eda_composed.clone(),
@@ -310,8 +305,8 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
         &self,
         bind: Option<Vec<u8>>,
         conn_program: Vec<ConnectionInstruction>,
-        program1: Vec<Instruction<D::Scalar>>,
-        program2: Vec<Instruction<D2::Scalar>>,
+        program1: Arc<Vec<Instruction<D::Scalar>>>,
+        program2: Arc<Vec<Instruction<D2::Scalar>>>,
     ) -> Result<Vec<D2::Scalar>, String> {
         async fn online_verification<D: Domain, D2: Domain>(
             program: FullProgram<D, D2>,
@@ -344,8 +339,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             let (fieldswitching_input, fieldswitching_output) =
                 PreprocessingExecution::<D, D2>::get_fs_input_output(&program.0[..]);
 
-            let verifier1 =
-                online::StreamingVerifier::new(program.1.iter().cloned(), proof1.clone());
+            let verifier1 = online::StreamingVerifier::new(program.1.clone(), proof1.clone());
             let run1 = verifier1.proof.runs[run_index].clone();
             let (mut oracle_feed1, omitted1, _result1) = match verifier1
                 .do_verify_round_1(
@@ -375,8 +369,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
                 }
             }
 
-            let verifier2 =
-                online::StreamingVerifier::new(program.2.iter().cloned(), proof2.clone());
+            let verifier2 = online::StreamingVerifier::new(program.2.clone(), proof2.clone());
             let run2 = verifier2.proof.runs[run_index].clone();
             let (mut oracle_feed2, omitted2, result2) = match verifier2
                 .do_verify_round_1(
@@ -413,11 +406,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             let (send1, recv1) = bounded(CHANNEL_CAPACITY);
             let (send2, recv2) = bounded(CHANNEL_CAPACITY);
             tasks.push(task::spawn(online_verification(
-                (
-                    conn_program.clone(),
-                    Arc::new(program1.clone()),
-                    Arc::new(program2.clone()),
-                ),
+                (conn_program.clone(), program1.clone(), program2.clone()),
                 run,
                 run_index,
                 self.online1.clone(),
@@ -480,16 +469,10 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             // oracle.feed(commitment.as_bytes());
         }
 
-        if !<StreamingVerifier<D, Cloned<Iter<Instruction<D::Scalar>>>>>::verify_omitted(
-            &mut oracle,
-            omitted1,
-        ) {
+        if !<StreamingVerifier<D>>::verify_omitted(&mut oracle, omitted1) {
             return Err(String::from("omitted values for proof 1 are incorrect"));
         }
-        if !<StreamingVerifier<D2, Cloned<Iter<Instruction<D2::Scalar>>>>>::verify_omitted(
-            &mut oracle,
-            omitted2,
-        ) {
+        if !<StreamingVerifier<D2>>::verify_omitted(&mut oracle, omitted2) {
             return Err(String::from("omitted values for proof 2 are incorrect"));
         }
 

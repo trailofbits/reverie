@@ -14,6 +14,10 @@ pub const CONTEXT_ORACLE_ONLINE: &str = "oracle_online";
 
 pub const CONTEXT_ORACLE_PREPROCESSING: &str = "oracle_preprocessing";
 
+pub const BYTES_PER_GATE: i64 = 70;
+
+pub const GATE_MEM_INTERCEPT: i64 = 180_000_000;
+
 pub const CONTEXT_ORACLE_INPUT: &str = "oracle_input";
 
 pub const CONTEXT_RNG_EDA: &str = "eda_seed";

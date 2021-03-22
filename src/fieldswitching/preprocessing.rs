@@ -40,8 +40,8 @@ pub struct FsPreprocessingRun<D: Domain, D2: Domain> {
 impl<D: Domain, D2: Domain> Proof<D, D2> {
     pub fn new(
         conn_program: Vec<ConnectionInstruction>,
-        program1: Vec<Instruction<D::Scalar>>,
-        program2: Vec<Instruction<D2::Scalar>>,
+        program1: Arc<Vec<Instruction<D::Scalar>>>,
+        program2: Arc<Vec<Instruction<D2::Scalar>>>,
         branches1: Vec<Vec<D::Scalar>>,
         branches2: Vec<Vec<D2::Scalar>>,
     ) -> (Self, PreprocessingOutput<D, D2>) {
@@ -97,7 +97,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
         let (branches_out_1, roots1, results1) = preprocessing::Proof::<D>::new_round_1(
             global_seeds[1],
             &branches1[..],
-            program1.iter().cloned(),
+            program1,
             (vec![], fieldswitching_output),
             &mut oracle,
         );
@@ -108,7 +108,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
         let (branches_out_2, roots2, results2) = preprocessing::Proof::<D2>::new_round_1(
             global_seeds[2],
             &branches2[..],
-            program2.iter().cloned(),
+            program2,
             (fieldswitching_input, vec![]),
             &mut oracle,
         );
@@ -171,8 +171,8 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
     pub async fn verify(
         &self,
         conn_program: Vec<ConnectionInstruction>,
-        program1: Vec<Instruction<D::Scalar>>,
-        program2: Vec<Instruction<D2::Scalar>>,
+        program1: Arc<Vec<Instruction<D::Scalar>>>,
+        program2: Arc<Vec<Instruction<D2::Scalar>>>,
         branches1: Vec<Vec<D::Scalar>>,
         branches2: Vec<Vec<D2::Scalar>>,
     ) -> Result<(), String> {
@@ -269,7 +269,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             .preprocessing1
             .verify_round_1(
                 &branches1[..],
-                program1.iter().cloned(),
+                program1.clone(),
                 (vec![], fieldswitching_output.clone()),
                 &mut oracle,
             )
@@ -278,7 +278,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             .preprocessing2
             .verify_round_1(
                 &branches2[..],
-                program2.iter().cloned(),
+                program2.clone(),
                 (fieldswitching_input.clone(), vec![]),
                 &mut oracle,
             )
