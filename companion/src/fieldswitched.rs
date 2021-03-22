@@ -6,30 +6,19 @@ mod instruction;
 mod witness;
 
 use reverie::algebra::gf2::*;
-use reverie::online;
-use reverie::preprocessing;
+use reverie::algebra::z64::*;
+use reverie::fieldswitching;
 use reverie::Instruction;
 
-use async_channel::bounded;
 use async_std::task;
 
-use std::io::prelude::*;
-use std::io::SeekFrom;
 use std::mem;
 use std::process::exit;
 use std::sync::Arc;
 
 use clap::{App, Arg};
-use rand::rngs::OsRng;
-use rand::Rng;
-
-use rayon::prelude::*;
-
-use sysinfo::SystemExt;
 
 const MAX_VEC_SIZE: usize = 1024 * 1024 * 1024;
-
-const IN_MEMORY_FILE_SIZE: usize = 1024 * 1024 * 1024;
 
 pub trait Parser<E>: Sized {
     fn new(reader: BufReader<File>) -> io::Result<Self>;
@@ -73,48 +62,22 @@ fn read_vec<R: io::Read>(src: &mut R) -> io::Result<Option<Vec<u8>>> {
 }
 
 enum FileStreamer<E, P: Parser<E>> {
-    File(File, PhantomData<P>),
-    Memory(Arc<Vec<E>>),
-}
-
-enum FileStream<E, P: Parser<E>> {
-    Memory(Arc<Vec<E>>, usize),
-    File(P),
-}
-
-fn load_all<E, P: Parser<E>>(path: &str) -> io::Result<Vec<E>> {
-    let file = File::open(path)?;
-    let meta = file.metadata()?;
-    let reader = BufReader::new(file);
-    let mut contents: Vec<E> = Vec::with_capacity(meta.len() as usize / mem::size_of::<E>());
-    let mut parser = P::new(reader)?;
-    while let Some(elem) = parser.next()? {
-        contents.push(elem)
-    }
-    Ok(contents)
+    Memory(Arc<Vec<E>>, PhantomData<P>),
 }
 
 impl<E, P: Parser<E>> FileStreamer<E, P> {
-    fn new(path: &str, mem_size: usize) -> io::Result<Self> {
+    fn new(path: &str) -> io::Result<Self> {
         let file = File::open(path)?;
         let meta = file.metadata()?;
 
-        // parse small files once and load into memory
-        if meta.len() < mem_size as u64 {
-            println!("load into memory");
-            let reader = BufReader::new(file);
-            let mut contents: Vec<E> =
-                Vec::with_capacity(meta.len() as usize / mem::size_of::<E>());
-            let mut parser = P::new(reader)?;
-            while let Some(elem) = parser.next()? {
-                contents.push(elem)
-            }
-            println!("done");
-            return Ok(FileStreamer::Memory(Arc::new(contents)));
+        // parse once and load into memory
+        let reader = BufReader::new(file);
+        let mut contents: Vec<E> = Vec::with_capacity(meta.len() as usize / mem::size_of::<E>());
+        let mut parser = P::new(reader)?;
+        while let Some(elem) = parser.next()? {
+            contents.push(elem)
         }
-
-        // larger files streamed in (multiple times) and parsed Just-in-Time
-        Ok(FileStreamer::File(file, PhantomData))
+        Ok(FileStreamer::Memory(Arc::new(contents), PhantomData))
     }
 
     /// Reset the file stream
@@ -122,172 +85,111 @@ impl<E, P: Parser<E>> FileStreamer<E, P> {
     /// For in-memory files this is a noop
     /// For disk based files this seeks to the start and
     /// re-initializes the (potentially) stateful parser.
-    fn rewind(&self) -> io::Result<FileStream<E, P>> {
+    fn rewind(&self) -> Arc<Vec<E>> {
         match self {
-            FileStreamer::File(file, _) => {
-                let mut file_c = file.try_clone()?;
-                file_c.seek(SeekFrom::Start(0))?;
-                Ok(FileStream::File(P::new(BufReader::new(file_c))?))
-            }
-            FileStreamer::Memory(vec) => Ok(FileStream::Memory(vec.clone(), 0)),
-        }
-    }
-}
-
-impl<E: Clone, P: Parser<E>> Iterator for FileStream<E, P> {
-    type Item = E;
-
-    fn next(&mut self) -> Option<E> {
-        match self {
-            FileStream::File(parser) => parser.next().unwrap(),
-            FileStream::Memory(vec, n) => {
-                let res = vec.get(*n).cloned();
-                *n += 1;
-                res
-            }
-        }
-    }
-}
-
-fn load_branches<BP: Parser<BitScalar> + Send + 'static>(
-    branch_paths: Option<Vec<&str>>,
-) -> io::Result<Vec<Vec<BitScalar>>> {
-    match branch_paths {
-        None => Ok(vec![vec![]]),
-        Some(paths) => {
-            let loads: Vec<io::Result<Vec<BitScalar>>> = paths
-                .par_iter()
-                .map(|path| load_all::<_, BP>(path))
-                .collect();
-            let mut branches: Vec<Vec<BitScalar>> = Vec::with_capacity(loads.len());
-            for load in loads.into_iter() {
-                branches.push(load?);
-            }
-            Ok(branches)
+            FileStreamer::Memory(vec, PhantomData) => vec.clone(),
         }
     }
 }
 
 async fn prove<
     IP: Parser<Instruction<BitScalar>> + Send + 'static,
+    IP2: Parser<Instruction<Scalar>> + Send + 'static,
     WP: Parser<BitScalar> + Send + 'static,
     BP: Parser<BitScalar> + Send + 'static,
 >(
     proof_path: &str,
     program_path: &str,
+    program2_path: &str,
     witness_path: &str,
-    branch_paths: Option<Vec<&str>>,
-    branch_index: usize,
 ) -> io::Result<()> {
-    let branch_vecs = load_branches::<BP>(branch_paths)?;
-
-    // collect branch slices
-    let branches: Vec<&[BitScalar]> = branch_vecs.iter().map(|v| &v[..]).collect();
-
-    // load to memory depending on available RAM
-    let mut system = sysinfo::System::new();
-    system.refresh_all();
-    let available_mem = system.get_available_memory();
-
     // open and parse program
-    let program: FileStreamer<_, IP> =
-        FileStreamer::new(program_path, (available_mem * 1024 / 4) as usize)?;
+    let program: FileStreamer<_, IP> = FileStreamer::new(program_path)?;
+
+    let program2: FileStreamer<_, IP2> = FileStreamer::new(program2_path)?;
 
     // open and parse witness
-    let witness: FileStreamer<_, WP> = FileStreamer::new(witness_path, IN_MEMORY_FILE_SIZE)?;
+    let witness: FileStreamer<_, WP> = FileStreamer::new(witness_path)?;
 
     // open destination
     let mut proof = File::create(proof_path)?;
 
     // prove preprocessing
     println!("preprocessing...");
-    let (preprocessing, pp_output) = preprocessing::Proof::<Gf2P8>::new(
-        OsRng.gen(),       // seed
-        &branches[..],     // branches
-        program.rewind()?, // program
-        (vec![], vec![]),
+    let (preprocessing, pp_output) = fieldswitching::preprocessing::Proof::<Gf2P8, Z64P8>::new(
+        Vec::new(),
+        program.rewind(),
+        program2.rewind(),
+        Vec::new(),
+        Vec::new(),
     );
-    write_vec(&mut proof, &preprocessing.serialize()[..])?;
+
+    write_vec(&mut proof, &bincode::serialize(&preprocessing).unwrap()[..])?;
 
     // create streaming prover instance
     println!("oracle pass...");
-    let (online, prover) = online::StreamingProver::<Gf2P8>::new(
+    let online_proof = fieldswitching::online::Proof::<Gf2P8, Z64P8>::new(
         None,
+        Vec::new(),
+        program.rewind(),
+        program2.rewind(),
+        witness.rewind(),
+        0,
         pp_output,
-        branch_index,
-        program.rewind()?,
-        witness.rewind()?,
-        (vec![], vec![]),
-        (vec![], vec![]),
     )
-        .await;
-    write_vec(&mut proof, &online.serialize()[..])?;
+    .await;
 
-    // create prover for online phase
-    println!("stream proof...");
-    let (send, recv) = bounded(100);
-    let stream_task = task::spawn(prover.stream(send, program.rewind()?, witness.rewind()?, (vec![], vec![]), vec![], vec![]));
+    write_vec(&mut proof, &bincode::serialize(&online_proof).unwrap()[..])?;
 
-    // read all chunks from online execution
-    // (stream out the proof to disk)
-    while let Ok(chunk) = recv.recv().await {
-        write_vec(&mut proof, &chunk)?;
-    }
-
-    // wait for streaming prover to merge
-    stream_task.await.unwrap();
     Ok(())
 }
 
 async fn verify<
     IP: Parser<Instruction<BitScalar>> + Send + 'static,
+    IP2: Parser<Instruction<Scalar>> + Send + 'static,
     BP: Parser<BitScalar> + Send + 'static,
 >(
     proof_path: &str,
     program_path: &str,
-    branch_paths: Option<Vec<&str>>,
-) -> io::Result<Result<Vec<BitScalar>, String>> {
-    let branch_vecs = load_branches::<BP>(branch_paths)?;
-
-    // collect branch slices
-    let branches: Vec<&[BitScalar]> = branch_vecs.iter().map(|v| &v[..]).collect();
-
+    program2_path: &str,
+) -> io::Result<Result<Vec<Scalar>, String>> {
     // open and parse program
-    let program: FileStreamer<_, IP> = FileStreamer::new(program_path, 0)?;
+    let program: FileStreamer<_, IP> = FileStreamer::new(program_path)?;
+    let program2: FileStreamer<_, IP2> = FileStreamer::new(program2_path)?;
 
     // open and parse proof
     let mut proof = BufReader::new(File::open(proof_path)?);
 
     // parse preprocessing
-    let preprocessing: preprocessing::Proof<Gf2P8> = read_vec(&mut proof)?
-        .and_then(|v| preprocessing::Proof::<Gf2P8>::deserialize(&v))
+    let preprocessing: fieldswitching::preprocessing::Proof<Gf2P8, Z64P8> = read_vec(&mut proof)?
+        .and_then(|v| bincode::deserialize(&v).ok())
         .expect("Failed to deserialize proof after preprocessing");
 
-    let pp_output = match preprocessing.verify(&branches[..], program.rewind()?, (vec![], vec![])).await {
-        Some(output) => output,
-        None => panic!("Failed to verify preprocessed proof"),
+    let _pp_output = match preprocessing
+        .verify(
+            Vec::new(),
+            program.rewind(),
+            program2.rewind(),
+            Vec::new(),
+            Vec::new(),
+        )
+        .await
+    {
+        Ok(output) => output,
+        _ => panic!("Failed to verify preprocessed proof"),
     };
 
-    let online = read_vec(&mut proof)?
-        .and_then(|v| online::Proof::<Gf2P8>::deserialize(&v))
+    let online: fieldswitching::online::Proof<Gf2P8, Z64P8> = read_vec(&mut proof)?
+        .and_then(|v| bincode::deserialize(&v).ok())
         .expect("Failed to deserialize online proof");
 
     // verify the online execution
-    let (send, recv) = bounded(100);
-    let task_online =
-        task::spawn(online::StreamingVerifier::new(program.rewind()?, online).verify(None, recv, (vec![], vec![])));
+    let online_output =
+        task::block_on(online.verify(None, Vec::new(), program.rewind(), program2.rewind()));
 
-    while let Some(vec) = read_vec(&mut proof)? {
-        send.send(vec).await.unwrap();
-    }
+    // TODO (ehennenfent) Do we need to do anything else to check the output here?
 
-    mem::drop(send);
-
-    let online_output = task_online.await.unwrap();
-
-    Ok(online_output
-        .check(&pp_output)
-        .ok_or_else(|| String::from("Online output check failed")))
+    Ok(online_output)
 }
 
 async fn async_main() -> io::Result<()> {
@@ -311,19 +213,6 @@ async fn async_main() -> io::Result<()> {
                 .required(true),
         )
         .arg(
-            Arg::with_name("branch-path")
-                .long("branch-path")
-                .help("The path to a file containing branch bits (may occur multiple times)")
-                .empty_values(false)
-                .multiple(true),
-        )
-        .arg(
-            Arg::with_name("branch-index")
-                .long("branch-index")
-                .help("The index/active branch")
-                .empty_values(false),
-        )
-        .arg(
             Arg::with_name("witness-path")
                 .long("witness-path")
                 .help("The path to the file containing the witness (for proving)")
@@ -343,74 +232,34 @@ async fn async_main() -> io::Result<()> {
                 .help("The path to the file in which to write the output")
                 .empty_values(false),
         )
-        .arg(
-            Arg::with_name("program-format")
-                .long("program-format")
-                .help("The format of the program input.")
-                .possible_values(&["bristol", "bin"])
-                .empty_values(false)
-                .required(true),
-        )
         .get_matches();
-
-    let branches: Option<Vec<&str>> = matches.values_of("branch-path").map(|vs| vs.collect());
 
     match matches.value_of("operation").unwrap() {
         "prove" => {
-            let branch_index: usize = if branches.is_some() {
-                matches
-                    .value_of("branch-index")
-                    .map(|s| s.parse().unwrap())
-                    .unwrap()
-            } else {
-                0
-            };
-            match matches.value_of("program-format").unwrap() {
-                "bristol" => prove::<
-                    instruction::bristol::InsParser,
-                    witness::WitParser,
-                    witness::WitParser,
-                >(
-                    matches.value_of("proof-path").unwrap(),
-                    matches.value_of("program-path").unwrap(),
-                    matches.value_of("witness-path").unwrap(),
-                    branches,
-                    branch_index,
-                )
-                    .await,
-                "bin" => {
-                    prove::<instruction::bin::InsParser, witness::WitParser, witness::WitParser>(
-                        matches.value_of("proof-path").unwrap(),
-                        matches.value_of("program-path").unwrap(),
-                        matches.value_of("witness-path").unwrap(),
-                        branches,
-                        branch_index,
-                    )
-                        .await
-                }
-                _ => unreachable!(),
-            }
+            prove::<
+                instruction::bin::InsParser<BitScalar>,
+                instruction::bin::InsParser<Scalar>,
+                witness::WitParser,
+                witness::WitParser,
+            >(
+                matches.value_of("proof-path").unwrap(),
+                matches.value_of("program-path").unwrap(),
+                matches.value_of("program2-path").unwrap(),
+                matches.value_of("witness-path").unwrap(),
+            )
+            .await
         }
         "verify" => {
-            let res = match matches.value_of("program-format").unwrap() {
-                "bristol" => {
-                    verify::<instruction::bristol::InsParser, witness::WitParser>(
-                        matches.value_of("proof-path").unwrap(),
-                        matches.value_of("program-path").unwrap(),
-                        branches,
-                    )
-                        .await?
-                }
-                "bin" => {
-                    verify::<instruction::bin::InsParser, witness::WitParser>(
-                        matches.value_of("proof-path").unwrap(),
-                        matches.value_of("program-path").unwrap(),
-                        branches,
-                    )
-                        .await?
-                }
-                _ => unreachable!(),
-            };
+            let res = verify::<
+                instruction::bin::InsParser<BitScalar>,
+                instruction::bin::InsParser<Scalar>,
+                witness::WitParser,
+            >(
+                matches.value_of("proof-path").unwrap(),
+                matches.value_of("program-path").unwrap(),
+                matches.value_of("program2-path").unwrap(),
+            )
+            .await?;
             match res {
                 Err(e) => {
                     eprintln!("Invalid proof: {}", e);

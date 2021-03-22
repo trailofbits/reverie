@@ -156,8 +156,8 @@ async fn prove<
     // prove preprocessing
     println!("preprocessing...");
     let (preprocessing, pp_output) = preprocessing::Proof::<Gf2P8>::new(
-        OsRng.gen(),       // seed
-        &branches[..],     // branches
+        OsRng.gen(),      // seed
+        &branches[..],    // branches
         program.rewind(), // program
         (vec![], vec![]),
     );
@@ -180,7 +180,14 @@ async fn prove<
     // create prover for online phase
     println!("stream proof...");
     let (send, recv) = bounded(100);
-    let stream_task = task::spawn(prover.stream(send, program.rewind(), witness.rewind(), (vec![], vec![]), vec![], vec![]));
+    let stream_task = task::spawn(prover.stream(
+        send,
+        program.rewind(),
+        witness.rewind(),
+        (vec![], vec![]),
+        vec![],
+        vec![],
+    ));
 
     // read all chunks from online execution
     // (stream out the proof to disk)
@@ -217,7 +224,10 @@ async fn verify<
         .and_then(|v| preprocessing::Proof::<Gf2P8>::deserialize(&v))
         .expect("Failed to deserialize proof after preprocessing");
 
-    let pp_output = match preprocessing.verify(&branches[..], program.rewind(), (vec![], vec![])).await {
+    let pp_output = match preprocessing
+        .verify(&branches[..], program.rewind(), (vec![], vec![]))
+        .await
+    {
         Some(output) => output,
         None => panic!("Failed to verify preprocessed proof"),
     };
@@ -228,8 +238,13 @@ async fn verify<
 
     // verify the online execution
     let (send, recv) = bounded(100);
-    let task_online =
-        task::spawn(online::StreamingVerifier::new(program.rewind(), online).verify(None, recv, (vec![], vec![])));
+    let task_online = task::spawn(
+        online::StreamingVerifier::new(program.rewind(), online).verify(
+            None,
+            recv,
+            (vec![], vec![]),
+        ),
+    );
 
     while let Some(vec) = read_vec(&mut proof)? {
         send.send(vec).await.unwrap();
@@ -333,7 +348,11 @@ async fn async_main() -> io::Result<()> {
                 )
                 .await,
                 "bin" => {
-                    prove::<instruction::bin::InsParser, witness::WitParser, witness::WitParser>(
+                    prove::<
+                        instruction::bin::InsParser<BitScalar>,
+                        witness::WitParser,
+                        witness::WitParser,
+                    >(
                         matches.value_of("proof-path").unwrap(),
                         matches.value_of("program-path").unwrap(),
                         matches.value_of("witness-path").unwrap(),
@@ -356,7 +375,7 @@ async fn async_main() -> io::Result<()> {
                     .await?
                 }
                 "bin" => {
-                    verify::<instruction::bin::InsParser, witness::WitParser>(
+                    verify::<instruction::bin::InsParser<BitScalar>, witness::WitParser>(
                         matches.value_of("proof-path").unwrap(),
                         matches.value_of("program-path").unwrap(),
                         branches,

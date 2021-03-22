@@ -4,7 +4,7 @@ use crate::util::Writer;
 
 use std::fmt;
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BitScalar(pub(super) u8);

@@ -10,8 +10,11 @@ use async_std::task;
 use rand::rngs::OsRng;
 use rand::RngCore;
 
+use serde::{Deserialize, Serialize};
+
 const DEFAULT_CAPACITY: usize = BATCH_SIZE;
 
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Proof<D: Domain, D2: Domain> {
     pub hidden: Vec<Hash>,
     pub random: TreePrf,
