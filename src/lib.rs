@@ -39,9 +39,9 @@ pub use proof::{ProofGf2P64, ProofGf2P64_64, ProofGf2P64_85, ProofGf2P8};
 
 use crate::algebra::RingElement;
 
-use serde::{Deserialize, Serialize};
 use crate::algebra::gf2::BitScalar;
 use crate::algebra::z64::Scalar;
+use serde::{Deserialize, Serialize};
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub enum Instruction<E: RingElement> {
@@ -66,7 +66,7 @@ pub enum ConnectionInstruction {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ProgramTriple{
+pub struct ProgramTriple {
     pub boolean: Vec<Instruction<BitScalar>>,
     pub arithmetic: Vec<Instruction<Scalar>>,
     pub connection: Vec<ConnectionInstruction>,
