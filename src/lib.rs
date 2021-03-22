@@ -55,11 +55,23 @@ pub enum Instruction<E: RingElement> {
     Const(usize, E),  // fixed constant value
 }
 
-#[derive(Copy, Clone, Debug)]
+// TODO - 32 --> 64
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub enum ConnectionInstruction {
-    BToA(usize, [usize; 64]), // Change field from GF(2) to GF(2^k) //TODO(gvl): make more flexible, max size of arithmetic ring is now 64 bits
-    AToB([usize; 64], usize), // Change field from GF(2^k) to GF(2) //TODO(gvl): make more flexible, max size of arithmetic ring is now 64 bits
+    BToA(usize, [usize; 32]), // Change field from GF(2) to GF(2^k) //TODO(gvl): make more flexible, max size of arithmetic ring is now 64 bits
+    AToB([usize; 32], usize), // Change field from GF(2^k) to GF(2) //TODO(gvl): make more flexible, max size of arithmetic ring is now 64 bits
     Challenge(usize),         // Input a challenge on a wire
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProgramTriple<'a,
+    I1: Deserialize<'a> + Serialize,
+    I2: Deserialize<'a> + Serialize,
+    I3: Deserialize<'a> + Serialize,
+> {
+    pub program_1: Vec<I1>,
+    pub program_2: Vec<I2>,
+    pub program_3: Vec<I3>,
 }
 
 type Instructions<D> = Vec<Instruction<<D as algebra::Domain>::Scalar>>;

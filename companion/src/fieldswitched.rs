@@ -1,22 +1,24 @@
 use std::fs::File;
 use std::io::{self, BufReader};
-use std::marker::PhantomData;
 
 mod instruction;
 mod witness;
 
 use reverie::algebra::gf2::*;
 use reverie::algebra::z64::*;
-use reverie::fieldswitching;
 use reverie::Instruction;
+use reverie::{fieldswitching, ConnectionInstruction, ProgramTriple};
 
 use async_std::task;
 
-use std::mem;
 use std::process::exit;
 use std::sync::Arc;
 
 use clap::{App, Arg};
+use reverie::algebra::RingElement;
+use serde::Deserialize;
+use std::marker::PhantomData;
+use std::mem;
 
 const MAX_VEC_SIZE: usize = 1024 * 1024 * 1024;
 
@@ -92,21 +94,39 @@ impl<E, P: Parser<E>> FileStreamer<E, P> {
     }
 }
 
-async fn prove<
-    IP: Parser<Instruction<BitScalar>> + Send + 'static,
-    IP2: Parser<Instruction<Scalar>> + Send + 'static,
-    WP: Parser<BitScalar> + Send + 'static,
-    BP: Parser<BitScalar> + Send + 'static,
->(
+struct ProgramArc {
+    pub program_1: Arc<Vec<Instruction<BitScalar>>>,
+    pub program_2: Arc<Vec<Instruction<Scalar>>>,
+    pub connection: Vec<ConnectionInstruction>,
+}
+
+impl ProgramArc {
+    fn new(path: &str) -> io::Result<Self> {
+        let file = File::open(path)?;
+        let meta = file.metadata()?;
+
+        // parse once and load into memory
+        let reader = BufReader::new(file);
+        let program: ProgramTriple<
+            Instruction<BitScalar>,
+            Instruction<Scalar>,
+            ConnectionInstruction,
+        > = bincode::deserialize_from(reader).unwrap();
+        Ok(ProgramArc {
+            program_1: Arc::new(program.program_1),
+            program_2: Arc::new(program.program_2),
+            connection: program.connection,
+        })
+    }
+}
+
+async fn prove<WP: Parser<BitScalar> + Send + 'static>(
     proof_path: &str,
     program_path: &str,
-    program2_path: &str,
     witness_path: &str,
 ) -> io::Result<()> {
     // open and parse program
-    let program: FileStreamer<_, IP> = FileStreamer::new(program_path)?;
-
-    let program2: FileStreamer<_, IP2> = FileStreamer::new(program2_path)?;
+    let program: ProgramArc<BitScalar, Scalar> = ProgramArc::new(program_path)?;
 
     // open and parse witness
     let witness: FileStreamer<_, WP> = FileStreamer::new(witness_path)?;
@@ -117,9 +137,9 @@ async fn prove<
     // prove preprocessing
     println!("preprocessing...");
     let (preprocessing, pp_output) = fieldswitching::preprocessing::Proof::<Gf2P8, Z64P8>::new(
-        Vec::new(),
-        program.rewind(),
-        program2.rewind(),
+        program.connection.clone(),
+        program.program_1.clone(),
+        program.program_2.clone(),
         Vec::new(),
         Vec::new(),
     );
@@ -130,9 +150,9 @@ async fn prove<
     println!("oracle pass...");
     let online_proof = fieldswitching::online::Proof::<Gf2P8, Z64P8>::new(
         None,
-        Vec::new(),
-        program.rewind(),
-        program2.rewind(),
+        program.connection.clone(),
+        program.program_1.clone(),
+        program.program_2.clone(),
         witness.rewind(),
         0,
         pp_output,
@@ -144,18 +164,9 @@ async fn prove<
     Ok(())
 }
 
-async fn verify<
-    IP: Parser<Instruction<BitScalar>> + Send + 'static,
-    IP2: Parser<Instruction<Scalar>> + Send + 'static,
-    BP: Parser<BitScalar> + Send + 'static,
->(
-    proof_path: &str,
-    program_path: &str,
-    program2_path: &str,
-) -> io::Result<Result<Vec<Scalar>, String>> {
+async fn verify(proof_path: &str, program_path: &str) -> io::Result<Result<Vec<Scalar>, String>> {
     // open and parse program
-    let program: FileStreamer<_, IP> = FileStreamer::new(program_path)?;
-    let program2: FileStreamer<_, IP2> = FileStreamer::new(program2_path)?;
+    let program: ProgramArc<BitScalar, Scalar> = ProgramArc::new(program_path)?;
 
     // open and parse proof
     let mut proof = BufReader::new(File::open(proof_path)?);
@@ -167,9 +178,9 @@ async fn verify<
 
     let _pp_output = match preprocessing
         .verify(
-            Vec::new(),
-            program.rewind(),
-            program2.rewind(),
+            program.connection.clone(),
+            program.program_1.clone(),
+            program.program_2.clone(),
             Vec::new(),
             Vec::new(),
         )
@@ -184,8 +195,12 @@ async fn verify<
         .expect("Failed to deserialize online proof");
 
     // verify the online execution
-    let online_output =
-        task::block_on(online.verify(None, Vec::new(), program.rewind(), program2.rewind()));
+    let online_output = task::block_on(online.verify(
+        None,
+        program.connection.clone(),
+        program.program_1.clone(),
+        program.program_2.clone(),
+    ));
 
     // TODO (ehennenfent) Do we need to do anything else to check the output here?
 
@@ -236,28 +251,17 @@ async fn async_main() -> io::Result<()> {
 
     match matches.value_of("operation").unwrap() {
         "prove" => {
-            prove::<
-                instruction::bin::InsParser<BitScalar>,
-                instruction::bin::InsParser<Scalar>,
-                witness::WitParser,
-                witness::WitParser,
-            >(
+            prove::<witness::WitParser>(
                 matches.value_of("proof-path").unwrap(),
                 matches.value_of("program-path").unwrap(),
-                matches.value_of("program2-path").unwrap(),
                 matches.value_of("witness-path").unwrap(),
             )
             .await
         }
         "verify" => {
-            let res = verify::<
-                instruction::bin::InsParser<BitScalar>,
-                instruction::bin::InsParser<Scalar>,
-                witness::WitParser,
-            >(
+            let res = verify(
                 matches.value_of("proof-path").unwrap(),
                 matches.value_of("program-path").unwrap(),
-                matches.value_of("program2-path").unwrap(),
             )
             .await?;
             match res {
