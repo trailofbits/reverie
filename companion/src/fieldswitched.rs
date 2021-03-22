@@ -15,8 +15,6 @@ use std::process::exit;
 use std::sync::Arc;
 
 use clap::{App, Arg};
-use reverie::algebra::RingElement;
-use serde::Deserialize;
 use std::marker::PhantomData;
 use std::mem;
 
@@ -95,26 +93,21 @@ impl<E, P: Parser<E>> FileStreamer<E, P> {
 }
 
 struct ProgramArc {
-    pub program_1: Arc<Vec<Instruction<BitScalar>>>,
-    pub program_2: Arc<Vec<Instruction<Scalar>>>,
+    pub boolean: Arc<Vec<Instruction<BitScalar>>>,
+    pub arithmetic: Arc<Vec<Instruction<Scalar>>>,
     pub connection: Vec<ConnectionInstruction>,
 }
 
 impl ProgramArc {
     fn new(path: &str) -> io::Result<Self> {
         let file = File::open(path)?;
-        let meta = file.metadata()?;
 
         // parse once and load into memory
         let reader = BufReader::new(file);
-        let program: ProgramTriple<
-            Instruction<BitScalar>,
-            Instruction<Scalar>,
-            ConnectionInstruction,
-        > = bincode::deserialize_from(reader).unwrap();
+        let program: ProgramTriple = bincode::deserialize_from(reader).unwrap();
         Ok(ProgramArc {
-            program_1: Arc::new(program.program_1),
-            program_2: Arc::new(program.program_2),
+            boolean: Arc::new(program.boolean),
+            arithmetic: Arc::new(program.arithmetic),
             connection: program.connection,
         })
     }
@@ -126,7 +119,7 @@ async fn prove<WP: Parser<BitScalar> + Send + 'static>(
     witness_path: &str,
 ) -> io::Result<()> {
     // open and parse program
-    let program: ProgramArc<BitScalar, Scalar> = ProgramArc::new(program_path)?;
+    let program: ProgramArc = ProgramArc::new(program_path)?;
 
     // open and parse witness
     let witness: FileStreamer<_, WP> = FileStreamer::new(witness_path)?;
@@ -138,8 +131,8 @@ async fn prove<WP: Parser<BitScalar> + Send + 'static>(
     println!("preprocessing...");
     let (preprocessing, pp_output) = fieldswitching::preprocessing::Proof::<Gf2P8, Z64P8>::new(
         program.connection.clone(),
-        program.program_1.clone(),
-        program.program_2.clone(),
+        program.boolean.clone(),
+        program.arithmetic.clone(),
         Vec::new(),
         Vec::new(),
     );
@@ -151,8 +144,8 @@ async fn prove<WP: Parser<BitScalar> + Send + 'static>(
     let online_proof = fieldswitching::online::Proof::<Gf2P8, Z64P8>::new(
         None,
         program.connection.clone(),
-        program.program_1.clone(),
-        program.program_2.clone(),
+        program.boolean.clone(),
+        program.arithmetic.clone(),
         witness.rewind(),
         0,
         pp_output,
@@ -166,7 +159,7 @@ async fn prove<WP: Parser<BitScalar> + Send + 'static>(
 
 async fn verify(proof_path: &str, program_path: &str) -> io::Result<Result<Vec<Scalar>, String>> {
     // open and parse program
-    let program: ProgramArc<BitScalar, Scalar> = ProgramArc::new(program_path)?;
+    let program: ProgramArc = ProgramArc::new(program_path)?;
 
     // open and parse proof
     let mut proof = BufReader::new(File::open(proof_path)?);
@@ -179,8 +172,8 @@ async fn verify(proof_path: &str, program_path: &str) -> io::Result<Result<Vec<S
     let _pp_output = match preprocessing
         .verify(
             program.connection.clone(),
-            program.program_1.clone(),
-            program.program_2.clone(),
+            program.boolean.clone(),
+            program.arithmetic.clone(),
             Vec::new(),
             Vec::new(),
         )
@@ -198,8 +191,8 @@ async fn verify(proof_path: &str, program_path: &str) -> io::Result<Result<Vec<S
     let online_output = task::block_on(online.verify(
         None,
         program.connection.clone(),
-        program.program_1.clone(),
-        program.program_2.clone(),
+        program.boolean.clone(),
+        program.arithmetic.clone(),
     ));
 
     // TODO (ehennenfent) Do we need to do anything else to check the output here?
