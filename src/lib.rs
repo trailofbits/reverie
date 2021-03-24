@@ -41,6 +41,12 @@ use crate::algebra::RingElement;
 
 use crate::algebra::gf2::BitScalar;
 use crate::algebra::z64::Scalar;
+
+#[macro_use]
+extern crate serde_big_array;
+
+big_array! { BigArray; }
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
@@ -60,9 +66,9 @@ pub enum Instruction<E: RingElement> {
 // TODO - 32 --> 64
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub enum ConnectionInstruction {
-    BToA(usize, [usize; 32]), // Change field from GF(2) to GF(2^k) //TODO(gvl): make more flexible, max size of arithmetic ring is now 64 bits
-    AToB([usize; 32], usize), // Change field from GF(2^k) to GF(2) //TODO(gvl): make more flexible, max size of arithmetic ring is now 64 bits
-    Challenge(usize),         // Input a challenge on a wire
+    BToA(usize, #[serde(with = "BigArray")] [usize; 64]), // Change field from GF(2) to GF(2^k) //TODO(gvl): make more flexible, max size of arithmetic ring is now 64 bits
+    AToB(#[serde(with = "BigArray")] [usize; 64], usize), // Change field from GF(2^k) to GF(2) //TODO(gvl): make more flexible, max size of arithmetic ring is now 64 bits
+    Challenge(usize),                                     // Input a challenge on a wire
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

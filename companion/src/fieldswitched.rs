@@ -133,11 +133,14 @@ async fn prove<WP: Parser<BitScalar> + Send + 'static>(
         program.connection.clone(),
         program.boolean.clone(),
         program.arithmetic.clone(),
-        Vec::new(),
-        Vec::new(),
+        vec![vec![]],
+        vec![vec![]],
     );
 
-    write_vec(&mut proof, &bincode::serialize(&preprocessing).unwrap()[..])?;
+    write_vec(
+        &mut proof,
+        &bincode::serialize(&preprocessing).expect("Failed to write preprocessing proof")[..],
+    )?;
 
     // create streaming prover instance
     println!("oracle pass...");
@@ -152,7 +155,10 @@ async fn prove<WP: Parser<BitScalar> + Send + 'static>(
     )
     .await;
 
-    write_vec(&mut proof, &bincode::serialize(&online_proof).unwrap()[..])?;
+    write_vec(
+        &mut proof,
+        &bincode::serialize(&online_proof).expect("Failed to write online proof")[..],
+    )?;
 
     Ok(())
 }
@@ -174,8 +180,8 @@ async fn verify(proof_path: &str, program_path: &str) -> io::Result<Result<Vec<S
             program.connection.clone(),
             program.boolean.clone(),
             program.arithmetic.clone(),
-            Vec::new(),
-            Vec::new(),
+            vec![vec![]],
+            vec![vec![]],
         )
         .await
     {
