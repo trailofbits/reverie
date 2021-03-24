@@ -52,7 +52,3 @@ cipher = "0.2"
 [features]
 trace = []
 debug_eval = []
-
-[workspace]
-members = ["companion"]
-default-members = ["companion"]
