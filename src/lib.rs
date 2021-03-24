@@ -63,7 +63,6 @@ pub enum Instruction<E: RingElement> {
     Const(usize, E),  // fixed constant value
 }
 
-// TODO - 32 --> 64
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub enum ConnectionInstruction {
     BToA(usize, #[serde(with = "BigArray")] [usize; 64]), // Change field from GF(2) to GF(2^k) //TODO(gvl): make more flexible, max size of arithmetic ring is now 64 bits
