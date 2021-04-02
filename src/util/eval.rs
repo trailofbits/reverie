@@ -71,9 +71,9 @@ pub fn evaluate_fieldswitching_btoa_program<D: Domain, D2: Domain>(
 ) -> Vec<D2::Scalar> {
     fn convert_bit<D: Domain, D2: Domain>(input: D::Scalar) -> D2::Scalar {
         if input == D::Scalar::ONE {
-            return D2::Scalar::ONE;
+            D2::Scalar::ONE
         } else {
-            return D2::Scalar::ZERO;
+            D2::Scalar::ZERO
         }
     }
 
