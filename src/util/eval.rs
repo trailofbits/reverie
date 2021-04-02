@@ -30,6 +30,9 @@ pub fn evaluate_program<D: Domain>(
             Instruction::Add(dst, src1, src2) => {
                 wires.set(dst, wires.get(src1) + wires.get(src2));
             }
+            Instruction::Sub(dst, src1, src2) => {
+                wires.set(dst, wires.get(src1) - wires.get(src2));
+            }
             Instruction::Mul(dst, src1, src2) => {
                 wires.set(dst, wires.get(src1) * wires.get(src2));
             }

@@ -236,6 +236,10 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
                     assert_ne!(nr_of_wires, 0);
                     self.process_add(&mut masks, dst, src1, src2);
                 }
+                Instruction::Sub(dst, src1, src2) => {
+                    assert_ne!(nr_of_wires, 0);
+                    self.process_sub(&mut masks, dst, src1, src2);
+                }
                 Instruction::Mul(dst, src1, src2) => {
                     assert_ne!(nr_of_wires, 0);
                     self.process_mul(broadcast, &mut ab_gamma, &mut masks, dst, src1, src2);
@@ -393,6 +397,46 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
         #[cfg(debug_assertions)]
         {
             let correct = self.plain.get(src1).unwrap() + self.plain.get(src2).unwrap();
+            self.plain.set(dst, Some(correct));
+
+            // reconstruct masked wire and check computation
+            #[cfg(feature = "debug_eval")]
+            {
+                let mask = _masks.next().unwrap();
+                #[cfg(feature = "trace")]
+                println!("  mask = {:?}, value = {:?}", mask, correct);
+                assert_eq!(correct, self.wires.get(dst) - mask.reconstruct());
+            }
+        }
+    }
+
+    fn process_sub(
+        &mut self,
+        _masks: &mut Cloned<Iter<<D as Domain>::Sharing>>,
+        dst: usize,
+        src1: usize,
+        src2: usize,
+    ) {
+        let a_w = self.wires.get(src1);
+        let b_w = self.wires.get(src2);
+        self.wires.set(dst, a_w - b_w);
+
+        #[cfg(feature = "trace")]
+        {
+            println!(
+                "prover-add      : Sub({}, {}, {}) ; wire = {:?}",
+                dst,
+                src1,
+                src2,
+                self.wires.get(dst),
+            );
+        }
+
+        // evaluate the circuit in plain for testing
+        #[cfg(test)]
+        #[cfg(debug_assertions)]
+        {
+            let correct = self.plain.get(src1).unwrap() - self.plain.get(src2).unwrap();
             self.plain.set(dst, Some(correct));
 
             // reconstruct masked wire and check computation

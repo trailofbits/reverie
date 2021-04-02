@@ -208,6 +208,13 @@ impl<D: Domain> PreprocessingExecution<D> {
                     );
                     self.process_add(dst, src1, src2);
                 }
+                Instruction::Sub(dst, src1, src2) => {
+                    assert_ne!(
+                        nr_of_wires, 0,
+                        "Make sure to have Instruction::NrOfWires as first gate in a program"
+                    );
+                    self.process_sub(dst, src1, src2);
+                }
                 Instruction::Mul(dst, src1, src2) => {
                     assert_ne!(
                         nr_of_wires, 0,
@@ -271,6 +278,11 @@ impl<D: Domain> PreprocessingExecution<D> {
     fn process_add(&mut self, dst: usize, src1: usize, src2: usize) {
         self.masks
             .set(dst, self.masks.get(src1) + self.masks.get(src2));
+    }
+
+    fn process_sub(&mut self, dst: usize, src1: usize, src2: usize) {
+        self.masks
+            .set(dst, self.masks.get(src1) - self.masks.get(src2));
     }
 
     fn process_mul(

@@ -289,6 +289,13 @@ impl<D: Domain> PreprocessingExecution<D> {
                     );
                     self.process_add(masks, dst, src1, src2)
                 }
+                Instruction::Sub(dst, src1, src2) => {
+                    assert_ne!(
+                        nr_of_wires, 0,
+                        "Make sure to have Instruction::NrOfWires as first gate in a program"
+                    );
+                    self.process_sub(masks, dst, src1, src2)
+                }
                 Instruction::Mul(dst, src1, src2) => {
                     assert_ne!(
                         nr_of_wires, 0,
@@ -378,6 +385,25 @@ impl<D: Domain> PreprocessingExecution<D> {
     ) {
         self.masks
             .set(dst, self.masks.get(src1) + self.masks.get(src2));
+
+        // return mask for debugging
+        #[cfg(test)]
+        #[cfg(debug_assertions)]
+        #[cfg(feature = "debug_eval")]
+        {
+            _masks.write(self.masks.get(dst));
+        }
+    }
+
+    fn process_sub<MW: Writer<D::Sharing>>(
+        &mut self,
+        _masks: &mut MW,
+        dst: usize,
+        src1: usize,
+        src2: usize,
+    ) {
+        self.masks
+            .set(dst, self.masks.get(src1) - self.masks.get(src2));
 
         // return mask for debugging
         #[cfg(test)]
