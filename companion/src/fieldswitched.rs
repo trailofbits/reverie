@@ -8,6 +8,7 @@ use reverie::algebra::gf2::*;
 use reverie::algebra::z64::*;
 use reverie::Instruction;
 use reverie::{fieldswitching, ConnectionInstruction, ProgramTriple};
+use reverie::evaluate_fieldswitching_btoa_program;
 
 use async_std::task;
 
@@ -206,6 +207,87 @@ async fn verify(proof_path: &str, program_path: &str) -> io::Result<Result<Vec<S
     Ok(online_output)
 }
 
+async fn oneshot<WP: Parser<BitScalar> + Send + 'static>(
+    program_path: &str,
+    witness_path: &str,
+) -> io::Result<Result<Vec<Scalar>, String>> {
+    /// Proving stage
+
+    // open and parse program
+    let program: ProgramArc = ProgramArc::new(program_path)?;
+
+    // open and parse witness
+    let witness: FileStreamer<_, WP> = FileStreamer::new(witness_path)?;
+
+    let branches1: Vec<Vec<BitScalar>> = vec![vec![]];
+    let branches2: Vec<Vec<Scalar>> = vec![vec![]];
+
+    let cleartext = evaluate_fieldswitching_btoa_program::<Gf2P8, Z64P8>(
+        &program.connection.clone(),
+        &program.boolean.clone(),
+        &program.arithmetic.clone(),
+        &witness.rewind(),
+        &branches1[0][..],
+        &branches2[0][..],
+    );
+
+    println!("Cleartext output: {:?}", cleartext);
+
+    // prove preprocessing
+    println!("preprocessing...");
+    let (preprocessing, pp_output) = fieldswitching::preprocessing::Proof::<Gf2P8, Z64P8>::new(
+        program.connection.clone(),
+        program.boolean.clone(),
+        program.arithmetic.clone(),
+        vec![vec![]],
+        vec![vec![]],
+    );
+
+    // create streaming prover instance
+    println!("oracle pass...");
+    let online_proof = fieldswitching::online::Proof::<Gf2P8, Z64P8>::new(
+        None,
+        program.connection.clone(),
+        program.boolean.clone(),
+        program.arithmetic.clone(),
+        witness.rewind(),
+        0,
+        pp_output,
+    )
+        .await;
+
+    /// Verification stages
+
+    println!("Verifying preprocesing...");
+    let _pp_output = match preprocessing
+        .verify(
+            program.connection.clone(),
+            program.boolean.clone(),
+            program.arithmetic.clone(),
+            vec![vec![]],
+            vec![vec![]],
+        )
+        .await
+    {
+        Ok(output) => output,
+        _ => panic!("Failed to verify preprocessed proof"),
+    };
+
+    // verify the online execution
+    println!("Verifying online execution");
+    let online_output = task::block_on(online_proof.verify(
+        None,
+        program.connection.clone(),
+        program.boolean.clone(),
+        program.arithmetic.clone(),
+    ));
+
+    // TODO (ehennenfent) Do we need to do anything else to check the output here?
+
+    Ok(online_output)
+
+}
+
 async fn async_main() -> io::Result<()> {
     let matches = App::new("Reverie Companion")
         .version("0.2")
@@ -214,8 +296,8 @@ async fn async_main() -> io::Result<()> {
         .arg(
             Arg::with_name("operation")
                 .long("operation")
-                .help("Specify the operation: \"prove\" or \"verify\"")
-                .possible_values(&["prove", "verify"])
+                .help("Specify the operation: \"prove\" or \"verify\" or \"oneshot\"")
+                .possible_values(&["prove", "verify", "oneshot"])
                 .empty_values(false)
                 .required(true),
         )
@@ -224,7 +306,8 @@ async fn async_main() -> io::Result<()> {
                 .long("proof-path")
                 .help("The path to the file containing the proof (source or destination)")
                 .empty_values(false)
-                .required(true),
+                .required_if("operation", "prove")
+                .required_if("operation", "verify")
         )
         .arg(
             Arg::with_name("witness-path")
@@ -263,6 +346,21 @@ async fn async_main() -> io::Result<()> {
                 matches.value_of("program-path").unwrap(),
             )
             .await?;
+            match res {
+                Err(e) => {
+                    eprintln!("Invalid proof: {}", e);
+                    exit(-1)
+                }
+                Ok(output) => println!("{:?}", output),
+            }
+            Ok(())
+        }
+        "oneshot" => {
+            let res = oneshot::<witness::WitParser>(
+                matches.value_of("program-path").unwrap(),
+                matches.value_of("witness-path").unwrap(),
+            )
+                .await?;
             match res {
                 Err(e) => {
                     eprintln!("Invalid proof: {}", e);
