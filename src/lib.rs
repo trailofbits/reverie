@@ -42,6 +42,8 @@ use crate::algebra::RingElement;
 use crate::algebra::gf2::BitScalar;
 use crate::algebra::z64::Scalar;
 
+pub use util::eval::{evaluate_fieldswitching_btoa_program, evaluate_program};
+
 #[macro_use]
 extern crate serde_big_array;
 

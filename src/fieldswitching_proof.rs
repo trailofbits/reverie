@@ -1,18 +1,18 @@
 #[cfg(test)]
 mod tests {
-    use crate::algebra::gf2::*;
-    use crate::tests::*;
-
-    use crate::algebra::*;
-    use crate::Instruction;
-    use crate::{fieldswitching, ConnectionInstruction};
+    use async_std::sync::Arc;
+    use async_std::task;
     use rand::rngs::ThreadRng;
     use rand::thread_rng;
     use rand::Rng;
 
+    use crate::algebra::gf2::*;
     use crate::algebra::z64::{Scalar, Z64P8};
-    use async_std::sync::Arc;
-    use async_std::task;
+    use crate::algebra::*;
+    use crate::tests::*;
+    use crate::util::eval::{evaluate_fieldswitching_btoa_program, evaluate_program};
+    use crate::Instruction;
+    use crate::{fieldswitching, ConnectionInstruction};
 
     #[test]
     fn test_mini_proof_gf2p8() {

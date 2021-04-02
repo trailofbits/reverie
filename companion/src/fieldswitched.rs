@@ -6,9 +6,9 @@ mod witness;
 
 use reverie::algebra::gf2::*;
 use reverie::algebra::z64::*;
+use reverie::evaluate_fieldswitching_btoa_program;
 use reverie::Instruction;
 use reverie::{fieldswitching, ConnectionInstruction, ProgramTriple};
-use reverie::evaluate_fieldswitching_btoa_program;
 
 use async_std::task;
 
@@ -211,7 +211,7 @@ async fn oneshot<WP: Parser<BitScalar> + Send + 'static>(
     program_path: &str,
     witness_path: &str,
 ) -> io::Result<Result<Vec<Scalar>, String>> {
-    /// Proving stage
+    // Proving stage
 
     // open and parse program
     let program: ProgramArc = ProgramArc::new(program_path)?;
@@ -254,9 +254,9 @@ async fn oneshot<WP: Parser<BitScalar> + Send + 'static>(
         0,
         pp_output,
     )
-        .await;
+    .await;
 
-    /// Verification stages
+    // Verification stages
 
     println!("Verifying preprocesing...");
     let _pp_output = match preprocessing
@@ -285,7 +285,6 @@ async fn oneshot<WP: Parser<BitScalar> + Send + 'static>(
     // TODO (ehennenfent) Do we need to do anything else to check the output here?
 
     Ok(online_output)
-
 }
 
 async fn async_main() -> io::Result<()> {
@@ -307,7 +306,7 @@ async fn async_main() -> io::Result<()> {
                 .help("The path to the file containing the proof (source or destination)")
                 .empty_values(false)
                 .required_if("operation", "prove")
-                .required_if("operation", "verify")
+                .required_if("operation", "verify"),
         )
         .arg(
             Arg::with_name("witness-path")
@@ -360,7 +359,7 @@ async fn async_main() -> io::Result<()> {
                 matches.value_of("program-path").unwrap(),
                 matches.value_of("witness-path").unwrap(),
             )
-                .await?;
+            .await?;
             match res {
                 Err(e) => {
                     eprintln!("Invalid proof: {}", e);

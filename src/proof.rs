@@ -1,19 +1,17 @@
-use crate::algebra::*;
-use crate::crypto::KEY_SIZE;
-use crate::online;
-use crate::preprocessing;
-use crate::Instruction;
-
-use rand::rngs::OsRng;
-use rand_core::RngCore;
+use std::sync::Arc;
 
 use async_channel::{bounded, Receiver, Sender};
 use async_std::task;
-
+use rand::rngs::OsRng;
+use rand_core::RngCore;
 use serde::{Deserialize, Serialize};
 
+use crate::algebra::*;
+use crate::crypto::KEY_SIZE;
 use crate::fieldswitching::util::FieldSwitchingIo;
-use std::sync::Arc;
+use crate::online;
+use crate::preprocessing;
+use crate::Instruction;
 
 const CHANNEL_CAPACITY: usize = 100;
 
@@ -270,15 +268,17 @@ impl<D: Domain> Proof<D> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use rand::thread_rng;
+    use rand::Rng;
+
     use crate::algebra::gf2::*;
     use crate::algebra::gf2_vec::Gf2P64_64;
     use crate::algebra::gf2_vec85::Gf2P64_85;
-    use crate::tests::*;
-
     use crate::algebra::z64::Z64P8;
-    use rand::thread_rng;
-    use rand::Rng;
+    use crate::tests::*;
+    use crate::util::eval::evaluate_program;
+
+    use super::*;
 
     #[derive(Debug, Clone)]
     struct TestVector<D: Domain> {
