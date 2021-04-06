@@ -222,6 +222,7 @@ async fn oneshot<WP: Parser<BitScalar> + Send + 'static>(
     let branches1: Vec<Vec<BitScalar>> = vec![vec![]];
     let branches2: Vec<Vec<Scalar>> = vec![vec![]];
 
+    println!("Evaluating program in cleartext");
     let cleartext = evaluate_fieldswitching_btoa_program::<Gf2P8, Z64P8>(
         &program.connection.clone(),
         &program.boolean.clone(),
@@ -235,7 +236,7 @@ async fn oneshot<WP: Parser<BitScalar> + Send + 'static>(
 
     // prove preprocessing
     println!("preprocessing...");
-    let (preprocessing, pp_output) = fieldswitching::preprocessing::Proof::<Gf2P8, Z64P8>::new(
+    let (preprocessed_proof, pp_output) = fieldswitching::preprocessing::Proof::<Gf2P8, Z64P8>::new(
         program.connection.clone(),
         program.boolean.clone(),
         program.arithmetic.clone(),
@@ -245,7 +246,7 @@ async fn oneshot<WP: Parser<BitScalar> + Send + 'static>(
 
     // create streaming prover instance
     println!("oracle pass...");
-    let online_proof = fieldswitching::online::Proof::<Gf2P8, Z64P8>::new(
+    let proof = fieldswitching::online::Proof::<Gf2P8, Z64P8>::new(
         None,
         program.connection.clone(),
         program.boolean.clone(),
@@ -259,7 +260,7 @@ async fn oneshot<WP: Parser<BitScalar> + Send + 'static>(
     // Verification stages
 
     println!("Verifying preprocesing...");
-    let _pp_output = match preprocessing
+    let _pp_output = match preprocessed_proof
         .verify(
             program.connection.clone(),
             program.boolean.clone(),
@@ -275,7 +276,7 @@ async fn oneshot<WP: Parser<BitScalar> + Send + 'static>(
 
     // verify the online execution
     println!("Verifying online execution");
-    let online_output = task::block_on(online_proof.verify(
+    let verifier_output = task::block_on(proof.verify(
         None,
         program.connection.clone(),
         program.boolean.clone(),
@@ -283,8 +284,8 @@ async fn oneshot<WP: Parser<BitScalar> + Send + 'static>(
     ));
 
     // TODO (ehennenfent) Do we need to do anything else to check the output here?
+    Ok(verifier_output)
 
-    Ok(online_output)
 }
 
 async fn async_main() -> io::Result<()> {
