@@ -1,3 +1,4 @@
+pub mod eval;
 mod reader;
 mod subset;
 mod vec;

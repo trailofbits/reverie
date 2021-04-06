@@ -1,18 +1,18 @@
 #[cfg(test)]
 mod tests {
-    use crate::algebra::gf2::*;
-    use crate::tests::*;
-
-    use crate::algebra::*;
-    use crate::Instruction;
-    use crate::{fieldswitching, ConnectionInstruction};
+    use async_std::sync::Arc;
+    use async_std::task;
     use rand::rngs::ThreadRng;
     use rand::thread_rng;
     use rand::Rng;
 
+    use crate::algebra::gf2::*;
     use crate::algebra::z64::{Scalar, Z64P8};
-    use async_std::sync::Arc;
-    use async_std::task;
+    use crate::algebra::*;
+    use crate::tests::*;
+    use crate::util::eval::{evaluate_fieldswitching_btoa_program, evaluate_program};
+    use crate::Instruction;
+    use crate::{fieldswitching, ConnectionInstruction};
 
     #[test]
     fn test_mini_proof_gf2p8() {
@@ -249,6 +249,69 @@ mod tests {
         .unwrap();
         assert_eq!(verifier_output, output);
         assert_eq!(verifier_output[0], verifier_output[1]);
+    }
+
+    #[test]
+    fn test_straight_arithmetic_passthrough() {
+        let mut rng = thread_rng();
+
+        let program1 = Arc::new(mini_random_program_64(&mut rng));
+        let conn_program: Vec<ConnectionInstruction> = connection_program_64();
+        let program2 = Arc::new(vec![
+            Instruction::NrOfWires(1),
+            Instruction::Input(0),
+            Instruction::Output(0),
+        ]);
+
+        let input = Arc::new(random_scalars::<Gf2P8, ThreadRng>(&mut rng, 64));
+        let branches1: Vec<Vec<BitScalar>> = vec![vec![]];
+        let branches2: Vec<Vec<Scalar>> = vec![vec![]];
+        let branch_index = 0;
+
+        let output = evaluate_fieldswitching_btoa_program::<Gf2P8, Z64P8>(
+            &conn_program[..],
+            &program1[..],
+            &program2[..],
+            &input[..],
+            &branches1[branch_index][..],
+            &branches2[branch_index][..],
+        );
+        // println!("Cleartext output: {:?}", output);
+
+        let (preprocessed_proof, pp_output) =
+            fieldswitching::preprocessing::Proof::<Gf2P8, Z64P8>::new(
+                conn_program.clone(),
+                program1.clone(),
+                program2.clone(),
+                branches1.clone(),
+                branches2.clone(),
+            );
+        let proof = task::block_on(fieldswitching::online::Proof::<Gf2P8, Z64P8>::new(
+            None,
+            conn_program.clone(),
+            program1.clone(),
+            program2.clone(),
+            input.clone(),
+            branch_index,
+            pp_output,
+        ));
+
+        let pp_output = task::block_on(preprocessed_proof.verify(
+            conn_program.clone(),
+            program1.clone(),
+            program2.clone(),
+            branches1.clone(),
+            branches2.clone(),
+        ));
+        assert!(pp_output.is_ok());
+        let verifier_output = task::block_on(proof.verify(
+            None,
+            conn_program.clone(),
+            program1.clone(),
+            program2.clone(),
+        ))
+        .unwrap();
+        assert_eq!(verifier_output, output);
     }
 
     #[test]

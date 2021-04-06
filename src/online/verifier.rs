@@ -286,6 +286,10 @@ impl<D: Domain> StreamingVerifier<D> {
                                         assert_ne!(nr_of_wires, 0);
                                         process_add::<D>(&mut wires, dst, src1, src2)
                                     }
+                                    Instruction::Sub(dst, src1, src2) => {
+                                        assert_ne!(nr_of_wires, 0);
+                                        process_sub::<D>(&mut wires, dst, src1, src2)
+                                    }
                                     Instruction::Mul(dst, src1, src2) => {
                                         assert_ne!(nr_of_wires, 0);
                                         process_mul(
@@ -519,6 +523,24 @@ impl<D: Domain> StreamingVerifier<D> {
             {
                 println!(
                     "verifier-add   : Add({:?}, {:?}, {:?}) ; a_w = {:?}, b_w = {:?}",
+                    dst, src1, src2, a_w, b_w,
+                );
+            }
+        }
+
+        fn process_sub<D: Domain>(
+            wires: &mut VecMap<D::Scalar>,
+            dst: usize,
+            src1: usize,
+            src2: usize,
+        ) {
+            let a_w = wires.get(src1);
+            let b_w = wires.get(src2);
+            wires.set(dst, a_w - b_w);
+            #[cfg(feature = "trace")]
+            {
+                println!(
+                    "verifier-sub   : Sub({:?}, {:?}, {:?}) ; a_w = {:?}, b_w = {:?}",
                     dst, src1, src2, a_w, b_w,
                 );
             }
