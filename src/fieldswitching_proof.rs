@@ -11,6 +11,7 @@ mod tests {
     use rand::Rng;
 
     use crate::algebra::z64::{Scalar, Z64P8};
+    use async_std::sync::Arc;
     use async_std::task;
 
     #[test]
@@ -18,9 +19,9 @@ mod tests {
         let mut rng = thread_rng();
 
         let conn_program = connection_program();
-        let program1 = mini_program::<Gf2P8>();
-        let program2 = mini_program::<Gf2P8>();
-        let input = random_scalars::<Gf2P8, ThreadRng>(&mut rng, 4);
+        let program1 = Arc::new(mini_program::<Gf2P8>());
+        let program2 = Arc::new(mini_program::<Gf2P8>());
+        let input = Arc::new(random_scalars::<Gf2P8, ThreadRng>(&mut rng, 4));
         let num_branch = 0;
         let num_branches = 1 + rng.gen::<usize>() % 32;
         let mut branches1: Vec<Vec<BitScalar>> = Vec::with_capacity(num_branches);
@@ -41,7 +42,7 @@ mod tests {
             &branches1[branch_index][..],
             &branches2[branch_index][..],
         );
-        assert_eq!(input, output);
+        assert_eq!(input.to_vec(), output);
 
         let (preprocessed_proof, pp_output) =
             fieldswitching::preprocessing::Proof::<Gf2P8, Gf2P8>::new(
@@ -187,9 +188,9 @@ mod tests {
         let mut rng = thread_rng();
 
         let conn_program = connection_program_64();
-        let program1 = mini_bool_program_64();
-        let program2 = mini_arith_program_64();
-        let input = random_scalars::<Gf2P8, ThreadRng>(&mut rng, 64);
+        let program1 = Arc::new(mini_bool_program_64());
+        let program2 = Arc::new(mini_arith_program_64());
+        let input = Arc::new(random_scalars::<Gf2P8, ThreadRng>(&mut rng, 64));
         let num_branch = 0;
         let num_branches = 1 + rng.gen::<usize>() % 32;
         let mut branches1: Vec<Vec<BitScalar>> = Vec::with_capacity(num_branches);
@@ -255,8 +256,8 @@ mod tests {
         let mut rng = thread_rng();
 
         let conn_program = connection_program();
-        let program1 = mini_program::<Gf2P8>();
-        let program2 = mini_program::<Gf2P8>();
+        let program1 = Arc::new(mini_program::<Gf2P8>());
+        let program2 = Arc::new(mini_program::<Gf2P8>());
         let num_branch = 0;
         let num_branches = 1 + rng.gen::<usize>() % 32;
         let mut branches: Vec<Vec<BitScalar>> = Vec::with_capacity(num_branches);
@@ -303,7 +304,7 @@ mod tests {
             Instruction::Output(1),
         ];
 
-        let input = random_scalars::<Gf2P8, ThreadRng>(&mut rng, 64);
+        let input = Arc::new(random_scalars::<Gf2P8, ThreadRng>(&mut rng, 64));
         let num_branch = 0;
         let num_branches = 1 + rng.gen::<usize>() % 32;
         let mut branches1: Vec<Vec<BitScalar>> = Vec::with_capacity(num_branches);
@@ -325,19 +326,22 @@ mod tests {
             &branches2[branch_index][..],
         );
 
+        let program1_arc = Arc::new(program1);
+        let program2_arc = Arc::new(program2);
+
         let (preprocessed_proof, pp_output) =
             fieldswitching::preprocessing::Proof::<Gf2P8, Z64P8>::new(
                 conn_program.clone(),
-                program1.clone(),
-                program2.clone(),
+                program1_arc.clone(),
+                program2_arc.clone(),
                 branches1.clone(),
                 branches2.clone(),
             );
         let proof = task::block_on(fieldswitching::online::Proof::<Gf2P8, Z64P8>::new(
             None,
             conn_program.clone(),
-            program1.clone(),
-            program2.clone(),
+            program1_arc.clone(),
+            program2_arc.clone(),
             input.clone(),
             branch_index,
             pp_output,
@@ -345,8 +349,8 @@ mod tests {
 
         let pp_output = task::block_on(preprocessed_proof.verify(
             conn_program.clone(),
-            program1.clone(),
-            program2.clone(),
+            program1_arc.clone(),
+            program2_arc.clone(),
             branches1.clone(),
             branches2.clone(),
         ));
@@ -354,8 +358,8 @@ mod tests {
         let verifier_output = task::block_on(proof.verify(
             None,
             conn_program.clone(),
-            program1.clone(),
-            program2.clone(),
+            program1_arc.clone(),
+            program2_arc.clone(),
         ))
         .unwrap();
         assert_eq!(verifier_output[0], output[0]);
