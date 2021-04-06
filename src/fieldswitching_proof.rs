@@ -13,8 +13,6 @@ mod tests {
     use crate::util::eval::{evaluate_fieldswitching_btoa_program, evaluate_program};
     use crate::Instruction;
     use crate::{fieldswitching, ConnectionInstruction};
-    use async_std::sync::Arc;
-    use async_std::task;
 
     #[test]
     fn test_mini_proof_gf2p8() {
