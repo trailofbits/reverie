@@ -200,7 +200,7 @@ pub fn mini_random_program_64<R: RngCore>(rng: &mut R) -> Vec<Instruction<BitSca
         assigned.push(i);
     }
 
-    while assigned.len() < memory{
+    while assigned.len() < memory {
         let dst: usize = (rng.gen::<usize>() % 64) + 64;
         let src1: usize = assigned[rng.gen::<usize>() % assigned.len()];
         let src2: usize = assigned[rng.gen::<usize>() % assigned.len()];
@@ -215,11 +215,19 @@ pub fn mini_random_program_64<R: RngCore>(rng: &mut R) -> Vec<Instruction<BitSca
                 assigned.push(dst);
             }
             2 => {
-                program.push(Instruction::AddConst(dst, src1, random_scalar::<Gf2P8, _>(rng)));
+                program.push(Instruction::AddConst(
+                    dst,
+                    src1,
+                    random_scalar::<Gf2P8, _>(rng),
+                ));
                 assigned.push(dst);
             }
             3 => {
-                program.push(Instruction::MulConst(dst, src1, random_scalar::<Gf2P8, _>(rng)));
+                program.push(Instruction::MulConst(
+                    dst,
+                    src1,
+                    random_scalar::<Gf2P8, _>(rng),
+                ));
                 assigned.push(dst);
             }
             4 => {

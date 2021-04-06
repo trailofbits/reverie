@@ -257,7 +257,11 @@ mod tests {
 
         let program1 = Arc::new(mini_random_program_64(&mut rng));
         let conn_program: Vec<ConnectionInstruction> = connection_program_64();
-        let program2 = Arc::new(vec![Instruction::NrOfWires(1), Instruction::Input(0), Instruction::Output(0)]);
+        let program2 = Arc::new(vec![
+            Instruction::NrOfWires(1),
+            Instruction::Input(0),
+            Instruction::Output(0),
+        ]);
 
         let input = Arc::new(random_scalars::<Gf2P8, ThreadRng>(&mut rng, 64));
         let branches1: Vec<Vec<BitScalar>> = vec![vec![]];
@@ -306,7 +310,7 @@ mod tests {
             program1.clone(),
             program2.clone(),
         ))
-            .unwrap();
+        .unwrap();
         assert_eq!(verifier_output, output);
     }
 
