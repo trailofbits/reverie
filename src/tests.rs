@@ -4,7 +4,7 @@ use rand::{thread_rng, Rng};
 use crate::algebra::gf2::{BitScalar, Gf2P8};
 use crate::algebra::z64::{Scalar, Z64P8};
 use crate::algebra::*;
-use crate::util::{eval, VecMap};
+use crate::util::eval;
 use crate::{ConnectionInstruction, Instruction};
 
 pub fn random_scalar<D: Domain, R: RngCore>(rng: &mut R) -> D::Scalar {
@@ -182,6 +182,55 @@ pub fn mini_bool_program_64() -> Vec<Instruction<BitScalar>> {
     for i in 0..64 {
         program.push(Instruction::Input(i));
         program.push(Instruction::AddConst(i + 64, i, BitScalar::ONE));
+        program.push(Instruction::Output(i + 64));
+    }
+
+    program
+}
+
+pub fn mini_random_program_64<R: RngCore>(rng: &mut R) -> Vec<Instruction<BitScalar>> {
+    let mut program: Vec<Instruction<BitScalar>> = Vec::new();
+    let mut assigned: Vec<usize> = vec![];
+
+    let memory = 128;
+
+    program.push(Instruction::NrOfWires(memory));
+    for i in 0..64 {
+        program.push(Instruction::Input(i));
+        assigned.push(i);
+    }
+
+    while assigned.len() < memory{
+        let dst: usize = (rng.gen::<usize>() % 64) + 64;
+        let src1: usize = assigned[rng.gen::<usize>() % assigned.len()];
+        let src2: usize = assigned[rng.gen::<usize>() % assigned.len()];
+
+        match rng.gen::<usize>() % 5 {
+            0 => {
+                program.push(Instruction::Add(dst, src1, src2));
+                assigned.push(dst);
+            }
+            1 => {
+                program.push(Instruction::Mul(dst, src1, src2));
+                assigned.push(dst);
+            }
+            2 => {
+                program.push(Instruction::AddConst(dst, src1, random_scalar::<Gf2P8, _>(rng)));
+                assigned.push(dst);
+            }
+            3 => {
+                program.push(Instruction::MulConst(dst, src1, random_scalar::<Gf2P8, _>(rng)));
+                assigned.push(dst);
+            }
+            4 => {
+                program.push(Instruction::Sub(dst, src1, src2));
+                assigned.push(dst);
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    for i in 0..64 {
         program.push(Instruction::Output(i + 64));
     }
 
