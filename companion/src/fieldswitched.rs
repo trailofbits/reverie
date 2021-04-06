@@ -202,8 +202,6 @@ async fn verify(proof_path: &str, program_path: &str) -> io::Result<Result<Vec<S
         program.arithmetic.clone(),
     ));
 
-    // TODO (ehennenfent) Do we need to do anything else to check the output here?
-
     Ok(online_output)
 }
 
