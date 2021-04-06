@@ -5,7 +5,7 @@ use crate::util::Writer;
 use std::convert::TryInto;
 use std::fmt;
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Scalar(pub(super) u64);
 
 impl LocalOperation for Scalar {}

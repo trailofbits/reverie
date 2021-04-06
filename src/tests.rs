@@ -1,11 +1,11 @@
-use crate::algebra::*;
-use crate::util::VecMap;
-use crate::{ConnectionInstruction, Instruction};
+use rand::RngCore;
+use rand::{thread_rng, Rng};
 
 use crate::algebra::gf2::{BitScalar, Gf2P8};
 use crate::algebra::z64::{Scalar, Z64P8};
-use rand::RngCore;
-use rand::{thread_rng, Rng};
+use crate::algebra::*;
+use crate::util::eval;
+use crate::{ConnectionInstruction, Instruction};
 
 pub fn random_scalar<D: Domain, R: RngCore>(rng: &mut R) -> D::Scalar {
     let mut share = vec![D::Sharing::ZERO; D::Batch::DIMENSION];
@@ -21,112 +21,6 @@ pub fn random_scalars<D: Domain, R: RngCore>(rng: &mut R, length: usize) -> Vec<
         input.push(random_scalar::<D, _>(rng))
     }
     input
-}
-
-// Evaluates a program (in the clear)
-pub fn evaluate_program<D: Domain>(
-    program: &[Instruction<D::Scalar>],
-    inputs: &[D::Scalar],
-    branch: &[D::Scalar],
-    challenge: Option<(usize, D::Scalar)>,
-) -> (Vec<usize>, Vec<D::Scalar>) {
-    let mut wires = VecMap::new();
-    let mut output = Vec::new();
-    let mut output_wires = Vec::new();
-    let mut inputs = inputs.iter().cloned();
-    let mut branch = branch.iter().cloned();
-
-    for step in program {
-        match *step {
-            Instruction::NrOfWires(_nr) => {}
-            Instruction::Input(dst) => {
-                wires.set(dst, inputs.next().unwrap());
-            }
-            Instruction::Branch(dst) => {
-                wires.set(dst, branch.next().unwrap());
-            }
-            Instruction::LocalOp(dst, src) => {
-                wires.set(dst, wires.get(src).operation());
-            }
-            Instruction::Add(dst, src1, src2) => {
-                wires.set(dst, wires.get(src1) + wires.get(src2));
-            }
-            Instruction::Mul(dst, src1, src2) => {
-                wires.set(dst, wires.get(src1) * wires.get(src2));
-            }
-            Instruction::Const(dst, c) => {
-                if let Some(cha) = challenge {
-                    if cha.0 == dst {
-                        wires.set(dst, cha.1);
-                    } else {
-                        wires.set(dst, c);
-                    }
-                } else {
-                    wires.set(dst, c);
-                }
-            }
-            Instruction::AddConst(dst, src, c) => {
-                wires.set(dst, wires.get(src) + c);
-            }
-            Instruction::MulConst(dst, src, c) => {
-                wires.set(dst, wires.get(src) * c);
-            }
-            Instruction::Output(src) => {
-                output.push(wires.get(src));
-                output_wires.push(src);
-            }
-        }
-    }
-
-    (output_wires, output)
-}
-
-// Evaluates two programs with fieldswitching (in the clear)
-pub fn evaluate_fieldswitching_btoa_program<D: Domain, D2: Domain>(
-    conn_program: &[ConnectionInstruction],
-    program1: &[Instruction<D::Scalar>],
-    program2: &[Instruction<D2::Scalar>],
-    inputs: &[D::Scalar],
-    branch1: &[D::Scalar],
-    branch2: &[D2::Scalar],
-) -> Vec<D2::Scalar> {
-    let (out_wires, output1) = evaluate_program::<D>(program1, inputs, branch1, None);
-
-    let mut wires1 = Vec::new();
-
-    for step in conn_program {
-        match *step {
-            ConnectionInstruction::BToA(_dst, src) => {
-                let mut input = D2::Scalar::ZERO;
-                let mut pow_two = D2::Scalar::ONE;
-                let two = D2::Scalar::ONE + D2::Scalar::ONE;
-                for (i, _src) in src.iter().cloned().enumerate() {
-                    if i >= D2::NR_OF_BITS {
-                        break;
-                    }
-                    let index = out_wires.iter().position(|&x| x == _src).unwrap();
-                    input = input + convert_bit::<D, D2>(output1[index]) * pow_two;
-                    pow_two = two * pow_two;
-                }
-                // wires1.set(dst, input);
-                wires1.push(input);
-            }
-            ConnectionInstruction::AToB(_dst, _src) => {}
-            ConnectionInstruction::Challenge(_dst) => {}
-        }
-    }
-
-    let (_wires, output2) = evaluate_program::<D2>(program2, &wires1[..], branch2, None);
-
-    output2
-}
-
-fn convert_bit<D: Domain, D2: Domain>(input: D::Scalar) -> D2::Scalar {
-    if input == D::Scalar::ONE {
-        return D2::Scalar::ONE;
-    } else {
-        return D2::Scalar::ZERO;
-    }
 }
 
 // Generates a random program for property based test
@@ -210,7 +104,7 @@ pub fn test_evaluate_program() {
     let branch: Vec<BitScalar> = vec![];
     let branches: Vec<Vec<BitScalar>> = vec![branch];
 
-    let output = evaluate_fieldswitching_btoa_program::<Gf2P8, Gf2P8>(
+    let output = eval::evaluate_fieldswitching_btoa_program::<Gf2P8, Gf2P8>(
         &conn_program[..],
         &program1[..],
         &program2[..],
@@ -271,7 +165,7 @@ pub fn test_evaluate_program_64() {
     let branch2: Vec<Scalar> = vec![];
     let branches2: Vec<Vec<Scalar>> = vec![branch2];
 
-    let output = evaluate_fieldswitching_btoa_program::<Gf2P8, Z64P8>(
+    let output = eval::evaluate_fieldswitching_btoa_program::<Gf2P8, Z64P8>(
         &conn_program[..],
         &program1[..],
         &program2[..],
@@ -288,6 +182,63 @@ pub fn mini_bool_program_64() -> Vec<Instruction<BitScalar>> {
     for i in 0..64 {
         program.push(Instruction::Input(i));
         program.push(Instruction::AddConst(i + 64, i, BitScalar::ONE));
+        program.push(Instruction::Output(i + 64));
+    }
+
+    program
+}
+
+pub fn mini_random_program_64<R: RngCore>(rng: &mut R) -> Vec<Instruction<BitScalar>> {
+    let mut program: Vec<Instruction<BitScalar>> = Vec::new();
+    let mut assigned: Vec<usize> = vec![];
+
+    let memory = 128;
+
+    program.push(Instruction::NrOfWires(memory));
+    for i in 0..64 {
+        program.push(Instruction::Input(i));
+        assigned.push(i);
+    }
+
+    while assigned.len() < memory {
+        let dst: usize = (rng.gen::<usize>() % 64) + 64;
+        let src1: usize = assigned[rng.gen::<usize>() % assigned.len()];
+        let src2: usize = assigned[rng.gen::<usize>() % assigned.len()];
+
+        match rng.gen::<usize>() % 5 {
+            0 => {
+                program.push(Instruction::Add(dst, src1, src2));
+                assigned.push(dst);
+            }
+            1 => {
+                program.push(Instruction::Mul(dst, src1, src2));
+                assigned.push(dst);
+            }
+            2 => {
+                program.push(Instruction::AddConst(
+                    dst,
+                    src1,
+                    random_scalar::<Gf2P8, _>(rng),
+                ));
+                assigned.push(dst);
+            }
+            3 => {
+                program.push(Instruction::MulConst(
+                    dst,
+                    src1,
+                    random_scalar::<Gf2P8, _>(rng),
+                ));
+                assigned.push(dst);
+            }
+            4 => {
+                program.push(Instruction::Sub(dst, src1, src2));
+                assigned.push(dst);
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    for i in 0..64 {
         program.push(Instruction::Output(i + 64));
     }
 
