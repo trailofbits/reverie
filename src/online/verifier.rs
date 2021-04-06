@@ -540,7 +540,7 @@ impl<D: Domain> StreamingVerifier<D> {
             #[cfg(feature = "trace")]
             {
                 println!(
-                    "verifier-add   : Sub({:?}, {:?}, {:?}) ; a_w = {:?}, b_w = {:?}",
+                    "verifier-sub   : Sub({:?}, {:?}, {:?}) ; a_w = {:?}, b_w = {:?}",
                     dst, src1, src2, a_w, b_w,
                 );
             }

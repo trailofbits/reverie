@@ -424,7 +424,7 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
         #[cfg(feature = "trace")]
         {
             println!(
-                "prover-add      : Sub({}, {}, {}) ; wire = {:?}",
+                "prover-sub      : Sub({}, {}, {}) ; wire = {:?}",
                 dst,
                 src1,
                 src2,

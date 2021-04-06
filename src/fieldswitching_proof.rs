@@ -276,7 +276,7 @@ mod tests {
             &branches1[branch_index][..],
             &branches2[branch_index][..],
         );
-        println!("Cleartext output: {:?}", output);
+        // println!("Cleartext output: {:?}", output);
 
         let (preprocessed_proof, pp_output) =
             fieldswitching::preprocessing::Proof::<Gf2P8, Z64P8>::new(
