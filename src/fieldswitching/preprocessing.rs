@@ -11,6 +11,7 @@ use rand::rngs::OsRng;
 use rand::RngCore;
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 const DEFAULT_CAPACITY: usize = BATCH_SIZE;
 
@@ -30,7 +31,7 @@ pub struct PreprocessingOutput<D: Domain, D2: Domain> {
 
 #[derive(Clone)] //TODO(gvl): remove clone
 pub struct FsPreprocessingRun<D: Domain, D2: Domain> {
-    pub(crate) fieldswitching_input: Vec<usize>,
+    pub(crate) fieldswitching_input: HashSet<usize>,
     pub(crate) fieldswitching_output: Vec<Vec<usize>>,
     pub(crate) eda_bits: Vec<Vec<D::Sharing>>,
     pub(crate) eda_composed: Vec<D2::Sharing>,
@@ -101,7 +102,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             global_seeds[1],
             &branches1[..],
             program1,
-            (vec![], fieldswitching_output),
+            (HashSet::new(), fieldswitching_output),
             &mut oracle,
         );
 
@@ -273,7 +274,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             .verify_round_1(
                 &branches1[..],
                 program1.clone(),
-                (vec![], fieldswitching_output.clone()),
+                (HashSet::new(), fieldswitching_output.clone()),
                 &mut oracle,
             )
             .await;
@@ -439,17 +440,19 @@ impl<D: Domain, D2: Domain> PreprocessingExecution<D, D2> {
 
     pub fn get_fs_input_output(
         conn_program: &[ConnectionInstruction],
-    ) -> (Vec<usize>, Vec<Vec<usize>>) {
+    ) -> (HashSet<usize>, Vec<Vec<usize>>) {
         let mut fieldswitching_output = Vec::new();
-        let mut fieldswitching_input = Vec::new();
+        let mut fieldswitching_input: HashSet<usize> = HashSet::new();
         for gate in conn_program {
             match gate {
                 ConnectionInstruction::BToA(dst, src) => {
                     fieldswitching_output.push(src[0..D2::NR_OF_BITS].to_vec());
-                    fieldswitching_input.push(*dst);
+                    fieldswitching_input.insert(*dst);
                 }
                 ConnectionInstruction::AToB(_dst, _src) => {}
-                ConnectionInstruction::Challenge(_dst) => {}
+                ConnectionInstruction::Challenge(dst) => {
+                    // fieldswitching_input.push(*dst);
+                }
             }
         }
 

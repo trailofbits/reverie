@@ -6,7 +6,7 @@ use std::convert::TryInto;
 use std::fmt;
 
 #[derive(Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Scalar(pub(super) u64);
+pub struct Scalar(pub u64);
 
 impl LocalOperation for Scalar {}
 

@@ -17,6 +17,7 @@ use async_channel::{Receiver, SendError, Sender};
 use async_std::task;
 use std::iter::Cloned;
 use std::slice::Iter;
+use std::collections::HashSet;
 
 /// A type alias for a tuple of a program slice and its witness slice.
 type ProgWitSlice<D> = (Arc<Instructions<D>>, Arc<Vec<<D as Domain>::Scalar>>);
@@ -313,7 +314,7 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
     fn process_input<WW: Writer<D::Scalar>>(
         &mut self,
         masked_witness: &mut WW,
-        fieldswitching_input: Vec<usize>,
+        fieldswitching_input: HashSet<usize>,
         eda_composed: &mut Cloned<Iter<D::Sharing>>,
         value: D::Scalar,
         masks: &mut Cloned<Iter<D::Sharing>>,

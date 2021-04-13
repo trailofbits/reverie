@@ -18,6 +18,7 @@ use crate::fieldswitching::util::FieldSwitchingIo;
 use async_std::task;
 use std::iter::Cloned;
 use std::slice::Iter;
+use std::collections::HashSet;
 
 const DEFAULT_CAPACITY: usize = 1024;
 
@@ -419,7 +420,7 @@ impl<D: Domain> StreamingVerifier<D> {
         }
 
         fn process_input<D: Domain>(
-            fieldswitching_input: Vec<usize>,
+            fieldswitching_input: HashSet<usize>,
             mut wires: &mut VecMap<D::Scalar>,
             witness: &mut Cloned<Iter<D::Scalar>>,
             mut nr_of_wires: usize,

@@ -22,6 +22,7 @@ use rand::rngs::OsRng;
 use rand::Rng;
 
 use rayon::prelude::*;
+use std::collections::HashSet;
 
 const MAX_VEC_SIZE: usize = 1024 * 1024 * 1024;
 
@@ -159,7 +160,7 @@ async fn prove<
         OsRng.gen(),      // seed
         &branches[..],    // branches
         program.rewind(), // program
-        (vec![], vec![]),
+        (HashSet::new(), vec![]),
     );
     write_vec(&mut proof, &preprocessing.serialize()[..])?;
 
@@ -171,7 +172,7 @@ async fn prove<
         branch_index,
         program.rewind(),
         witness.rewind(),
-        (vec![], vec![]),
+        (HashSet::new(), vec![]),
         (vec![], vec![]),
     )
     .await;
@@ -184,7 +185,7 @@ async fn prove<
         send,
         program.rewind(),
         witness.rewind(),
-        (vec![], vec![]),
+        (HashSet::new(), vec![]),
         vec![],
         vec![],
     ));
@@ -225,7 +226,7 @@ async fn verify<
         .expect("Failed to deserialize proof after preprocessing");
 
     let pp_output = match preprocessing
-        .verify(&branches[..], program.rewind(), (vec![], vec![]))
+        .verify(&branches[..], program.rewind(), (HashSet::new(), vec![]))
         .await
     {
         Some(output) => output,
@@ -242,7 +243,7 @@ async fn verify<
         online::StreamingVerifier::new(program.rewind(), online).verify(
             None,
             recv,
-            (vec![], vec![]),
+            (HashSet::new(), vec![]),
         ),
     );
 

@@ -7,6 +7,7 @@ use crate::util::{VecMap, Writer};
 use crate::Instruction;
 
 use std::marker::PhantomData;
+use std::collections::HashSet;
 
 /// Implementation of pre-processing phase used by the prover during online execution
 pub struct PreprocessingExecution<D: Domain> {
@@ -123,7 +124,7 @@ impl<D: Domain> PreprocessingExecution<D> {
     pub fn prove(
         &mut self,
         program: &[Instruction<D::Scalar>],
-        fieldswitching_input: Vec<usize>,
+        fieldswitching_input: HashSet<usize>,
         fieldswitching_output: Vec<Vec<usize>>,
         nr_of_wires: usize,
     ) -> usize {
@@ -133,7 +134,7 @@ impl<D: Domain> PreprocessingExecution<D> {
         let mut batch_a = vec![D::Batch::ZERO; D::PLAYERS];
         let mut batch_b = vec![D::Batch::ZERO; D::PLAYERS];
         let mut nr_of_wires = nr_of_wires;
-        let mut fieldswitching_output_done = Vec::new();
+        let mut fieldswitching_output_done: HashSet<usize> = HashSet::new();
 
         for step in program {
             debug_assert!(self.share_a.len() < D::Batch::DIMENSION);
@@ -237,7 +238,7 @@ impl<D: Domain> PreprocessingExecution<D> {
                             break;
                         }
                     }
-                    fieldswitching_output_done.push(src);
+                    fieldswitching_output_done.insert(src);
                     let mut contains_all = true;
                     for item in out_list.clone() {
                         if !fieldswitching_output_done.contains(&item) {

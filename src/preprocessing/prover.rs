@@ -5,6 +5,7 @@ use crate::consts::{CONTEXT_RNG_BRANCH_MASK, CONTEXT_RNG_BRANCH_PERMUTE, CONTEXT
 use crate::crypto::{kdf, Hash, MerkleSet, MerkleSetProof, Prg, RingHasher, TreePrf, KEY_SIZE};
 use crate::util::{VecMap, Writer};
 use crate::Instruction;
+use std::collections::HashSet;
 
 /// Implementation of pre-processing phase used by the prover during online execution
 pub struct PreprocessingExecution<D: Domain> {
@@ -160,7 +161,7 @@ impl<D: Domain> PreprocessingExecution<D> {
         corrections: &mut CW,                        // player 0 corrections
         masks: &mut MW,                              // masks for online phase
         ab_gamma: &mut Vec<D::Sharing>,              // a * b + \gamma sharings for online phase
-        fieldswitching_input: Vec<usize>,
+        fieldswitching_input: HashSet<usize>,
         fieldswitching_output: Vec<Vec<usize>>,
     ) {
         // invariant: multiplication batch empty at the start

@@ -14,6 +14,7 @@ use async_std::task;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
+use std::collections::{HashMap, HashSet};
 
 const CHANNEL_CAPACITY: usize = 100;
 
@@ -71,7 +72,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
                     branch_index,
                     &mut program.1.clone(),
                     &mut witness.clone(),
-                    (vec![], run.fieldswitching_output.clone()),
+                    (HashSet::new(), run.fieldswitching_output.clone()),
                     (run.eda_bits.clone(), vec![]),
                     vec![run1],
                     None,
@@ -84,6 +85,12 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             }
             // println!("eda_bits: {:?}\n output1: {:?}", outs, output1.0.clone());
 
+            let mut out_map: HashMap<usize, D::Scalar> = HashMap::new();
+
+            for (index, value) in output1.1.iter().zip(output1.0.iter()){
+                out_map.insert(*index, *value);
+            }
+
             let mut input2 = Vec::new();
             let mut challenge = None;
             for gate in program.0 {
@@ -92,12 +99,13 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
                         let mut pow_two = D2::Scalar::ONE;
                         let two = D2::Scalar::ONE + D2::Scalar::ONE;
                         let mut next = D2::Scalar::ZERO;
-                        for (i, _src) in src.iter().cloned().enumerate() {
+                        for (i, src_bit) in src.iter().cloned().enumerate() {
                             if i >= D2::NR_OF_BITS {
                                 break;
                             }
-                            let index = output1.1.iter().position(|&x| x == _src).unwrap();
-                            next = next + convert_bit::<D, D2>(output1.0[index]) * pow_two;
+                            let val: D::Scalar = out_map.get(&src_bit)
+                                .expect(format!("Couldn't find wire {} in boolean circuit output", src_bit).as_str()).clone();
+                            next = next + convert_bit::<D, D2>(val) * pow_two;
                             pow_two = two * pow_two;
                         }
                         input2.push(next);
@@ -147,7 +155,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
         // create prover for online phase
         let mut prover_tasks = Vec::new();
 
-        let mut fieldswitching_input = Vec::new();
+        let mut fieldswitching_input = HashSet::new();
         let mut fieldswitching_output = Vec::new();
         let mut eda_bits = Vec::new();
         let mut eda_composed = Vec::new();
@@ -225,7 +233,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
                 send1,
                 program1.clone(),
                 witness.clone(),
-                (vec![], fieldswitching_output.clone()),
+                (HashSet::new(), fieldswitching_output.clone()),
                 eda_bits.clone(),
                 vec![],
             )
@@ -344,7 +352,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             let (mut oracle_feed1, omitted1, _result1) = match verifier1
                 .do_verify_round_1(
                     &mut recv1,
-                    (vec![], fieldswitching_output),
+                    (HashSet::new(), fieldswitching_output),
                     vec![run1],
                     None,
                 )

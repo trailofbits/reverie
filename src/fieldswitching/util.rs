@@ -4,8 +4,9 @@ use crate::crypto::{kdf, Prg, KEY_SIZE};
 use crate::preprocessing::util::{PartialShareGenerator, ShareGenerator};
 use crate::{ConnectionInstruction, Instruction};
 use std::sync::Arc;
+use std::collections::HashSet;
 
-pub type FieldSwitchingIo = (Vec<usize>, Vec<Vec<usize>>);
+pub type FieldSwitchingIo = (HashSet<usize>, Vec<Vec<usize>>);
 pub type FullProgram<D, D2> = (
     Vec<ConnectionInstruction>,
     Arc<Vec<Instruction<<D as Domain>::Scalar>>>,
