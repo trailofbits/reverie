@@ -223,11 +223,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
         }
 
         // recompute the opened repetitions
-        let opened_roots: Vec<[u8; KEY_SIZE]> = roots
-            .iter()
-            .filter(|v| v.is_some())
-            .map(|v| v.unwrap())
-            .collect();
+        let opened_roots: Vec<[u8; KEY_SIZE]> = roots.into_iter().flatten().collect();
 
         debug_assert_eq!(
             opened_roots.len(),
