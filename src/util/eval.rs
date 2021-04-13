@@ -1,6 +1,7 @@
 use crate::algebra::{Domain, LocalOperation, RingElement};
 use crate::util::VecMap;
 use crate::{ConnectionInstruction, Instruction};
+use std::collections::HashMap;
 
 // Evaluates a program (in the clear)
 pub fn evaluate_program<D: Domain>(
@@ -12,6 +13,7 @@ pub fn evaluate_program<D: Domain>(
     let mut wires = VecMap::new();
     let mut output = Vec::new();
     let mut output_wires = Vec::new();
+
     let mut inputs = inputs.iter().cloned();
     let mut branch = branch.iter().cloned();
 
@@ -80,7 +82,13 @@ pub fn evaluate_fieldswitching_btoa_program<D: Domain, D2: Domain>(
         }
     }
 
-    let (out_wires, output1) = evaluate_program::<D>(program1, inputs, branch1, None);
+    let (out_wires, output1): (Vec<usize>, Vec<D::Scalar>) = evaluate_program::<D>(program1, inputs, branch1, None);
+    let mut out_map: HashMap<usize, D::Scalar> = HashMap::new();
+
+    for (index, value) in out_wires.iter().zip(output1.iter()){
+        out_map.insert(*index, *value);
+    }
+
 
     let mut wires1 = Vec::new();
 
@@ -90,19 +98,22 @@ pub fn evaluate_fieldswitching_btoa_program<D: Domain, D2: Domain>(
                 let mut input = D2::Scalar::ZERO;
                 let mut pow_two = D2::Scalar::ONE;
                 let two = D2::Scalar::ONE + D2::Scalar::ONE;
-                for (i, _src) in src.iter().cloned().enumerate() {
+                for (i, src_bit) in src.iter().cloned().enumerate() {
                     if i >= D2::NR_OF_BITS {
                         break;
                     }
-                    let index = out_wires.iter().position(|&x| x == _src).unwrap();
-                    input = input + convert_bit::<D, D2>(output1[index]) * pow_two;
+                    let val: D::Scalar = out_map.get(&src_bit)
+                        .expect(format!("Couldn't find wire {} in boolean circuit output", src_bit).as_str()).clone();
+                    input = input + convert_bit::<D, D2>(val) * pow_two;
                     pow_two = two * pow_two;
                 }
                 // wires1.set(dst, input);
                 wires1.push(input);
             }
             ConnectionInstruction::AToB(_dst, _src) => {}
-            ConnectionInstruction::Challenge(_dst) => {}
+            ConnectionInstruction::Challenge(_dst) => {
+                wires1.push(D2::Scalar::ONE);
+            }
         }
     }
 
