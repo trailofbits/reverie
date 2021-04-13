@@ -279,6 +279,8 @@ mod tests {
     use crate::util::eval::evaluate_program;
 
     use super::*;
+    use crate::fieldswitching::util::DedupMap;
+    use std::collections::HashSet;
 
     #[derive(Debug, Clone)]
     struct TestVector<D: Domain> {
@@ -674,14 +676,14 @@ mod tests {
                 test.branches.clone(),
                 test.input.clone(),
                 test.branch_index,
-                (vec![], vec![]),
+                (HashSet::new(), DedupMap::new()),
             );
             let verifier_output = proof
                 .verify(
                     None,
                     test.program.clone(),
                     test.branches.clone(),
-                    (vec![], vec![]),
+                    (HashSet::new(), DedupMap::new()),
                 )
                 .unwrap();
             assert_eq!(verifier_output, output);
@@ -701,10 +703,10 @@ mod tests {
                 branches.clone(),
                 input,
                 branch_index,
-                (vec![], vec![]),
+                (HashSet::new(), DedupMap::new()),
             );
             let verifier_output = proof
-                .verify(None, program, branches, (vec![], vec![]))
+                .verify(None, program, branches, (HashSet::new(), DedupMap::new()))
                 .unwrap();
             assert_eq!(verifier_output, output);
         }
@@ -722,10 +724,10 @@ mod tests {
                 branches.clone(),
                 input,
                 branch_index,
-                (vec![], vec![]),
+                (HashSet::new(), DedupMap::new()),
             );
             let verifier_output = proof
-                .verify(None, program, branches, (vec![], vec![]))
+                .verify(None, program, branches, (HashSet::new(), DedupMap::new()))
                 .unwrap();
             assert_eq!(verifier_output, output);
         }
@@ -743,10 +745,10 @@ mod tests {
                 branches.clone(),
                 input,
                 branch_index,
-                (vec![], vec![]),
+                (HashSet::new(), DedupMap::new()),
             );
             let verifier_output = proof
-                .verify(None, program, branches, (vec![], vec![]))
+                .verify(None, program, branches, (HashSet::new(), DedupMap::new()))
                 .unwrap();
             assert_eq!(verifier_output, output);
         }
@@ -764,10 +766,10 @@ mod tests {
                 branches.clone(),
                 input,
                 branch_index,
-                (vec![], vec![]),
+                (HashSet::new(), DedupMap::new()),
             );
             let verifier_output = proof
-                .verify(None, program, branches, (vec![], vec![]))
+                .verify(None, program, branches, (HashSet::new(), DedupMap::new()))
                 .unwrap();
             assert_eq!(verifier_output, output);
         }
@@ -788,10 +790,10 @@ mod tests {
                 branches.clone(),
                 input,
                 branch_index,
-                (vec![], vec![]),
+                (HashSet::new(), DedupMap::new()),
             );
             let verifier_output = proof
-                .verify(None, program, branches, (vec![], vec![]))
+                .verify(None, program, branches, (HashSet::new(), DedupMap::new()))
                 .unwrap();
             assert_eq!(verifier_output, output);
         }

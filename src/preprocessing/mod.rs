@@ -412,7 +412,9 @@ mod tests {
     use super::super::algebra::gf2::{BitScalar, Gf2P8};
     use super::*;
 
+    use crate::fieldswitching::util::DedupMap;
     use rand::Rng;
+    use std::collections::HashSet;
 
     #[test]
     fn test_preprocessing_n8() {
@@ -426,8 +428,18 @@ mod tests {
         let seed: [u8; KEY_SIZE] = rng.gen();
         let branch: Vec<BitScalar> = vec![];
         let branches: Vec<&[BitScalar]> = vec![&branch];
-        let proof = Proof::<Gf2P8>::new(seed, &branches[..], program.clone(), (vec![], vec![]));
-        assert!(task::block_on(proof.0.verify(&branches[..], program, (vec![], vec![]))).is_some());
+        let proof = Proof::<Gf2P8>::new(
+            seed,
+            &branches[..],
+            program.clone(),
+            (HashSet::new(), DedupMap::new()),
+        );
+        assert!(task::block_on(proof.0.verify(
+            &branches[..],
+            program,
+            (HashSet::new(), DedupMap::new())
+        ))
+        .is_some());
     }
 }
 
