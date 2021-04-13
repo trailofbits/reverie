@@ -281,7 +281,6 @@ async fn oneshot<WP: Parser<BitScalar> + Send + 'static>(
         program.arithmetic.clone(),
     ));
 
-    // TODO (ehennenfent) Do we need to do anything else to check the output here?
     Ok(verifier_output)
 }
 

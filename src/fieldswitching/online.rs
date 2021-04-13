@@ -4,7 +4,7 @@ use crate::crypto::{Hash, MerkleSetProof, TreePrf};
 use crate::fieldswitching::preprocessing::{
     FsPreprocessingRun, PartialPreprocessingExecution, PreprocessingExecution,
 };
-use crate::fieldswitching::util::{convert_bit, FullProgram};
+use crate::fieldswitching::util::{convert_bit, DedupMap, FullProgram};
 use crate::online::{StreamingProver, StreamingVerifier};
 use crate::oracle::RandomOracle;
 use crate::{fieldswitching, online, preprocessing, ConnectionInstruction, Instruction};
@@ -13,8 +13,8 @@ use async_std::sync::Arc;
 use async_std::task;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use std::marker::PhantomData;
 use std::collections::{HashMap, HashSet};
+use std::marker::PhantomData;
 
 const CHANNEL_CAPACITY: usize = 100;
 
@@ -87,7 +87,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
 
             let mut out_map: HashMap<usize, D::Scalar> = HashMap::new();
 
-            for (index, value) in output1.1.iter().zip(output1.0.iter()){
+            for (index, value) in output1.1.iter().zip(output1.0.iter()) {
                 out_map.insert(*index, *value);
             }
 
@@ -103,8 +103,16 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
                             if i >= D2::NR_OF_BITS {
                                 break;
                             }
-                            let val: D::Scalar = out_map.get(&src_bit)
-                                .expect(format!("Couldn't find wire {} in boolean circuit output", src_bit).as_str()).clone();
+                            let val: D::Scalar = out_map
+                                .get(&src_bit)
+                                .expect(
+                                    format!(
+                                        "Couldn't find wire {} in boolean circuit output",
+                                        src_bit
+                                    )
+                                    .as_str(),
+                                )
+                                .clone();
                             next = next + convert_bit::<D, D2>(val) * pow_two;
                             pow_two = two * pow_two;
                         }
@@ -134,7 +142,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
                     branch_index,
                     &mut program.2.clone(),
                     &mut input_arc.clone(),
-                    (run.fieldswitching_input.clone(), vec![]),
+                    (run.fieldswitching_input.clone(), DedupMap::new()),
                     (vec![], run.eda_composed.clone()),
                     vec![run2],
                     challenge,
@@ -156,7 +164,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
         let mut prover_tasks = Vec::new();
 
         let mut fieldswitching_input = HashSet::new();
-        let mut fieldswitching_output = Vec::new();
+        let mut fieldswitching_output = DedupMap::new();
         let mut eda_bits = Vec::new();
         let mut eda_composed = Vec::new();
         for (run_index, run) in pp.hidden.iter().cloned().enumerate() {
@@ -244,7 +252,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
                 send2,
                 program2.clone(),
                 Arc::new(input2),
-                (fieldswitching_input.clone(), vec![]),
+                (fieldswitching_input.clone(), DedupMap::new()),
                 vec![],
                 eda_composed.clone(),
             )
@@ -382,7 +390,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             let (mut oracle_feed2, omitted2, result2) = match verifier2
                 .do_verify_round_1(
                     &mut recv2,
-                    (fieldswitching_input, vec![]),
+                    (fieldswitching_input, DedupMap::new()),
                     vec![run2],
                     challenge,
                 )

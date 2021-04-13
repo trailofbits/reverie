@@ -3,10 +3,43 @@ use crate::consts::{CONTEXT_RNG_EDA, CONTEXT_RNG_EDA_2};
 use crate::crypto::{kdf, Prg, KEY_SIZE};
 use crate::preprocessing::util::{PartialShareGenerator, ShareGenerator};
 use crate::{ConnectionInstruction, Instruction};
+use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 use std::sync::Arc;
-use std::collections::HashSet;
 
-pub type FieldSwitchingIo = (HashSet<usize>, Vec<Vec<usize>>);
+#[derive(Clone, Debug)]
+pub struct DedupMap<K> {
+    underlying: Vec<Vec<K>>,
+    mapper: HashMap<K, usize>,
+}
+
+impl<K> DedupMap<K>
+where
+    K: Eq + Hash + Clone,
+{
+    pub fn new() -> Self {
+        DedupMap {
+            underlying: Vec::new(),
+            mapper: HashMap::new(),
+        }
+    }
+
+    pub fn get(&self, k: &K) -> Option<&Vec<K>> {
+        let mapping = self.mapper.get(k)?;
+        self.underlying.get(*mapping)
+    }
+
+    pub fn add(&mut self, v: Vec<K>) {
+        for k in v.iter() {
+            // TODO - I'm almost certain the BToA src keys should be unique in our circuit design, but they're not
+            // assert!(!self.mapper.contains_key(k), "Keys must be unique");
+            self.mapper.insert((*k).clone(), self.underlying.len());
+        }
+        self.underlying.push(v);
+    }
+}
+
+pub type FieldSwitchingIo = (HashSet<usize>, DedupMap<usize>);
 pub type FullProgram<D, D2> = (
     Vec<ConnectionInstruction>,
     Arc<Vec<Instruction<<D as Domain>::Scalar>>>,

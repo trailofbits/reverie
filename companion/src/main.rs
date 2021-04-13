@@ -22,6 +22,7 @@ use rand::rngs::OsRng;
 use rand::Rng;
 
 use rayon::prelude::*;
+use reverie::fieldswitching::util::DedupMap;
 use std::collections::HashSet;
 
 const MAX_VEC_SIZE: usize = 1024 * 1024 * 1024;
@@ -160,7 +161,7 @@ async fn prove<
         OsRng.gen(),      // seed
         &branches[..],    // branches
         program.rewind(), // program
-        (HashSet::new(), vec![]),
+        (HashSet::new(), DedupMap::new()),
     );
     write_vec(&mut proof, &preprocessing.serialize()[..])?;
 
@@ -172,7 +173,7 @@ async fn prove<
         branch_index,
         program.rewind(),
         witness.rewind(),
-        (HashSet::new(), vec![]),
+        (HashSet::new(), DedupMap::new()),
         (vec![], vec![]),
     )
     .await;
@@ -185,7 +186,7 @@ async fn prove<
         send,
         program.rewind(),
         witness.rewind(),
-        (HashSet::new(), vec![]),
+        (HashSet::new(), DedupMap::new()),
         vec![],
         vec![],
     ));
@@ -226,7 +227,11 @@ async fn verify<
         .expect("Failed to deserialize proof after preprocessing");
 
     let pp_output = match preprocessing
-        .verify(&branches[..], program.rewind(), (HashSet::new(), vec![]))
+        .verify(
+            &branches[..],
+            program.rewind(),
+            (HashSet::new(), DedupMap::new()),
+        )
         .await
     {
         Some(output) => output,
@@ -243,7 +248,7 @@ async fn verify<
         online::StreamingVerifier::new(program.rewind(), online).verify(
             None,
             recv,
-            (HashSet::new(), vec![]),
+            (HashSet::new(), DedupMap::new()),
         ),
     );
 

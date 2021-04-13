@@ -16,9 +16,9 @@ use async_channel::{Receiver, Sender};
 
 use crate::fieldswitching::util::FieldSwitchingIo;
 use async_std::task;
+use std::collections::HashSet;
 use std::iter::Cloned;
 use std::slice::Iter;
-use std::collections::HashSet;
 
 const DEFAULT_CAPACITY: usize = 1024;
 
@@ -223,7 +223,7 @@ impl<D: Domain> StreamingVerifier<D> {
                             let mut masks = masks.iter().cloned();
                             let mut witness = masked_witness_upstream.iter().cloned();
                             let mut ab_gamma = ab_gamma.iter().cloned();
-                            let mut fieldswitching_output_done = Vec::new();
+                            let mut fieldswitching_output_done = HashSet::new();
 
                             // pad omitted player scalars into sharings (zero shares for all other players)
                             let mut broadcast: ShareIterator<D, _> = ShareIterator::new(
@@ -305,23 +305,20 @@ impl<D: Domain> StreamingVerifier<D> {
                                     Instruction::Output(src) => {
                                         assert_ne!(nr_of_wires, 0);
 
-                                        let mut found = false;
-                                        let mut out_list = Vec::new();
-                                        for imp_out in fieldswitching_output.clone() {
-                                            if imp_out.contains(&src) {
-                                                found = true;
-                                                out_list = imp_out;
-                                                break;
-                                            }
-                                        }
+                                        let maybe_out_list = fieldswitching_output.get(&src);
+                                        let found = maybe_out_list.is_some();
+                                        let out_list: Vec<usize> = if found {
+                                            maybe_out_list.unwrap().clone()
+                                        } else {
+                                            Vec::new()
+                                        };
+
                                         if found {
-                                            fieldswitching_output_done.push(src);
-                                            let mut contains_all = true;
-                                            for item in out_list.clone() {
-                                                if !fieldswitching_output_done.contains(&item) {
-                                                    contains_all = false;
-                                                }
-                                            }
+                                            fieldswitching_output_done.insert(src);
+                                            let contains_all = out_list
+                                                .iter()
+                                                .all(|i| fieldswitching_output_done.contains(i));
+
                                             if contains_all {
                                                 let mut zeroes = Vec::new();
                                                 for _i in 0..out_list.len() {

@@ -1,7 +1,9 @@
 use crate::algebra::{Domain, RingElement, RingModule, Samplable};
 use crate::consts::{BATCH_SIZE, CONTEXT_ORACLE_PREPROCESSING, CONTEXT_RNG_CORRECTION};
 use crate::crypto::{hash, kdf, Hash, Hasher, Prg, RingHasher, TreePrf, KEY_SIZE};
-use crate::fieldswitching::util::{convert_bit_domain, PartialSharesGenerator, SharesGenerator};
+use crate::fieldswitching::util::{
+    convert_bit_domain, DedupMap, PartialSharesGenerator, SharesGenerator,
+};
 use crate::oracle::RandomOracle;
 use crate::util::Writer;
 use crate::{preprocessing, ConnectionInstruction, Instruction};
@@ -32,7 +34,7 @@ pub struct PreprocessingOutput<D: Domain, D2: Domain> {
 #[derive(Clone)] //TODO(gvl): remove clone
 pub struct FsPreprocessingRun<D: Domain, D2: Domain> {
     pub(crate) fieldswitching_input: HashSet<usize>,
-    pub(crate) fieldswitching_output: Vec<Vec<usize>>,
+    pub(crate) fieldswitching_output: DedupMap<usize>,
     pub(crate) eda_bits: Vec<Vec<D::Sharing>>,
     pub(crate) eda_composed: Vec<D2::Sharing>,
     pub(crate) seed: [u8; KEY_SIZE],
@@ -113,7 +115,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             global_seeds[2],
             &branches2[..],
             program2,
-            (fieldswitching_input, vec![]),
+            (fieldswitching_input, DedupMap::new()),
             &mut oracle,
         );
 
@@ -283,7 +285,7 @@ impl<D: Domain, D2: Domain> Proof<D, D2> {
             .verify_round_1(
                 &branches2[..],
                 program2.clone(),
-                (fieldswitching_input.clone(), vec![]),
+                (fieldswitching_input.clone(), DedupMap::new()),
                 &mut oracle,
             )
             .await;
@@ -440,17 +442,17 @@ impl<D: Domain, D2: Domain> PreprocessingExecution<D, D2> {
 
     pub fn get_fs_input_output(
         conn_program: &[ConnectionInstruction],
-    ) -> (HashSet<usize>, Vec<Vec<usize>>) {
-        let mut fieldswitching_output = Vec::new();
+    ) -> (HashSet<usize>, DedupMap<usize>) {
+        let mut fieldswitching_output: DedupMap<usize> = DedupMap::new();
         let mut fieldswitching_input: HashSet<usize> = HashSet::new();
         for gate in conn_program {
             match gate {
                 ConnectionInstruction::BToA(dst, src) => {
-                    fieldswitching_output.push(src[0..D2::NR_OF_BITS].to_vec());
+                    fieldswitching_output.add(src[0..D2::NR_OF_BITS].to_vec());
                     fieldswitching_input.insert(*dst);
                 }
                 ConnectionInstruction::AToB(_dst, _src) => {}
-                ConnectionInstruction::Challenge(dst) => {
+                ConnectionInstruction::Challenge(_dst) => {
                     // fieldswitching_input.push(*dst);
                 }
             }

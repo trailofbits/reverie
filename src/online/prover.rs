@@ -15,9 +15,9 @@ use std::sync::Arc;
 use crate::fieldswitching::util::{Eda, FieldSwitchingIo};
 use async_channel::{Receiver, SendError, Sender};
 use async_std::task;
+use std::collections::HashSet;
 use std::iter::Cloned;
 use std::slice::Iter;
-use std::collections::HashSet;
 
 /// A type alias for a tuple of a program slice and its witness slice.
 type ProgWitSlice<D> = (Arc<Instructions<D>>, Arc<Vec<<D as Domain>::Scalar>>);
@@ -128,7 +128,7 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
         let mut eda_composed = preprocessing.3.iter().cloned();
 
         let mut nr_of_wires = program_witness.2;
-        let mut fieldswitching_output_done = Vec::new();
+        let mut fieldswitching_output_done = HashSet::new();
 
         for step in program_witness.0 {
             match *step {
@@ -248,23 +248,19 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
                 Instruction::Output(src) => {
                     assert_ne!(nr_of_wires, 0);
 
-                    let mut found = false;
-                    let mut out_list = Vec::new();
-                    for imp_out in fieldswitching_output.clone() {
-                        if imp_out.contains(&src) {
-                            found = true;
-                            out_list = imp_out;
-                            break;
-                        }
-                    }
+                    let maybe_out_list = fieldswitching_output.get(&src);
+                    let found = maybe_out_list.is_some();
+                    let out_list: Vec<usize> = if found {
+                        maybe_out_list.unwrap().clone()
+                    } else {
+                        Vec::new()
+                    };
+
                     if found {
-                        fieldswitching_output_done.push(src);
-                        let mut contains_all = true;
-                        for item in out_list.clone() {
-                            if !fieldswitching_output_done.contains(&item) {
-                                contains_all = false;
-                            }
-                        }
+                        fieldswitching_output_done.insert(src);
+                        let contains_all = out_list
+                            .iter()
+                            .all(|i| fieldswitching_output_done.contains(i));
                         if contains_all {
                             let mut zeroes = Vec::new();
                             for eda_bit in eda_bits.iter_mut() {

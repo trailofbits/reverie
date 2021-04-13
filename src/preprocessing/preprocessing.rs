@@ -6,8 +6,9 @@ use crate::crypto::{hash, kdf, Hash, Hasher, MerkleSet, Prg, RingHasher, TreePrf
 use crate::util::{VecMap, Writer};
 use crate::Instruction;
 
-use std::marker::PhantomData;
+use crate::fieldswitching::util::DedupMap;
 use std::collections::HashSet;
+use std::marker::PhantomData;
 
 /// Implementation of pre-processing phase used by the prover during online execution
 pub struct PreprocessingExecution<D: Domain> {
@@ -125,7 +126,7 @@ impl<D: Domain> PreprocessingExecution<D> {
         &mut self,
         program: &[Instruction<D::Scalar>],
         fieldswitching_input: HashSet<usize>,
-        fieldswitching_output: Vec<Vec<usize>>,
+        fieldswitching_output: DedupMap<usize>,
         nr_of_wires: usize,
     ) -> usize {
         debug_assert_eq!(self.share_a.len(), 0);
@@ -229,22 +230,19 @@ impl<D: Domain> PreprocessingExecution<D> {
                         "Make sure to have Instruction::NrOfWires as first gate in a program"
                     );
 
-                    let mut found = false;
-                    let mut out_list = Vec::new();
-                    for imp_out in fieldswitching_output.clone() {
-                        if imp_out.contains(&src) {
-                            found = true;
-                            out_list = imp_out;
-                            break;
-                        }
-                    }
+                    let maybe_out_list = fieldswitching_output.get(&src);
+                    let found = maybe_out_list.is_some();
+                    let out_list: Vec<usize> = if found {
+                        maybe_out_list.unwrap().clone()
+                    } else {
+                        Vec::new()
+                    };
+
                     fieldswitching_output_done.insert(src);
-                    let mut contains_all = true;
-                    for item in out_list.clone() {
-                        if !fieldswitching_output_done.contains(&item) {
-                            contains_all = false;
-                        }
-                    }
+                    let contains_all = out_list
+                        .iter()
+                        .all(|i| fieldswitching_output_done.contains(i));
+
                     if found && contains_all {
                         let mut zeroes = Vec::new();
                         for _i in 0..out_list.len() {
