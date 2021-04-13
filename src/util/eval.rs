@@ -90,7 +90,6 @@ pub fn evaluate_fieldswitching_btoa_program<D: Domain, D2: Domain>(
         out_map.insert(*index, *value);
     }
 
-
     let mut wires1 = Vec::new();
 
     for step in conn_program {
@@ -103,13 +102,9 @@ pub fn evaluate_fieldswitching_btoa_program<D: Domain, D2: Domain>(
                     if i >= D2::NR_OF_BITS {
                         break;
                     }
-                    let val: D::Scalar = out_map
-                        .get(&src_bit)
-                        .expect(
-                            format!("Couldn't find wire {} in boolean circuit output", src_bit)
-                                .as_str(),
-                        )
-                        .clone();
+                    let val: D::Scalar = *out_map.get(&src_bit).unwrap_or_else(|| {
+                        panic!("Couldn't find wire {} in boolean circuit output", src_bit)
+                    });
                     input = input + convert_bit::<D, D2>(val) * pow_two;
                     pow_two = two * pow_two;
                 }

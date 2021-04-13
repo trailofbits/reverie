@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::sync::Arc;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct DedupMap<K> {
     underlying: Vec<Vec<K>>,
     mapper: HashMap<K, usize>,
