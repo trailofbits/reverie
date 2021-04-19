@@ -13,8 +13,6 @@ use reverie::Instruction;
 use async_channel::bounded;
 use async_std::task;
 
-use std::io::prelude::*;
-use std::io::SeekFrom;
 use std::mem;
 use std::process::exit;
 use std::sync::Arc;
@@ -25,11 +23,7 @@ use rand::Rng;
 
 use rayon::prelude::*;
 
-use sysinfo::SystemExt;
-
 const MAX_VEC_SIZE: usize = 1024 * 1024 * 1024;
-
-const IN_MEMORY_FILE_SIZE: usize = 1024 * 1024 * 1024;
 
 pub trait Parser<E>: Sized {
     fn new(reader: BufReader<File>) -> io::Result<Self>;
@@ -73,8 +67,7 @@ fn read_vec<R: io::Read>(src: &mut R) -> io::Result<Option<Vec<u8>>> {
 }
 
 enum FileStreamer<E, P: Parser<E>> {
-    File(File, PhantomData<P>),
-    Memory(Arc<Vec<E>>),
+    Memory(Arc<Vec<E>>, PhantomData<P>),
 }
 
 enum FileStream<E, P: Parser<E>> {
@@ -95,26 +88,20 @@ fn load_all<E, P: Parser<E>>(path: &str) -> io::Result<Vec<E>> {
 }
 
 impl<E, P: Parser<E>> FileStreamer<E, P> {
-    fn new(path: &str, mem_size: usize) -> io::Result<Self> {
+    fn new(path: &str) -> io::Result<Self> {
         let file = File::open(path)?;
         let meta = file.metadata()?;
 
-        // parse small files once and load into memory
-        if meta.len() < mem_size as u64 {
-            println!("load into memory");
-            let reader = BufReader::new(file);
-            let mut contents: Vec<E> =
-                Vec::with_capacity(meta.len() as usize / mem::size_of::<E>());
-            let mut parser = P::new(reader)?;
-            while let Some(elem) = parser.next()? {
-                contents.push(elem)
-            }
-            println!("done");
-            return Ok(FileStreamer::Memory(Arc::new(contents)));
+        // parse once and load into memory
+        println!("load into memory");
+        let reader = BufReader::new(file);
+        let mut contents: Vec<E> = Vec::with_capacity(meta.len() as usize / mem::size_of::<E>());
+        let mut parser = P::new(reader)?;
+        while let Some(elem) = parser.next()? {
+            contents.push(elem)
         }
-
-        // larger files streamed in (multiple times) and parsed Just-in-Time
-        Ok(FileStreamer::File(file, PhantomData))
+        println!("done");
+        Ok(FileStreamer::Memory(Arc::new(contents), PhantomData))
     }
 
     /// Reset the file stream
@@ -122,14 +109,9 @@ impl<E, P: Parser<E>> FileStreamer<E, P> {
     /// For in-memory files this is a noop
     /// For disk based files this seeks to the start and
     /// re-initializes the (potentially) stateful parser.
-    fn rewind(&self) -> io::Result<FileStream<E, P>> {
+    fn rewind(&self) -> Arc<Vec<E>> {
         match self {
-            FileStreamer::File(file, _) => {
-                let mut file_c = file.try_clone()?;
-                file_c.seek(SeekFrom::Start(0))?;
-                Ok(FileStream::File(P::new(BufReader::new(file_c))?))
-            }
-            FileStreamer::Memory(vec) => Ok(FileStream::Memory(vec.clone(), 0)),
+            FileStreamer::Memory(vec, PhantomData) => vec.clone(),
         }
     }
 }
@@ -184,17 +166,11 @@ async fn prove<
     // collect branch slices
     let branches: Vec<&[BitScalar]> = branch_vecs.iter().map(|v| &v[..]).collect();
 
-    // load to memory depending on available RAM
-    let mut system = sysinfo::System::new();
-    system.refresh_all();
-    let available_mem = system.get_available_memory();
-
     // open and parse program
-    let program: FileStreamer<_, IP> =
-        FileStreamer::new(program_path, (available_mem * 1024 / 4) as usize)?;
+    let program: FileStreamer<_, IP> = FileStreamer::new(program_path)?;
 
     // open and parse witness
-    let witness: FileStreamer<_, WP> = FileStreamer::new(witness_path, IN_MEMORY_FILE_SIZE)?;
+    let witness: FileStreamer<_, WP> = FileStreamer::new(witness_path)?;
 
     // open destination
     let mut proof = File::create(proof_path)?;
@@ -204,7 +180,7 @@ async fn prove<
     let (preprocessing, pp_output) = preprocessing::Proof::<Gf2P8>::new(
         OsRng.gen(),       // seed
         &branches[..],     // branches
-        program.rewind()?, // program
+        program.rewind(), // program
     );
     write_vec(&mut proof, &preprocessing.serialize()[..])?;
 
@@ -214,8 +190,8 @@ async fn prove<
         None,
         pp_output,
         branch_index,
-        program.rewind()?,
-        witness.rewind()?,
+        program.rewind(),
+        witness.rewind(),
     )
     .await;
     write_vec(&mut proof, &online.serialize()[..])?;
@@ -223,7 +199,7 @@ async fn prove<
     // create prover for online phase
     println!("stream proof...");
     let (send, recv) = bounded(100);
-    let stream_task = task::spawn(prover.stream(send, program.rewind()?, witness.rewind()?));
+    let stream_task = task::spawn(prover.stream(send, program.rewind(), witness.rewind()));
 
     // read all chunks from online execution
     // (stream out the proof to disk)
@@ -250,7 +226,7 @@ async fn verify<
     let branches: Vec<&[BitScalar]> = branch_vecs.iter().map(|v| &v[..]).collect();
 
     // open and parse program
-    let program: FileStreamer<_, IP> = FileStreamer::new(program_path, 0)?;
+    let program: FileStreamer<_, IP> = FileStreamer::new(program_path)?;
 
     // open and parse proof
     let mut proof = BufReader::new(File::open(proof_path)?);
@@ -260,7 +236,7 @@ async fn verify<
         .and_then(|v| preprocessing::Proof::<Gf2P8>::deserialize(&v))
         .expect("Failed to deserialize proof after preprocessing");
 
-    let pp_output = match preprocessing.verify(&branches[..], program.rewind()?).await {
+    let pp_output = match preprocessing.verify(&branches[..], program.rewind()).await {
         Some(output) => output,
         None => panic!("Failed to verify preprocessed proof"),
     };
@@ -272,7 +248,7 @@ async fn verify<
     // verify the online execution
     let (send, recv) = bounded(100);
     let task_online =
-        task::spawn(online::StreamingVerifier::new(program.rewind()?, online).verify(None, recv));
+        task::spawn(online::StreamingVerifier::new(program.rewind(), online).verify(None, recv));
 
     while let Some(vec) = read_vec(&mut proof)? {
         send.send(vec).await.unwrap();

@@ -20,23 +20,6 @@ use async_std::task;
 
 use serde::{Deserialize, Serialize};
 
-async fn feed<D: Domain, PI: Iterator<Item = Instruction<D::Scalar>>>(
-    senders: &mut [Sender<Arc<Instructions<D>>>],
-    program: &mut PI,
-) -> bool {
-    // next slice of program
-    let ps = Arc::new(read_n(program, BATCH_SIZE));
-    if ps.len() == 0 {
-        return false;
-    }
-
-    // feed to workers
-    for sender in senders {
-        sender.send(ps.clone()).await.unwrap();
-    }
-    true
-}
-
 /// Represents repeated execution of the preprocessing phase.
 /// The preprocessing phase is executed D::ONLINE_REPETITIONS times, then fed to a random oracle,
 /// which dictates the subset of executions to open.
@@ -101,10 +84,10 @@ pub fn pack_branches<D: Domain>(branches: &[&[D::Scalar]]) -> Vec<Vec<D::Batch>>
 }
 
 impl<D: Domain> Proof<D> {
-    async fn preprocess<PI: Iterator<Item = Instruction<D::Scalar>>>(
+    async fn preprocess(
         seeds: &[[u8; KEY_SIZE]],
         branches: Arc<Vec<Vec<D::Batch>>>,
-        mut program: PI,
+        program: Arc<Vec<Instruction<D::Scalar>>>,
     ) -> Vec<(Hash, Vec<Hash>)> {
         assert!(
             branches.len() > 0,
@@ -133,6 +116,17 @@ impl<D: Domain> Proof<D> {
             }
         }
 
+        type TaskHandle = task::JoinHandle<Result<(Hash, Vec<Hash>), SendError<()>>>;
+        async fn collect_commitments<D: Domain>(
+            mut tasks: Vec<TaskHandle>,
+        ) -> Vec<(Hash, Vec<Hash>)> {
+            let mut results: Vec<(Hash, Vec<Hash>)> = Vec::new();
+            for t in tasks.drain(..) {
+                results.push(t.await.unwrap());
+            }
+            results
+        }
+
         // create async parallel task for every repetition
         let mut tasks = Vec::with_capacity(D::PREPROCESSING_REPETITIONS);
         let mut inputs: Vec<Sender<Arc<Instructions<D>>>> =
@@ -151,36 +145,27 @@ impl<D: Domain> Proof<D> {
             inputs.push(send_inputs);
             outputs.push(recv_outputs);
         }
+        let commitments = task::spawn(collect_commitments::<D>(tasks));
 
-        // schedule up to 2 tasks immediately (for better performance)
-        let mut scheduled = 0;
-        scheduled += feed::<D, _>(&mut inputs[..], &mut program).await as usize;
-        scheduled += feed::<D, _>(&mut inputs[..], &mut program).await as usize;
+        let chunk_size = chunk_size(program.len(), inputs.len());
 
-        // wait for all scheduled tasks to complete
-        while scheduled > 0 {
-            for rx in outputs.iter_mut() {
+        while !inputs.is_empty() {
+            for sender in inputs.drain(..chunk_size) {
+                sender.send(program.clone()).await.unwrap();
+            }
+            for rx in outputs.drain(..chunk_size) {
                 let _ = rx.recv().await;
             }
-            scheduled -= 1;
-            scheduled += feed::<D, _>(&mut inputs[..], &mut program).await as usize;
         }
-
-        // close inputs channels
-        inputs.clear();
 
         // collect final commitments
-        let mut results: Vec<(Hash, Vec<Hash>)> = Vec::with_capacity(D::PREPROCESSING_REPETITIONS);
-        for t in tasks.into_iter() {
-            results.push(t.await.unwrap());
-        }
-        results
+        commitments.await
     }
 
-    pub async fn verify<PI: Iterator<Item = Instruction<D::Scalar>>>(
+    pub async fn verify(
         &self,
         branches: &[&[D::Scalar]],
-        program: PI,
+        program: Arc<Vec<Instruction<D::Scalar>>>,
     ) -> Option<Output<D>> {
         // pack branch scalars into batches for efficiency
         let branches = Arc::new(pack_branches::<D>(branches));
@@ -267,10 +252,10 @@ impl<D: Domain> Proof<D> {
     /// Create a new pre-processing proof.
     ///
     ///
-    pub fn new<PI: Iterator<Item = Instruction<D::Scalar>>>(
+    pub fn new(
         global: [u8; KEY_SIZE],
         branches: &[&[D::Scalar]],
-        program: PI,
+        program: Arc<Vec<Instruction<D::Scalar>>>,
     ) -> (Self, PreprocessingOutput<D>) {
         // pack branch scalars into batches for efficiency
         let branches = Arc::new(pack_branches::<D>(branches));
@@ -357,17 +342,17 @@ mod tests {
 
     #[test]
     fn test_preprocessing_n8() {
-        let program = vec![
+        let program = Arc::new(vec![
             Instruction::Input(1),
             Instruction::Input(2),
             Instruction::Mul(0, 1, 2),
-        ]; // maybe generate random program?
+        ]); // maybe generate random program?
         let mut rng = rand::thread_rng();
         let seed: [u8; KEY_SIZE] = rng.gen();
         let branch: Vec<BitScalar> = vec![];
         let branches: Vec<&[BitScalar]> = vec![&branch];
-        let proof = Proof::<Gf2P8>::new(seed, &branches[..], program.iter().cloned());
-        assert!(task::block_on(proof.0.verify(&branches[..], program.into_iter())).is_some());
+        let proof = Proof::<Gf2P8>::new(seed, &branches[..], program.clone());
+        assert!(task::block_on(proof.0.verify(&branches[..], program)).is_some());
     }
 }
 

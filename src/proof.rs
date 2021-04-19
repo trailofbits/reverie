@@ -68,17 +68,14 @@ impl<D: Domain> Proof<D> {
             pp_output: preprocessing::PreprocessingOutput<D>,
         ) -> Option<online::Proof<D>> {
             let (online, prover) = online::StreamingProver::new(
-                bind.as_ref().map(|x| &x[..]),
+                bind,
                 pp_output,
                 branch_index,
-                program.clone().iter().cloned(),
-                witness.clone().iter().cloned(),
+                program.clone(),
+                witness.clone(),
             )
             .await;
-            prover
-                .stream(send, program.iter().cloned(), witness.iter().cloned())
-                .await
-                .unwrap();
+            prover.stream(send, program, witness).await.unwrap();
             Some(online)
         }
 
@@ -90,7 +87,7 @@ impl<D: Domain> Proof<D> {
 
         // prove preprocessing
         let (preprocessing, pp_output) =
-            preprocessing::Proof::new(seed, &branches[..], program.iter().cloned());
+            preprocessing::Proof::new(seed, &branches[..], program.clone());
 
         // create prover for online phase
         let (send, recv) = bounded(CHANNEL_CAPACITY);
@@ -129,8 +126,8 @@ impl<D: Domain> Proof<D> {
             proof: online::Proof<D>,
             recv: Receiver<Vec<u8>>,
         ) -> Result<online::Output<D>, String> {
-            let verifier = online::StreamingVerifier::new(program.iter().cloned(), proof);
-            verifier.verify(bind.as_ref().map(|x| &x[..]), recv).await
+            let verifier = online::StreamingVerifier::new(program, proof);
+            verifier.verify(bind, recv).await
         }
 
         async fn preprocessing_verification<D: Domain>(
@@ -139,7 +136,7 @@ impl<D: Domain> Proof<D> {
             proof: preprocessing::Proof<D>,
         ) -> Option<preprocessing::Output<D>> {
             let branches: Vec<&[D::Scalar]> = branches.iter().map(|b| &b[..]).collect();
-            proof.verify(&branches[..], program.iter().cloned()).await
+            proof.verify(&branches[..], program).await
         }
 
         // verify pre-processing
