@@ -283,6 +283,39 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
                         }
                     }
                 }
+                Instruction::Sub(dst, src1, src2) => {
+                    let a_w = self.wires.get(src1);
+                    let b_w = self.wires.get(src2);
+                    self.wires.set(dst, a_w - b_w);
+
+                    #[cfg(feature = "trace")]
+                    {
+                        println!(
+                            "prover-sub      : Sub({}, {}, {}) ; wire = {:?}",
+                            dst,
+                            src1,
+                            src2,
+                            self.wires.get(dst),
+                        );
+                    }
+
+                    // evaluate the circuit in plain for testing
+                    #[cfg(test)]
+                    #[cfg(debug_assertions)]
+                    {
+                        let correct = self.plain.get(src1).unwrap() - self.plain.get(src2).unwrap();
+                        self.plain.set(dst, Some(correct));
+
+                        // reconstruct masked wire and check computation
+                        #[cfg(feature = "debug_eval")]
+                        {
+                            let mask = masks.next().unwrap();
+                            #[cfg(feature = "trace")]
+                            println!("  mask = {:?}, value = {:?}", mask, correct);
+                            assert_eq!(correct, mask.reconstruct() + self.wires.get(dst));
+                        }
+                    }
+                }
                 Instruction::Mul(dst, src1, src2) => {
                     // calculate reconstruction shares for every player
                     let a_w = self.wires.get(src1);

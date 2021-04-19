@@ -352,7 +352,11 @@ async fn async_main() -> io::Result<()> {
                 )
                 .await,
                 "bin" => {
-                    prove::<instruction::bin::InsParser, witness::WitParser, witness::WitParser>(
+                    prove::<
+                        instruction::bin::InsParser<BitScalar>,
+                        witness::WitParser,
+                        witness::WitParser,
+                    >(
                         matches.value_of("proof-path").unwrap(),
                         matches.value_of("program-path").unwrap(),
                         matches.value_of("witness-path").unwrap(),
@@ -375,7 +379,7 @@ async fn async_main() -> io::Result<()> {
                     .await?
                 }
                 "bin" => {
-                    verify::<instruction::bin::InsParser, witness::WitParser>(
+                    verify::<instruction::bin::InsParser<BitScalar>, witness::WitParser>(
                         matches.value_of("proof-path").unwrap(),
                         matches.value_of("program-path").unwrap(),
                         branches,

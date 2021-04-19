@@ -216,6 +216,18 @@ impl<D: Domain> StreamingVerifier<D> {
                                             );
                                         }
                                     }
+                                    Instruction::Sub(dst, src1, src2) => {
+                                        let a_w = wires.get(src1);
+                                        let b_w = wires.get(src2);
+                                        wires.set(dst, a_w - b_w);
+                                        #[cfg(feature = "trace")]
+                                        {
+                                            println!(
+                                                "verifier-sub   : a_w = {:?}, b_w = {:?}",
+                                                a_w, b_w,
+                                            );
+                                        }
+                                    }
                                     Instruction::Mul(dst, src1, src2) => {
                                         // calculate reconstruction shares for every player
                                         let a_w = wires.get(src1);

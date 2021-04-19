@@ -154,6 +154,10 @@ impl<D: Domain> PreprocessingExecution<D> {
                     self.masks
                         .set(dst, self.masks.get(src1) + self.masks.get(src2));
                 }
+                Instruction::Sub(dst, src1, src2) => {
+                    self.masks
+                        .set(dst, self.masks.get(src1) - self.masks.get(src2));
+                }
                 Instruction::Mul(dst, src1, src2) => {
                     // push the input masks to the deferred multiplication stack
                     let mask_a = self.masks.get(src1);

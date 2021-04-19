@@ -240,6 +240,18 @@ impl<D: Domain> PreprocessingExecution<D> {
                         masks.write(self.masks.get(dst));
                     }
                 }
+                Instruction::Sub(dst, src1, src2) => {
+                    self.masks
+                        .set(dst, self.masks.get(src1) - self.masks.get(src2));
+
+                    // return mask for debugging
+                    #[cfg(test)]
+                    #[cfg(debug_assertions)]
+                    #[cfg(feature = "debug_eval")]
+                    {
+                        masks.write(self.masks.get(dst));
+                    }
+                }
                 Instruction::Mul(dst, src1, src2) => {
                     // push the input masks to the stack
                     let mask_a = self.masks.get(src1);
