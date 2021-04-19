@@ -97,23 +97,12 @@ impl<D: Domain> StreamingVerifier<D> {
             let mut masked_witness_upstream: Vec<D::Scalar> = Vec::with_capacity(DEFAULT_CAPACITY);
 
             // check branch proof
-            let (root, mut branch) = {
-                // unpack bytes
-                let mut branch: Vec<D::Batch> = Vec::with_capacity(DEFAULT_CAPACITY);
-                Packable::unpack(&mut branch, &run.branch[..]).ok()?;
-
+            let root = {
                 // hash the branch
-                let mut hasher = RingHasher::new();
-                let mut scalars = Vec::with_capacity(branch.len() * D::Batch::DIMENSION);
-                for elem in branch.into_iter() {
-                    for j in 0..D::Batch::DIMENSION {
-                        scalars.push(elem.get(j))
-                    }
-                    hasher.update(elem)
-                }
+                let hasher: RingHasher<D::Batch> = RingHasher::new();
 
                 // recompute the Merkle root from the leaf and proof
-                (run.proof.verify(&hasher.finalize()), scalars.into_iter())
+                run.proof.verify(&hasher.finalize())
             };
 
             loop {
@@ -189,9 +178,6 @@ impl<D: Domain> StreamingVerifier<D> {
                                                 wires.get(dst)
                                             );
                                         }
-                                    }
-                                    Instruction::Branch(dst) => {
-                                        wires.set(dst, branch.next()?);
                                     }
                                     Instruction::Const(dst, c) => {
                                         wires.set(dst, c);

@@ -30,7 +30,6 @@ pub struct Chunk {
 pub struct Run<D: Domain> {
     open: TreePrf,         // randomness for opened players
     proof: MerkleSetProof, // merkle proof for masked branch
-    branch: Vec<u8>,       // masked branch (packed)
     commitment: Hash,      // commitment for hidden preprocessing player
     _ph: PhantomData<D>,
 }

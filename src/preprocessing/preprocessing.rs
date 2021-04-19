@@ -30,12 +30,13 @@ pub struct PreprocessingExecution<D: Domain> {
 }
 
 impl<D: Domain> PreprocessingExecution<D> {
-    pub fn new(root: [u8; KEY_SIZE], branches: &[Vec<D::Batch>]) -> Self {
+    pub fn new(root: [u8; KEY_SIZE]) -> Self {
         // expand repetition seed into per-player seeds
         let mut player_seeds: Vec<[u8; KEY_SIZE]> = vec![[0u8; KEY_SIZE]; D::PLAYERS];
         TreePrf::expand_full(&mut player_seeds, root);
 
         // mask the branches and compute the root of the Merkle tree
+        let branches = vec![vec![]];
         let root: Hash = {
             let mut hashes: Vec<RingHasher<D::Batch>> =
                 (0..branches.len()).map(|_| RingHasher::new()).collect();
@@ -135,9 +136,6 @@ impl<D: Domain> PreprocessingExecution<D> {
                 }
                 Instruction::Input(dst) => {
                     self.masks.set(dst, self.shares.input.next());
-                }
-                Instruction::Branch(dst) => {
-                    self.masks.set(dst, self.shares.branch.next());
                 }
                 Instruction::Const(dst, _c) => {
                     // We don't need to mask constant inputs because the circuit is public

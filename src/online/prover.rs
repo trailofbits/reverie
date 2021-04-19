@@ -21,7 +21,6 @@ type ProgWitSlice<D> = (Arc<Instructions<D>>, Arc<Vec<<D as Domain>::Scalar>>);
 const DEFAULT_CAPACITY: usize = BATCH_SIZE;
 
 pub struct StreamingProver<D: Domain> {
-    branch: Arc<Vec<D::Scalar>>,
     preprocessing: PreprocessingOutput<D>,
     omitted: Vec<usize>,
 }
@@ -69,22 +68,20 @@ impl<D: Domain, W: Writer<D::Batch>> Drop for BatchExtractor<D, W> {
     }
 }
 
-struct Prover<D: Domain, I: Iterator<Item = D::Scalar>> {
+struct Prover<D: Domain> {
     #[cfg(test)]
     #[cfg(debug_assertions)]
     plain: VecMap<Option<D::Scalar>>,
     wires: VecMap<D::Scalar>,
-    branch: I,
 }
 
-impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
-    fn new(branch: I) -> Self {
+impl<D: Domain> Prover<D> {
+    fn new() -> Self {
         Prover {
             #[cfg(test)]
             #[cfg(debug_assertions)]
             plain: VecMap::new(),
             wires: VecMap::new(),
-            branch,
         }
     }
 
@@ -126,30 +123,6 @@ impl<D: Domain, I: Iterator<Item = D::Scalar>> Prover<D, I> {
                     {
                         println!(
                             "prover-input    : Input({}) ; wire = {:?}, mask = {:?}, value = {:?}",
-                            dst, wire, mask, value
-                        );
-                    }
-
-                    // evaluate the circuit in plain for testing
-                    #[cfg(test)]
-                    #[cfg(debug_assertions)]
-                    {
-                        assert_eq!(self.wires.get(dst) + mask.reconstruct(), value);
-                        #[cfg(feature = "trace")]
-                        println!("  mask = {:?}, value = {:?}", mask, value);
-                        self.plain.set(dst, Some(value));
-                    }
-                }
-                Instruction::Branch(dst) => {
-                    let value: D::Scalar = self.branch.next().unwrap();
-                    let mask: D::Sharing = masks.next().unwrap();
-                    let wire = value + D::Sharing::reconstruct(&mask);
-                    self.wires.set(dst, wire);
-
-                    #[cfg(feature = "trace")]
-                    {
-                        println!(
-                            "prover-branch   : Branch({}) ; wire = {:?}, mask = {:?}, value = {:?}",
                             dst, wire, mask, value
                         );
                     }
@@ -407,7 +380,6 @@ impl<D: Domain> StreamingProver<D> {
     pub async fn new(
         bind: Option<Vec<u8>>, // included Fiat-Shamir transform (for signatures of knowledge)
         preprocessing: PreprocessingOutput<D>, // output of preprocessing
-        branch_index: usize,   // branch index (from preprocessing)
         program: Arc<Vec<Instruction<D::Scalar>>>,
         witness: Arc<Vec<D::Scalar>>,
     ) -> (Proof<D>, Self) {
@@ -415,14 +387,11 @@ impl<D: Domain> StreamingProver<D> {
 
         async fn process<D: Domain>(
             root: [u8; KEY_SIZE],
-            branches: Arc<Vec<Vec<D::Batch>>>,
-            branch_index: usize,
-            branch: Arc<Vec<D::Scalar>>,
             outputs: Sender<()>,
             inputs: Receiver<ProgWitSlice<D>>,
-        ) -> Result<(Vec<u8>, MerkleSetProof, Hash), SendError<Vec<u8>>> {
+        ) -> Result<(MerkleSetProof, Hash), SendError<Vec<u8>>> {
             // online execution
-            let mut online = Prover::<D, _>::new(branch.iter().cloned());
+            let mut online = Prover::<D>::new();
 
             // public transcript (broadcast channel)
             let mut transcript = RingHasher::new();
@@ -466,31 +435,27 @@ impl<D: Domain> StreamingProver<D> {
                         outputs.send(()).await.unwrap();
                     }
                     Err(_) => {
-                        let mut packed: Vec<u8> = Vec::with_capacity(256);
-                        let (branch, proof) = preprocessing.prove_branch(&*branches, branch_index);
-                        Packable::pack(&mut packed, branch.iter()).unwrap();
-                        return Ok((packed, proof, transcript.finalize()));
+                        let proof = preprocessing.prove_branch();
+                        return Ok((proof, transcript.finalize()));
                     }
                 }
             }
         }
 
-        type TaskHandle =
-            task::JoinHandle<Result<(Vec<u8>, MerkleSetProof, Hash), SendError<Vec<u8>>>>;
+        type TaskHandle = task::JoinHandle<Result<(MerkleSetProof, Hash), SendError<Vec<u8>>>>;
         async fn extract_output<D: Domain>(
             bind: Option<Vec<u8>>,
             preprocessing: PreprocessingOutput<D>,
-            branch: Arc<Vec<<D as Domain>::Scalar>>,
             tasks: Vec<TaskHandle>,
         ) -> (Proof<D>, StreamingProver<D>) {
             // extract which players to omit in every run (Fiat-Shamir)
             let mut oracle =
                 RandomOracle::new(CONTEXT_ORACLE_ONLINE, bind.as_ref().map(|x| &x[..]));
-            let mut masked_branches = Vec::with_capacity(D::ONLINE_REPETITIONS);
+            let mut proofs = Vec::with_capacity(D::ONLINE_REPETITIONS);
 
             for (pp, t) in preprocessing.hidden.iter().zip(tasks.into_iter()) {
-                let (masked, proof, transcript) = t.await.unwrap();
-                masked_branches.push((masked, proof));
+                let (proof, transcript) = t.await.unwrap();
+                proofs.push(proof);
 
                 // RO((preprocessing, transcript))
                 oracle.feed(pp.union.as_bytes());
@@ -509,12 +474,11 @@ impl<D: Domain> StreamingProver<D> {
                         .iter()
                         .cloned()
                         .zip(preprocessing.hidden.iter())
-                        .zip(masked_branches.into_iter())
-                        .map(|((omit, run), (branch, proof))| {
+                        .zip(proofs.into_iter())
+                        .map(|((omit, run), proof)| {
                             let tree = TreePrf::new(D::PLAYERS, run.seed);
                             Run {
                                 proof,
-                                branch,
                                 commitment: run.commitments[omit].clone(),
                                 open: tree.puncture(omit),
                                 _ph: PhantomData,
@@ -524,22 +488,11 @@ impl<D: Domain> StreamingProver<D> {
                     _ph: PhantomData,
                 },
                 StreamingProver {
-                    branch,
                     preprocessing,
                     omitted,
                 },
             )
         }
-
-        // unpack selected branch into scalars again
-        let branch_batches = &preprocessing.branches[branch_index][..];
-        let mut branch = Vec::with_capacity(branch_batches.len() * D::Batch::DIMENSION);
-        for batch in branch_batches.iter() {
-            for j in 0..D::Batch::DIMENSION {
-                branch.push(batch.get(j))
-            }
-        }
-        let branch = Arc::new(branch);
 
         // create async parallel task for every repetition
         let mut tasks = Vec::with_capacity(D::ONLINE_REPETITIONS);
@@ -550,9 +503,6 @@ impl<D: Domain> StreamingProver<D> {
             let (send_outputs, recv_outputs) = async_channel::bounded(2);
             tasks.push(task::spawn(process::<D>(
                 run.seed,
-                preprocessing.branches.clone(),
-                branch_index,
-                branch.clone(),
                 send_outputs,
                 recv_inputs,
             )));
@@ -560,7 +510,7 @@ impl<D: Domain> StreamingProver<D> {
             outputs.push(recv_outputs);
         }
 
-        let extraction_task = task::spawn(extract_output::<D>(bind, preprocessing, branch, tasks));
+        let extraction_task = task::spawn(extract_output::<D>(bind, preprocessing, tasks));
 
         let chunk_size = chunk_size(program.len(), inputs.len());
 
@@ -591,14 +541,13 @@ impl<D: Domain> StreamingProver<D> {
         async fn process<D: Domain>(
             root: [u8; KEY_SIZE],
             omitted: usize,
-            branch: Arc<Vec<D::Scalar>>,
             outputs: Sender<Vec<u8>>,
             inputs: Receiver<ProgWitSlice<D>>,
         ) -> Result<(), SendError<Vec<u8>>> {
             let mut seeds = vec![[0u8; KEY_SIZE]; D::PLAYERS];
             TreePrf::expand_full(&mut seeds, root);
 
-            let mut online = Prover::<D, _>::new(branch.iter().cloned());
+            let mut online = Prover::<D>::new();
             let mut preprocessing = PreprocessingExecution::<D>::new(root);
 
             // output buffers used during execution
@@ -684,7 +633,6 @@ impl<D: Domain> StreamingProver<D> {
             tasks.push(task::spawn(process::<D>(
                 run.seed,
                 omit,
-                self.branch.clone(),
                 sender_outputs,
                 reader_inputs,
             )));

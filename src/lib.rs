@@ -53,7 +53,6 @@ pub enum Instruction<E: RingElement> {
     Mul(usize, usize, usize),  // multiplication of two wires
     Add(usize, usize, usize),  // addition of two wires
     Sub(usize, usize, usize),  // subtraction of one wire from another
-    Branch(usize),             // load next branch element
     Input(usize),              // read next field element from input tape
     Output(usize),             // output wire (write wire-value to output tape)
     Const(usize, E),           // fixed constant value

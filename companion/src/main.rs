@@ -131,24 +131,6 @@ impl<E: Clone, P: Parser<E>> Iterator for FileStream<E, P> {
     }
 }
 
-fn load_branches<BP: Parser<BitScalar> + Send + 'static>(
-    branch_paths: Option<Vec<&str>>,
-) -> io::Result<Vec<Vec<BitScalar>>> {
-    match branch_paths {
-        None => Ok(vec![vec![]]),
-        Some(paths) => {
-            let loads: Vec<io::Result<Vec<BitScalar>>> = paths
-                .par_iter()
-                .map(|path| load_all::<_, BP>(path))
-                .collect();
-            let mut branches: Vec<Vec<BitScalar>> = Vec::with_capacity(loads.len());
-            for load in loads.into_iter() {
-                branches.push(load?);
-            }
-            Ok(branches)
-        }
-    }
-}
 
 async fn prove<
     IP: Parser<Instruction<BitScalar>> + Send + 'static,
@@ -158,13 +140,7 @@ async fn prove<
     proof_path: &str,
     program_path: &str,
     witness_path: &str,
-    branch_paths: Option<Vec<&str>>,
-    branch_index: usize,
 ) -> io::Result<()> {
-    let branch_vecs = load_branches::<BP>(branch_paths)?;
-
-    // collect branch slices
-    let branches: Vec<&[BitScalar]> = branch_vecs.iter().map(|v| &v[..]).collect();
 
     // open and parse program
     let program: FileStreamer<_, IP> = FileStreamer::new(program_path)?;
@@ -179,7 +155,6 @@ async fn prove<
     println!("preprocessing...");
     let (preprocessing, pp_output) = preprocessing::Proof::<Gf2P8>::new(
         OsRng.gen(),      // seed
-        &branches[..],    // branches
         program.rewind(), // program
     );
     write_vec(&mut proof, &preprocessing.serialize()[..])?;
@@ -189,7 +164,6 @@ async fn prove<
     let (online, prover) = online::StreamingProver::<Gf2P8>::new(
         None,
         pp_output,
-        branch_index,
         program.rewind(),
         witness.rewind(),
     )
@@ -218,13 +192,7 @@ async fn verify<
 >(
     proof_path: &str,
     program_path: &str,
-    branch_paths: Option<Vec<&str>>,
 ) -> io::Result<Result<Vec<BitScalar>, String>> {
-    let branch_vecs = load_branches::<BP>(branch_paths)?;
-
-    // collect branch slices
-    let branches: Vec<&[BitScalar]> = branch_vecs.iter().map(|v| &v[..]).collect();
-
     // open and parse program
     let program: FileStreamer<_, IP> = FileStreamer::new(program_path)?;
 
@@ -236,7 +204,7 @@ async fn verify<
         .and_then(|v| preprocessing::Proof::<Gf2P8>::deserialize(&v))
         .expect("Failed to deserialize proof after preprocessing");
 
-    let pp_output = match preprocessing.verify(&branches[..], program.rewind()).await {
+    let pp_output = match preprocessing.verify(program.rewind()).await {
         Some(output) => output,
         None => panic!("Failed to verify preprocessed proof"),
     };
@@ -284,19 +252,6 @@ async fn async_main() -> io::Result<()> {
                 .required(true),
         )
         .arg(
-            Arg::with_name("branch-path")
-                .long("branch-path")
-                .help("The path to a file containing branch bits (may occur multiple times)")
-                .empty_values(false)
-                .multiple(true),
-        )
-        .arg(
-            Arg::with_name("branch-index")
-                .long("branch-index")
-                .help("The index/active branch")
-                .empty_values(false),
-        )
-        .arg(
             Arg::with_name("witness-path")
                 .long("witness-path")
                 .help("The path to the file containing the witness (for proving)")
@@ -326,18 +281,8 @@ async fn async_main() -> io::Result<()> {
         )
         .get_matches();
 
-    let branches: Option<Vec<&str>> = matches.values_of("branch-path").map(|vs| vs.collect());
-
     match matches.value_of("operation").unwrap() {
         "prove" => {
-            let branch_index: usize = if branches.is_some() {
-                matches
-                    .value_of("branch-index")
-                    .map(|s| s.parse().unwrap())
-                    .unwrap()
-            } else {
-                0
-            };
             match matches.value_of("program-format").unwrap() {
                 "bristol" => prove::<
                     instruction::bristol::InsParser,
@@ -347,8 +292,6 @@ async fn async_main() -> io::Result<()> {
                     matches.value_of("proof-path").unwrap(),
                     matches.value_of("program-path").unwrap(),
                     matches.value_of("witness-path").unwrap(),
-                    branches,
-                    branch_index,
                 )
                 .await,
                 "bin" => {
@@ -360,8 +303,6 @@ async fn async_main() -> io::Result<()> {
                         matches.value_of("proof-path").unwrap(),
                         matches.value_of("program-path").unwrap(),
                         matches.value_of("witness-path").unwrap(),
-                        branches,
-                        branch_index,
                     )
                     .await
                 }
@@ -374,7 +315,6 @@ async fn async_main() -> io::Result<()> {
                     verify::<instruction::bristol::InsParser, witness::WitParser>(
                         matches.value_of("proof-path").unwrap(),
                         matches.value_of("program-path").unwrap(),
-                        branches,
                     )
                     .await?
                 }
@@ -382,7 +322,6 @@ async fn async_main() -> io::Result<()> {
                     verify::<instruction::bin::InsParser<BitScalar>, witness::WitParser>(
                         matches.value_of("proof-path").unwrap(),
                         matches.value_of("program-path").unwrap(),
-                        branches,
                     )
                     .await?
                 }

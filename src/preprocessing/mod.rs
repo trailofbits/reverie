@@ -54,8 +54,8 @@ pub struct Run {
 /// For this reason PreprocessingOutput does not implement Copy/Clone
 /// and the online phase takes ownership of the struct, nor does it expose any fields.
 pub struct PreprocessingOutput<D: Domain> {
-    pub(crate) branches: Arc<Vec<Vec<D::Batch>>>,
     pub(crate) hidden: Vec<Run>,
+    _ph: PhantomData<D>,
 }
 
 pub struct Output<D: Domain> {
@@ -63,45 +63,18 @@ pub struct Output<D: Domain> {
     _ph: PhantomData<D>,
 }
 
-pub fn pack_branch<D: Domain>(branch: &[D::Scalar]) -> Vec<D::Batch> {
-    let mut res: Vec<D::Batch> = Vec::with_capacity(branch.len() / D::Batch::DIMENSION + 1);
-    for chunk in branch.chunks(D::Batch::DIMENSION) {
-        let mut batch = D::Batch::ZERO;
-        for (i, s) in chunk.iter().cloned().enumerate() {
-            batch.set(i, s);
-        }
-        res.push(batch)
-    }
-    res
-}
-
-pub fn pack_branches<D: Domain>(branches: &[&[D::Scalar]]) -> Vec<Vec<D::Batch>> {
-    let mut batches: Vec<Vec<D::Batch>> = Vec::with_capacity(branches.len());
-    for branch in branches {
-        batches.push(pack_branch::<D>(branch));
-    }
-    batches
-}
-
 impl<D: Domain> Proof<D> {
     async fn preprocess(
         seeds: &[[u8; KEY_SIZE]],
-        branches: Arc<Vec<Vec<D::Batch>>>,
         program: Arc<Vec<Instruction<D::Scalar>>>,
     ) -> Vec<(Hash, Vec<Hash>)> {
-        assert!(
-            branches.len() > 0,
-            "even when the branch feature is not used, the branch should still be provided and should be a singleton list with an empty element"
-        );
-
         async fn process<D: Domain>(
             root: [u8; KEY_SIZE],
-            branches: Arc<Vec<Vec<D::Batch>>>,
             outputs: Sender<()>,
             inputs: Receiver<Arc<Instructions<D>>>,
         ) -> Result<(Hash, Vec<Hash>), SendError<()>> {
             let mut preprocessing: preprocessing::PreprocessingExecution<D> =
-                preprocessing::PreprocessingExecution::new(root, &branches[..]);
+                preprocessing::PreprocessingExecution::new(root);
 
             loop {
                 match inputs.recv().await {
@@ -136,12 +109,7 @@ impl<D: Domain> Proof<D> {
         for seed in seeds.iter().cloned() {
             let (send_inputs, recv_inputs) = async_channel::bounded(5);
             let (send_outputs, recv_outputs) = async_channel::bounded(5);
-            tasks.push(task::spawn(process::<D>(
-                seed,
-                branches.clone(),
-                send_outputs,
-                recv_inputs,
-            )));
+            tasks.push(task::spawn(process::<D>(seed, send_outputs, recv_inputs)));
             inputs.push(send_inputs);
             outputs.push(recv_outputs);
         }
@@ -162,14 +130,7 @@ impl<D: Domain> Proof<D> {
         commitments.await
     }
 
-    pub async fn verify(
-        &self,
-        branches: &[&[D::Scalar]],
-        program: Arc<Vec<Instruction<D::Scalar>>>,
-    ) -> Option<Output<D>> {
-        // pack branch scalars into batches for efficiency
-        let branches = Arc::new(pack_branches::<D>(branches));
-
+    pub async fn verify(&self, program: Arc<Vec<Instruction<D::Scalar>>>) -> Option<Output<D>> {
         // derive keys and hidden execution indexes
         let mut roots: Vec<Option<[u8; KEY_SIZE]>> = vec![None; D::PREPROCESSING_REPETITIONS];
         self.random.expand(&mut roots);
@@ -197,7 +158,7 @@ impl<D: Domain> Proof<D> {
             D::PREPROCESSING_REPETITIONS - D::ONLINE_REPETITIONS
         );
 
-        let opened_results = Self::preprocess(&opened_roots[..], branches, program).await;
+        let opened_results = Self::preprocess(&opened_roots[..], program).await;
 
         debug_assert_eq!(
             opened_results.len(),
@@ -250,18 +211,14 @@ impl<D: Domain> Proof<D> {
     ///
     pub fn new(
         global: [u8; KEY_SIZE],
-        branches: &[&[D::Scalar]],
         program: Arc<Vec<Instruction<D::Scalar>>>,
     ) -> (Self, PreprocessingOutput<D>) {
-        // pack branch scalars into batches for efficiency
-        let branches = Arc::new(pack_branches::<D>(branches));
-
         // expand the global seed into per-repetition roots
         let mut roots: Vec<[u8; KEY_SIZE]> = vec![[0; KEY_SIZE]; D::PREPROCESSING_REPETITIONS];
         TreePrf::expand_full(&mut roots, global);
 
         // block and wait for hashes to compute
-        let results = task::block_on(Self::preprocess(&roots[..], branches.clone(), program));
+        let results = task::block_on(Self::preprocess(&roots[..], program));
 
         // send the pre-processing commitments to the random oracle, receive challenges
         let mut challenge_prg = {
@@ -322,8 +279,8 @@ impl<D: Domain> Proof<D> {
             },
             // randomness used to re-executed the hidden views (used by the prover)
             PreprocessingOutput {
-                branches,
                 hidden: hidden_runs,
+                _ph: PhantomData,
             },
         )
     }
@@ -331,7 +288,7 @@ impl<D: Domain> Proof<D> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::algebra::gf2::{BitScalar, Gf2P8};
+    use super::super::algebra::gf2::Gf2P8;
     use super::*;
 
     use rand::Rng;
@@ -345,10 +302,8 @@ mod tests {
         ]); // maybe generate random program?
         let mut rng = rand::thread_rng();
         let seed: [u8; KEY_SIZE] = rng.gen();
-        let branch: Vec<BitScalar> = vec![];
-        let branches: Vec<&[BitScalar]> = vec![&branch];
-        let proof = Proof::<Gf2P8>::new(seed, &branches[..], program.clone());
-        assert!(task::block_on(proof.0.verify(&branches[..], program)).is_some());
+        let proof = Proof::<Gf2P8>::new(seed, program.clone());
+        assert!(task::block_on(proof.0.verify(program)).is_some());
     }
 }
 
@@ -372,9 +327,7 @@ mod benchmark {
     fn bench_preprocessing_proof_gen_n8(b: &mut Bencher) {
         let mut program = vec![Instruction::Input(1), Instruction::Input(2)];
         program.resize(MULT + 2, Instruction::Mul(0, 1, 2));
-        let branch: Vec<BitScalar> = vec![];
-        let branches: Vec<&[BitScalar]> = vec![&branch];
-        b.iter(|| Proof::<Gf2P8>::new([0u8; KEY_SIZE], &branches, program.iter().cloned()));
+        b.iter(|| Proof::<Gf2P8>::new([0u8; KEY_SIZE], program.iter().cloned()));
     }
 
     /*
@@ -402,9 +355,7 @@ mod benchmark {
     fn bench_preprocessing_proof_verify_n8(b: &mut Bencher) {
         let mut program = vec![Instruction::Input(1), Instruction::Input(2)];
         program.resize(MULT + 2, Instruction::Mul(0, 1, 2));
-        let branch: Vec<BitScalar> = vec![];
-        let branches: Vec<&[BitScalar]> = vec![&branch];
-        let (proof, _) = Proof::<Gf2P8>::new([0u8; KEY_SIZE], &branches, program.iter().cloned());
-        b.iter(|| task::block_on(proof.verify(&branches, program.iter().cloned())));
+        let (proof, _) = Proof::<Gf2P8>::new([0u8; KEY_SIZE], program.iter().cloned());
+        b.iter(|| task::block_on(proof.verify(program.iter().cloned())));
     }
 }

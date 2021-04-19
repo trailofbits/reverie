@@ -167,13 +167,6 @@ impl<D: Domain> PreprocessingExecution<D> {
                 Instruction::LocalOp(dst, src) => {
                     self.masks.set(dst, self.masks.get(src).operation());
                 }
-                Instruction::Branch(dst) => {
-                    // check if need for new batch of branch masks
-                    let mask = self.shares.branch.next();
-
-                    // assign the next unused branch share to the destination wire
-                    self.masks.set(dst, mask);
-                }
                 Instruction::Input(dst) => {
                     // check if need for new batch of input masks
                     let mask = self.shares.input.next();

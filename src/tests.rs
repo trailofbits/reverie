@@ -25,20 +25,15 @@ pub fn random_scalars<D: Domain, R: RngCore>(rng: &mut R, length: usize) -> Vec<
 pub fn evaluate_program<D: Domain>(
     program: &[Instruction<D::Scalar>],
     inputs: &[D::Scalar],
-    branch: &[D::Scalar],
 ) -> Vec<D::Scalar> {
     let mut wires = VecMap::new();
     let mut output = Vec::new();
     let mut inputs = inputs.iter().cloned();
-    let mut branch = branch.iter().cloned();
 
     for step in program {
         match *step {
             Instruction::Input(dst) => {
                 wires.set(dst, inputs.next().unwrap());
-            }
-            Instruction::Branch(dst) => {
-                wires.set(dst, branch.next().unwrap());
             }
             Instruction::LocalOp(dst, src) => {
                 wires.set(dst, wires.get(src).operation());
@@ -75,11 +70,10 @@ pub fn random_program<D: Domain, R: RngCore>(
     rng: &mut R,
     length: usize,
     memory: usize,
-) -> (usize, usize, Vec<Instruction<D::Scalar>>) {
+) -> (usize, Vec<Instruction<D::Scalar>>) {
     let mut program: Vec<Instruction<D::Scalar>> = Vec::new();
     let mut assigned: Vec<usize> = vec![0];
     let mut num_inputs: usize = 1;
-    let mut num_branch: usize = 0;
 
     program.push(Instruction::Input(0));
 
@@ -90,40 +84,35 @@ pub fn random_program<D: Domain, R: RngCore>(
         let src2: usize = assigned[rng.gen::<usize>() % assigned.len()];
 
         // pick random instruction
-        match rng.gen::<usize>() % 8 {
+        match rng.gen::<usize>() % 7 {
             0 => {
                 program.push(Instruction::Input(dst));
                 assigned.push(dst);
                 num_inputs += 1;
             }
             1 => {
-                program.push(Instruction::Branch(dst));
-                assigned.push(dst);
-                num_branch += 1;
-            }
-            2 => {
                 program.push(Instruction::Add(dst, src1, src2));
                 assigned.push(dst);
             }
-            3 => {
+            2 => {
                 program.push(Instruction::Mul(dst, src1, src2));
                 assigned.push(dst);
             }
-            4 => {
+            3 => {
                 program.push(Instruction::AddConst(dst, src1, random_scalar::<D, _>(rng)));
                 assigned.push(dst);
             }
-            5 => {
+            4 => {
                 program.push(Instruction::MulConst(dst, src1, random_scalar::<D, _>(rng)));
                 assigned.push(dst);
             }
-            6 => {
+            5 => {
                 program.push(Instruction::Output(src1));
             }
-            7 => program.push(Instruction::LocalOp(dst, src1)),
+            6 => program.push(Instruction::LocalOp(dst, src1)),
             _ => unreachable!(),
         }
     }
 
-    (num_inputs, num_branch, program)
+    (num_inputs, program)
 }

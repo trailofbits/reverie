@@ -55,39 +55,28 @@ impl<D: Domain> Proof<D> {
     async fn new_async(
         bind: Option<Vec<u8>>,
         program: Arc<Vec<Instruction<D::Scalar>>>,
-        branches: Arc<Vec<Vec<D::Scalar>>>,
-        branch_index: usize,
         witness: Arc<Vec<D::Scalar>>,
     ) -> Self {
         async fn online_proof<D: Domain>(
             send: Sender<Vec<u8>>,
             bind: Option<Vec<u8>>,
             program: Arc<Vec<Instruction<D::Scalar>>>,
-            branch_index: usize,
             witness: Arc<Vec<D::Scalar>>,
             pp_output: preprocessing::PreprocessingOutput<D>,
         ) -> Option<online::Proof<D>> {
-            let (online, prover) = online::StreamingProver::new(
-                bind,
-                pp_output,
-                branch_index,
-                program.clone(),
-                witness.clone(),
-            )
-            .await;
+            let (online, prover) =
+                online::StreamingProver::new(bind, pp_output, program.clone(), witness.clone())
+                    .await;
             prover.stream(send, program, witness).await.unwrap();
             Some(online)
         }
-
-        let branches: Vec<&[D::Scalar]> = branches.iter().map(|b| &b[..]).collect();
 
         // pick global random seed
         let mut seed: [u8; KEY_SIZE] = [0; KEY_SIZE];
         OsRng.fill_bytes(&mut seed);
 
         // prove preprocessing
-        let (preprocessing, pp_output) =
-            preprocessing::Proof::new(seed, &branches[..], program.clone());
+        let (preprocessing, pp_output) = preprocessing::Proof::new(seed, program.clone());
 
         // create prover for online phase
         let (send, recv) = bounded(CHANNEL_CAPACITY);
@@ -95,7 +84,6 @@ impl<D: Domain> Proof<D> {
             send,
             bind,
             program.clone(),
-            branch_index,
             witness.clone(),
             pp_output,
         ));
@@ -117,7 +105,6 @@ impl<D: Domain> Proof<D> {
     async fn verify_async(
         &self,
         bind: Option<Vec<u8>>,
-        branches: Arc<Vec<Vec<D::Scalar>>>,
         program: Arc<Vec<Instruction<D::Scalar>>>,
     ) -> Result<Vec<D::Scalar>, String> {
         async fn online_verification<D: Domain>(
@@ -131,17 +118,14 @@ impl<D: Domain> Proof<D> {
         }
 
         async fn preprocessing_verification<D: Domain>(
-            branches: Arc<Vec<Vec<D::Scalar>>>,
             program: Arc<Vec<Instruction<D::Scalar>>>,
             proof: preprocessing::Proof<D>,
         ) -> Option<preprocessing::Output<D>> {
-            let branches: Vec<&[D::Scalar]> = branches.iter().map(|b| &b[..]).collect();
-            proof.verify(&branches[..], program).await
+            proof.verify(program).await
         }
 
         // verify pre-processing
         let preprocessing_task = task::spawn(preprocessing_verification(
-            branches.clone(),
             program.clone(),
             self.preprocessing.clone(),
         ));
@@ -196,17 +180,9 @@ impl<D: Domain> Proof<D> {
     pub fn new(
         bind: Option<Vec<u8>>,
         program: Vec<Instruction<D::Scalar>>,
-        branches: Vec<Vec<D::Scalar>>,
         witness: Vec<D::Scalar>,
-        branch_index: usize,
     ) -> Self {
-        task::block_on(Self::new_async(
-            bind,
-            Arc::new(program),
-            Arc::new(branches),
-            branch_index,
-            Arc::new(witness),
-        ))
+        task::block_on(Self::new_async(bind, Arc::new(program), Arc::new(witness)))
     }
 
     /// Verify the a proof and return the output of the program
@@ -225,9 +201,8 @@ impl<D: Domain> Proof<D> {
         &self,
         bind: Option<Vec<u8>>,
         program: Vec<Instruction<D::Scalar>>,
-        branches: Vec<Vec<D::Scalar>>,
     ) -> Result<Vec<D::Scalar>, String> {
-        task::block_on(self.verify_async(bind, Arc::new(branches), Arc::new(program)))
+        task::block_on(self.verify_async(bind, Arc::new(program)))
     }
 }
 
@@ -253,28 +228,17 @@ mod tests {
     fn random_instance<D: Domain>() -> (
         Vec<Instruction<D::Scalar>>, // program
         Vec<D::Scalar>,              // input
-        Vec<Vec<D::Scalar>>,         // branches
-        usize,                       // branch
         Vec<D::Scalar>,              // result
     ) {
         let mut rng = thread_rng();
         let length = 1 + rng.gen::<usize>() % 128;
         let memory = 1 + rng.gen::<usize>() % 64;
 
-        let (num_inputs, num_branch, program) = random_program::<D, _>(&mut rng, length, memory);
+        let (num_inputs, program) = random_program::<D, _>(&mut rng, length, memory);
         let input = random_scalars::<D, _>(&mut rng, num_inputs);
-        let num_branches = 1 + rng.gen::<usize>() % 32;
+        let output = evaluate_program::<D>(&program[..], &input[..]);
 
-        let mut branches: Vec<Vec<D::Scalar>> = Vec::with_capacity(num_branches);
-        for _ in 0..num_branches {
-            branches.push(random_scalars::<D, _>(&mut rng, num_branch));
-        }
-
-        let branch_index = rng.gen::<usize>() % num_branches;
-
-        let output = evaluate_program::<D>(&program[..], &input[..], &branches[branch_index][..]);
-
-        (program, input, branches, branch_index, output)
+        (program, input, output)
     }
 
     #[test]
@@ -285,12 +249,10 @@ mod tests {
                 program: vec![
                     Instruction::Input(0),
                     Instruction::Add(25, 0, 0),
-                    Instruction::Branch(22),
-                    Instruction::Add(28, 25, 0),
+                                        Instruction::Add(28, 25, 0),
                     Instruction::Add(22, 28, 28),
                     Instruction::Input(22),
-                    Instruction::Branch(11),
-                    Instruction::Output(28),
+                                        Instruction::Output(28),
                 ],
                 input: vec![BitScalar::ONE, BitScalar::ZERO],
                 branches: vec![vec![BitScalar::ONE, BitScalar::ONE]],
@@ -332,11 +294,9 @@ mod tests {
                     Instruction::LocalOp(1, 2),
                     Instruction::LocalOp(0, 2),
                     Instruction::LocalOp(0, 0),
-                    Instruction::Branch(1),
                     Instruction::Input(6),
                     Instruction::Mul(1, 6, 6),
                     Instruction::AddConst(2, 2, BitScalar::ZERO),
-                    Instruction::Branch(4),
                     Instruction::Add(5, 0, 2),
                     Instruction::Mul(0, 6, 0),
                     Instruction::Input(2),
@@ -355,7 +315,6 @@ mod tests {
             TestVector {
                 program: vec![
                     Instruction::Input(0),
-                    Instruction::Branch(1),
                     Instruction::LocalOp(16, 1),
                     Instruction::AddConst(2, 0, BitScalar::ONE),
                     Instruction::Output(0),
@@ -376,42 +335,27 @@ mod tests {
                     Instruction::AddConst(18, 33, BitScalar::ONE),
                     Instruction::MulConst(9, 21, BitScalar::ZERO),
                     Instruction::Mul(33, 16, 9),
-                    Instruction::Branch(1),
-                    Instruction::Branch(16),
                     Instruction::MulConst(23, 20, BitScalar::ONE),
-                    Instruction::Branch(9),
                     Instruction::Input(20),
                     Instruction::Output(16),
-                    Instruction::Branch(13),
                     Instruction::Mul(30, 14, 24),
                     Instruction::Mul(28, 24, 16),
-                    Instruction::Branch(22),
                     Instruction::MulConst(32, 27, BitScalar::ONE),
-                    Instruction::Branch(22),
-                    Instruction::Branch(13),
-                    Instruction::Branch(28),
                     Instruction::Output(9),
                     Instruction::LocalOp(19, 0),
                     Instruction::AddConst(6, 28, BitScalar::ZERO),
                     Instruction::AddConst(27, 17, BitScalar::ZERO),
                     Instruction::MulConst(13, 22, BitScalar::ZERO),
                     Instruction::Mul(13, 13, 30),
-                    Instruction::Branch(22),
                     Instruction::AddConst(33, 6, BitScalar::ONE),
-                    Instruction::Branch(29),
                     Instruction::Input(17),
                     Instruction::MulConst(31, 33, BitScalar::ONE),
                     Instruction::Mul(14, 9, 29),
-                    Instruction::Branch(28),
-                    Instruction::Branch(33),
                     Instruction::MulConst(34, 24, BitScalar::ZERO),
                     Instruction::MulConst(12, 27, BitScalar::ONE),
-                    Instruction::Branch(22),
                     Instruction::Add(12, 29, 20),
-                    Instruction::Branch(26),
                     Instruction::MulConst(9, 30, BitScalar::ONE),
                     Instruction::LocalOp(28, 33),
-                    Instruction::Branch(23),
                     Instruction::Add(5, 14, 28),
                     Instruction::Mul(24, 23, 0),
                 ],
@@ -450,11 +394,9 @@ mod tests {
                     Instruction::Output(0),
                     Instruction::MulConst(156, 0, BitScalar::ZERO),
                     Instruction::Input(85),
-                    Instruction::Branch(161),
                     Instruction::LocalOp(63, 0),
                     Instruction::LocalOp(60, 161),
                     Instruction::AddConst(101, 161, BitScalar::ZERO),
-                    Instruction::Branch(45),
                     Instruction::Add(58, 156, 156),
                     Instruction::LocalOp(36, 85),
                     Instruction::Mul(82, 45, 156),
@@ -474,8 +416,6 @@ mod tests {
                     Instruction::MulConst(9, 12, BitScalar::ZERO),
                     Instruction::AddConst(75, 58, BitScalar::ONE),
                     Instruction::Input(195),
-                    Instruction::Branch(66),
-                    Instruction::Branch(68),
                     Instruction::LocalOp(82, 85),
                     Instruction::AddConst(197, 150, BitScalar::ONE),
                     Instruction::AddConst(71, 21, BitScalar::ONE),
@@ -495,14 +435,11 @@ mod tests {
                     Instruction::LocalOp(13, 174),
                     Instruction::MulConst(68, 156, BitScalar::ONE),
                     Instruction::LocalOp(9, 101),
-                    Instruction::Branch(44),
                     Instruction::LocalOp(54, 195),
                     Instruction::Input(211),
                     Instruction::AddConst(28, 58, BitScalar::ZERO),
-                    Instruction::Branch(168),
                     Instruction::Mul(188, 82, 12),
                     Instruction::Mul(149, 197, 39),
-                    Instruction::Branch(184),
                     Instruction::Add(24, 66, 17),
                     Instruction::Input(191),
                     Instruction::MulConst(106, 188, BitScalar::ZERO),
@@ -516,19 +453,14 @@ mod tests {
                     Instruction::MulConst(24, 93, BitScalar::ONE),
                     Instruction::Mul(73, 209, 68),
                     Instruction::Mul(174, 39, 174),
-                    Instruction::Branch(186),
-                    Instruction::Branch(133),
                     Instruction::Add(127, 21, 39),
                     Instruction::LocalOp(182, 106),
                     Instruction::AddConst(27, 93, BitScalar::ZERO),
                     Instruction::AddConst(158, 188, BitScalar::ONE),
                     Instruction::LocalOp(14, 170),
                     Instruction::Input(86),
-                    Instruction::Branch(155),
-                    Instruction::Branch(81),
                     Instruction::Input(94),
                     Instruction::MulConst(168, 9, BitScalar::ONE),
-                    Instruction::Branch(63),
                     Instruction::Output(150),
                     Instruction::Mul(62, 66, 106),
                     Instruction::Output(71),
@@ -536,9 +468,7 @@ mod tests {
                     Instruction::Mul(19, 59, 170),
                     Instruction::AddConst(97, 195, BitScalar::ONE),
                     Instruction::Add(36, 24, 62),
-                    Instruction::Branch(184),
                     Instruction::Output(63),
-                    Instruction::Branch(145),
                     Instruction::LocalOp(179, 58),
                     Instruction::Input(179),
                     Instruction::Add(212, 75, 57),
@@ -620,21 +550,9 @@ mod tests {
         ];
 
         for test in test_vectors.iter() {
-            let output = evaluate_program::<Gf2P8>(
-                &test.program[..],
-                &test.input[..],
-                &test.branches[test.branch_index][..],
-            );
-            let proof = ProofGf2P8::new(
-                None,
-                test.program.clone(),
-                test.branches.clone(),
-                test.input.clone(),
-                test.branch_index,
-            );
-            let verifier_output = proof
-                .verify(None, test.program.clone(), test.branches.clone())
-                .unwrap();
+            let output = evaluate_program::<Gf2P8>(&test.program[..], &test.input[..]);
+            let proof = ProofGf2P8::new(None, test.program.clone(), test.input.clone());
+            let verifier_output = proof.verify(None, test.program.clone()).unwrap();
             assert_eq!(verifier_output, output);
         }
     }
@@ -644,10 +562,9 @@ mod tests {
     #[test]
     fn test_random_proof_gf2p8() {
         for _ in 0..10 {
-            let (program, input, branches, branch_index, output) = random_instance::<Gf2P8>();
-            let proof =
-                ProofGf2P8::new(None, program.clone(), branches.clone(), input, branch_index);
-            let verifier_output = proof.verify(None, program, branches).unwrap();
+            let (program, input, output) = random_instance::<Gf2P8>();
+            let proof = ProofGf2P8::new(None, program.clone(), input);
+            let verifier_output = proof.verify(None, program).unwrap();
             assert_eq!(verifier_output, output);
         }
     }
@@ -657,10 +574,9 @@ mod tests {
     #[test]
     fn test_random_proof_gf2p64() {
         for _ in 0..10 {
-            let (program, input, branches, branch_index, output) = random_instance::<Gf2P64>();
-            let proof =
-                ProofGf2P64::new(None, program.clone(), branches.clone(), input, branch_index);
-            let verifier_output = proof.verify(None, program, branches).unwrap();
+            let (program, input, output) = random_instance::<Gf2P64>();
+            let proof = ProofGf2P64::new(None, program.clone(), input);
+            let verifier_output = proof.verify(None, program).unwrap();
             assert_eq!(verifier_output, output);
         }
     }
@@ -670,10 +586,9 @@ mod tests {
     #[test]
     fn test_random_proof_gf2p64_64() {
         for _ in 0..10 {
-            let (program, input, branches, branch_index, output) = random_instance::<Gf2P64_64>();
-            let proof =
-                ProofGf2P64_64::new(None, program.clone(), branches.clone(), input, branch_index);
-            let verifier_output = proof.verify(None, program, branches).unwrap();
+            let (program, input, output) = random_instance::<Gf2P64_64>();
+            let proof = ProofGf2P64_64::new(None, program.clone(), input);
+            let verifier_output = proof.verify(None, program).unwrap();
             assert_eq!(verifier_output, output);
         }
     }
@@ -683,10 +598,9 @@ mod tests {
     #[test]
     fn test_random_proof_gf2p64_85() {
         for _ in 0..10 {
-            let (program, input, branches, branch_index, output) = random_instance::<Gf2P64_85>();
-            let proof =
-                ProofGf2P64_85::new(None, program.clone(), branches.clone(), input, branch_index);
-            let verifier_output = proof.verify(None, program, branches).unwrap();
+            let (program, input, output) = random_instance::<Gf2P64_85>();
+            let proof = ProofGf2P64_85::new(None, program.clone(), input);
+            let verifier_output = proof.verify(None, program).unwrap();
             assert_eq!(verifier_output, output);
         }
     }

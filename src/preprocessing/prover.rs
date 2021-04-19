@@ -1,7 +1,7 @@
 use super::util::SharesGenerator;
 
 use crate::algebra::{Domain, LocalOperation, RingElement, RingModule, Samplable};
-use crate::consts::{CONTEXT_RNG_BRANCH_MASK, CONTEXT_RNG_BRANCH_PERMUTE, CONTEXT_RNG_CORRECTION};
+use crate::consts::{CONTEXT_RNG_BRANCH_PERMUTE, CONTEXT_RNG_CORRECTION};
 use crate::crypto::{kdf, Hash, MerkleSet, MerkleSetProof, Prg, RingHasher, TreePrf, KEY_SIZE};
 use crate::util::{VecMap, Writer};
 use crate::Instruction;
@@ -10,7 +10,6 @@ use crate::Instruction;
 pub struct PreprocessingExecution<D: Domain> {
     // branch opening state
     root: [u8; KEY_SIZE],
-    player_seeds: Vec<[u8; KEY_SIZE]>,
 
     // interpreter state
     masks: VecMap<D::Sharing>,
@@ -28,41 +27,10 @@ pub struct PreprocessingExecution<D: Domain> {
 }
 
 impl<D: Domain> PreprocessingExecution<D> {
-    pub fn prove_branch(
-        &self,
-        branches: &[Vec<D::Batch>],
-        index: usize,
-    ) -> (Vec<D::Batch>, MerkleSetProof) {
-        let mut prgs: Vec<Prg> = self
-            .player_seeds
-            .iter()
-            .map(|seed| Prg::new(kdf(CONTEXT_RNG_BRANCH_MASK, seed)))
-            .collect();
-
-        let mut hashes: Vec<RingHasher<D::Batch>> =
-            (0..branches.len()).map(|_| RingHasher::new()).collect();
-
-        let mut branch = Vec::with_capacity(branches[index].len());
-
-        for j in 0..branches[0].len() {
-            let mut pad = D::Batch::ZERO;
-            for prg in prgs.iter_mut().take(D::PLAYERS) {
-                pad = pad + D::Batch::gen(prg);
-            }
-            for b in 0..branches.len() {
-                debug_assert_eq!(branches[b].len(), branches[0].len());
-                hashes[b].write(pad + branches[b][j]);
-            }
-            branch.push(pad + branches[index][j])
-        }
-
-        let hashes: Vec<Hash> = hashes.into_iter().map(|hs| hs.finalize()).collect();
+    pub fn prove_branch(&self) -> MerkleSetProof {
+        let hashes: Vec<Hash> = vec![RingHasher::<D::Batch>::new().finalize()];
         let set = MerkleSet::new(kdf(CONTEXT_RNG_BRANCH_PERMUTE, &self.root), &hashes[..]);
-        let proof = set.prove(index);
-
-        debug_assert_eq!(proof.verify(&hashes[index]), set.root().clone());
-
-        (branch, proof)
+        set.prove(0)
     }
 
     pub fn new(root: [u8; KEY_SIZE]) -> Self {
@@ -80,7 +48,6 @@ impl<D: Domain> PreprocessingExecution<D> {
 
         PreprocessingExecution {
             root,
-            player_seeds,
             corrections_prg,
             shares,
             scratch: vec![D::Batch::ZERO; D::PLAYERS],
@@ -176,16 +143,6 @@ impl<D: Domain> PreprocessingExecution<D> {
             match *step {
                 Instruction::LocalOp(dst, src) => {
                     self.masks.set(dst, self.masks.get(src).operation());
-                }
-                Instruction::Branch(dst) => {
-                    // check if need for new batch of branch masks
-                    let mask = self.shares.branch.next();
-
-                    // assign the next unused branch share to the destination wire
-                    self.masks.set(dst, mask);
-
-                    // return the mask to the online phase (for hiding the branch)
-                    masks.write(mask);
                 }
                 Instruction::Input(dst) => {
                     // check if need for new batch of input masks
