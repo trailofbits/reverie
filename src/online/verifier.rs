@@ -348,6 +348,6 @@ impl<D: Domain> StreamingVerifier<D> {
         let (result, pp_hashes) = collection_task.await?;
 
         // return output to verify against pre-processing
-        Ok(Output { pp_hashes, result })
+        Ok(Output { result, pp_hashes })
     }
 }

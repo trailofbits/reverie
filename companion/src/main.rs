@@ -178,8 +178,8 @@ async fn prove<
     // prove preprocessing
     println!("preprocessing...");
     let (preprocessing, pp_output) = preprocessing::Proof::<Gf2P8>::new(
-        OsRng.gen(),       // seed
-        &branches[..],     // branches
+        OsRng.gen(),      // seed
+        &branches[..],    // branches
         program.rewind(), // program
     );
     write_vec(&mut proof, &preprocessing.serialize()[..])?;

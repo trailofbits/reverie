@@ -525,8 +525,8 @@ impl<D: Domain> StreamingProver<D> {
                 },
                 StreamingProver {
                     branch,
-                    omitted,
                     preprocessing,
+                    omitted,
                 },
             )
         }
