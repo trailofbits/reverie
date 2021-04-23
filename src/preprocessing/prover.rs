@@ -1,10 +1,12 @@
-use super::util::SharesGenerator;
+use rand::Rng;
 
 use crate::algebra::{Domain, LocalOperation, RingElement, RingModule, Samplable};
 use crate::consts::{CONTEXT_RNG_BRANCH_PERMUTE, CONTEXT_RNG_CORRECTION};
-use crate::crypto::{kdf, Hash, MerkleSet, MerkleSetProof, Prg, RingHasher, TreePrf, KEY_SIZE};
+use crate::crypto::{kdf, MerkleSetProof, Prg, TreePrf, KEY_SIZE};
 use crate::util::{VecMap, Writer};
 use crate::Instruction;
+
+use super::util::SharesGenerator;
 
 /// Implementation of pre-processing phase used by the prover during online execution
 pub struct PreprocessingExecution<D: Domain> {
@@ -28,9 +30,9 @@ pub struct PreprocessingExecution<D: Domain> {
 
 impl<D: Domain> PreprocessingExecution<D> {
     pub fn prove_branch(&self) -> MerkleSetProof {
-        let hashes: Vec<Hash> = vec![RingHasher::<D::Batch>::new().finalize()];
-        let set = MerkleSet::new(kdf(CONTEXT_RNG_BRANCH_PERMUTE, &self.root), &hashes[..]);
-        set.prove(0)
+        let seed = kdf(CONTEXT_RNG_BRANCH_PERMUTE, &self.root);
+        let mut rng = Prg::new(seed);
+        MerkleSetProof { rand: rng.gen() }
     }
 
     pub fn new(root: [u8; KEY_SIZE]) -> Self {

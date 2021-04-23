@@ -1,13 +1,14 @@
-use super::util::SharesGenerator;
+use std::marker::PhantomData;
+
+use rand::Rng;
 
 use crate::algebra::{Domain, LocalOperation, RingElement, RingModule, Samplable};
 use crate::consts::{CONTEXT_RNG_BRANCH_PERMUTE, CONTEXT_RNG_CORRECTION};
-use crate::crypto::{hash, kdf, Hash, Hasher, Prg, RingHasher, TreePrf, KEY_SIZE, commit};
+use crate::crypto::{commit, hash, kdf, Hash, Hasher, Prg, RingHasher, TreePrf, KEY_SIZE};
 use crate::util::{VecMap, Writer};
 use crate::Instruction;
 
-use std::marker::PhantomData;
-use rand::Rng;
+use super::util::SharesGenerator;
 
 /// Implementation of pre-processing phase used by the prover during online execution
 pub struct PreprocessingExecution<D: Domain> {
@@ -40,7 +41,10 @@ impl<D: Domain> PreprocessingExecution<D> {
         let root: Hash = {
             let seed = kdf(CONTEXT_RNG_BRANCH_PERMUTE, &root);
             let mut rng = Prg::new(seed);
-            commit(&rng.gen(), RingHasher::<D::Batch>::new().finalize().as_bytes())
+            commit(
+                &rng.gen(),
+                RingHasher::<D::Batch>::new().finalize().as_bytes(),
+            )
         };
 
         // commit to per-player randomness
