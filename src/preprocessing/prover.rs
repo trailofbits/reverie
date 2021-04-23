@@ -32,7 +32,7 @@ impl<D: Domain> PreprocessingExecution<D> {
     pub fn prove_branch(&self) -> MerkleSetProof {
         let seed = kdf(CONTEXT_RNG_BRANCH_PERMUTE, &self.root);
         let mut rng = Prg::new(seed);
-        MerkleSetProof { rand: rng.gen() }
+        MerkleSetProof::new(rng.gen())
     }
 
     pub fn new(root: [u8; KEY_SIZE]) -> Self {

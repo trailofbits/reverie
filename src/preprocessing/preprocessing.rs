@@ -43,6 +43,7 @@ impl<D: Domain> PreprocessingExecution<D> {
             let mut rng = Prg::new(seed);
             commit(
                 &rng.gen(),
+                // Start with an empty hash since we don't have any branches
                 RingHasher::<D::Batch>::new().finalize().as_bytes(),
             )
         };

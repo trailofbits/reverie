@@ -1,4 +1,3 @@
 mod set;
-mod tree;
 
-pub use set::{MerkleSet, MerkleSetProof};
+pub use set::{MerkleSetProof};

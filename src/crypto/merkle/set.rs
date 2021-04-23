@@ -5,21 +5,16 @@ use crate::crypto::{commit, Hash, Prg, KEY_SIZE};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct MerkleSetProof {
-    pub rand: [u8; KEY_SIZE], // commitment randomness
-}
-
-/// A cryptographic accumulator which additionally hides the unopened elements
-///
-/// A MerkleSet is a randomized MerkleTree which ameliorates the Merkle tree,
-/// by committing to every leaf and permuting the leafs randomly.
-///
-/// This provides hiding of the unopened leafs.
-#[derive(Debug, Clone)]
-pub struct MerkleSet {
-    rand: [u8; KEY_SIZE],
+    rand: [u8; KEY_SIZE], // commitment randomness
 }
 
 impl MerkleSetProof {
+    pub fn new(rand: [u8; KEY_SIZE]) -> MerkleSetProof {
+        MerkleSetProof{
+            rand
+        }
+    }
+
     pub fn verify(&self, leaf: &Hash) -> Hash {
         commit(&self.rand, leaf.as_bytes())
     }
