@@ -1,12 +1,13 @@
 use super::util::SharesGenerator;
 
 use crate::algebra::{Domain, LocalOperation, RingElement, RingModule, Samplable};
-use crate::consts::{CONTEXT_RNG_BRANCH_MASK, CONTEXT_RNG_BRANCH_PERMUTE, CONTEXT_RNG_CORRECTION};
-use crate::crypto::{hash, kdf, Hash, Hasher, MerkleSet, Prg, RingHasher, TreePrf, KEY_SIZE};
+use crate::consts::{CONTEXT_RNG_BRANCH_PERMUTE, CONTEXT_RNG_CORRECTION};
+use crate::crypto::{hash, kdf, Hash, Hasher, Prg, RingHasher, TreePrf, KEY_SIZE, commit};
 use crate::util::{VecMap, Writer};
 use crate::Instruction;
 
 use std::marker::PhantomData;
+use rand::Rng;
 
 /// Implementation of pre-processing phase used by the prover during online execution
 pub struct PreprocessingExecution<D: Domain> {
@@ -36,30 +37,10 @@ impl<D: Domain> PreprocessingExecution<D> {
         TreePrf::expand_full(&mut player_seeds, root);
 
         // mask the branches and compute the root of the Merkle tree
-        let branches = vec![vec![]];
         let root: Hash = {
-            let mut hashes: Vec<RingHasher<D::Batch>> =
-                (0..branches.len()).map(|_| RingHasher::new()).collect();
-
-            let mut prgs: Vec<Prg> = player_seeds
-                .iter()
-                .map(|seed| Prg::new(kdf(CONTEXT_RNG_BRANCH_MASK, seed)))
-                .collect();
-
-            for j in 0..branches[0].len() {
-                let mut pad = D::Batch::ZERO;
-                for prg in prgs.iter_mut().take(D::PLAYERS) {
-                    pad = pad + D::Batch::gen(prg);
-                }
-                for b in 0..branches.len() {
-                    hashes[b].write(pad + branches[b][j]) // notice the permutation
-                }
-            }
-
-            let hashes: Vec<Hash> = hashes.into_iter().map(|hs| hs.finalize()).collect();
-            MerkleSet::new(kdf(CONTEXT_RNG_BRANCH_PERMUTE, &root), &hashes[..])
-                .root()
-                .clone()
+            let seed = kdf(CONTEXT_RNG_BRANCH_PERMUTE, &root);
+            let mut rng = Prg::new(seed);
+            commit(&rng.gen(), RingHasher::<D::Batch>::new().finalize().as_bytes())
         };
 
         // commit to per-player randomness
