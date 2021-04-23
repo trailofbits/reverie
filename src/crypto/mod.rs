@@ -1,4 +1,4 @@
-mod merkle;
+mod commitment;
 mod ring;
 mod tree;
 
@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 
 use std::fmt;
 
-pub use merkle::ProofCommitment;
+pub use commitment::ProofCommitment;
 use rand::Rng;
 pub use ring::RingHasher;
 pub use tree::TreePrf;

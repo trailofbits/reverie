@@ -29,7 +29,7 @@ pub struct Chunk {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Run<D: Domain> {
     open: TreePrf,          // randomness for opened players
-    proof: ProofCommitment, // merkle proof for masked branch
+    proof: ProofCommitment, // commitment proof for masked branch
     commitment: Hash,       // commitment for hidden preprocessing player
     _ph: PhantomData<D>,
 }
