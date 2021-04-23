@@ -9,13 +9,12 @@ pub struct MerkleSetProof {
 }
 
 impl MerkleSetProof {
-    pub fn new(rand: [u8; KEY_SIZE]) -> MerkleSetProof {
-        MerkleSetProof{
-            rand
-        }
+    pub fn new(seed: [u8; KEY_SIZE]) -> MerkleSetProof {
+        let mut rng = Prg::new(seed);
+        MerkleSetProof { rand: rng.gen() }
     }
 
-    pub fn verify(&self, leaf: &Hash) -> Hash {
-        commit(&self.rand, leaf.as_bytes())
+    pub fn verify(&self) -> Hash {
+        commit(&self.rand)
     }
 }

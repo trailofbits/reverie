@@ -16,7 +16,8 @@ use serde::{Deserialize, Serialize};
 
 use std::fmt;
 
-pub use merkle::{MerkleSetProof};
+pub use merkle::MerkleSetProof;
+use rand::Rng;
 pub use ring::RingHasher;
 pub use tree::TreePrf;
 
@@ -40,9 +41,9 @@ impl fmt::Debug for Hash {
 #[derive(Debug)]
 pub struct Prg(ChaCha12Rng);
 
-pub fn commit(key: &[u8; KEY_SIZE], value: &[u8]) -> Hash {
+pub fn commit(key: &[u8; KEY_SIZE]) -> Hash {
     let mut hasher = blake3::Hasher::new_keyed(key);
-    hasher.update(value);
+    hasher.update("REVERIE".as_bytes());
     Hash(hasher.finalize())
 }
 
@@ -67,6 +68,10 @@ impl AsRef<[u8]> for Hash {
 impl Hash {
     pub fn as_bytes(&self) -> &[u8; HASH_SIZE] {
         self.0.as_bytes()
+    }
+    pub fn from_seed(seed: [u8; KEY_SIZE]) -> Hash {
+        let mut rng = Prg::new(seed);
+        commit(&rng.gen())
     }
 }
 

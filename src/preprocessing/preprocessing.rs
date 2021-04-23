@@ -1,10 +1,8 @@
 use std::marker::PhantomData;
 
-use rand::Rng;
-
 use crate::algebra::{Domain, LocalOperation, RingElement, RingModule, Samplable};
 use crate::consts::{CONTEXT_RNG_BRANCH_PERMUTE, CONTEXT_RNG_CORRECTION};
-use crate::crypto::{commit, hash, kdf, Hash, Hasher, Prg, RingHasher, TreePrf, KEY_SIZE};
+use crate::crypto::{hash, kdf, Hash, Hasher, Prg, RingHasher, TreePrf, KEY_SIZE};
 use crate::util::{VecMap, Writer};
 use crate::Instruction;
 
@@ -38,15 +36,7 @@ impl<D: Domain> PreprocessingExecution<D> {
         TreePrf::expand_full(&mut player_seeds, root);
 
         // mask the branches and compute the root of the Merkle tree
-        let root: Hash = {
-            let seed = kdf(CONTEXT_RNG_BRANCH_PERMUTE, &root);
-            let mut rng = Prg::new(seed);
-            commit(
-                &rng.gen(),
-                // Start with an empty hash since we don't have any branches
-                RingHasher::<D::Batch>::new().finalize().as_bytes(),
-            )
-        };
+        let root: Hash = Hash::from_seed(kdf(CONTEXT_RNG_BRANCH_PERMUTE, &root));
 
         // commit to per-player randomness
         let commitments: Vec<Hash> = player_seeds.iter().map(|seed| hash(seed)).collect();

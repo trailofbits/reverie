@@ -98,11 +98,8 @@ impl<D: Domain> StreamingVerifier<D> {
 
             // check branch proof
             let root = {
-                // hash the branch
-                let hasher: RingHasher<D::Batch> = RingHasher::new();
-
-                // recompute the Merkle root from the leaf and proof
-                run.proof.verify(&hasher.finalize())
+                // recompute the root from the stored randomness
+                run.proof.verify()
             };
 
             loop {

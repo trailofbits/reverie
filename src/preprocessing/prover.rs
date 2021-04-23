@@ -1,5 +1,3 @@
-use rand::Rng;
-
 use crate::algebra::{Domain, LocalOperation, RingElement, RingModule, Samplable};
 use crate::consts::{CONTEXT_RNG_BRANCH_PERMUTE, CONTEXT_RNG_CORRECTION};
 use crate::crypto::{kdf, MerkleSetProof, Prg, TreePrf, KEY_SIZE};
@@ -30,9 +28,7 @@ pub struct PreprocessingExecution<D: Domain> {
 
 impl<D: Domain> PreprocessingExecution<D> {
     pub fn prove_branch(&self) -> MerkleSetProof {
-        let seed = kdf(CONTEXT_RNG_BRANCH_PERMUTE, &self.root);
-        let mut rng = Prg::new(seed);
-        MerkleSetProof::new(rng.gen())
+        MerkleSetProof::new(kdf(CONTEXT_RNG_BRANCH_PERMUTE, &self.root))
     }
 
     pub fn new(root: [u8; KEY_SIZE]) -> Self {
