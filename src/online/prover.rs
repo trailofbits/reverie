@@ -389,7 +389,7 @@ impl<D: Domain> StreamingProver<D> {
             root: [u8; KEY_SIZE],
             outputs: Sender<()>,
             inputs: Receiver<ProgWitSlice<D>>,
-        ) -> Result<(MerkleSetProof, Hash), SendError<Vec<u8>>> {
+        ) -> Result<(ProofCommitment, Hash), SendError<Vec<u8>>> {
             // online execution
             let mut online = Prover::<D>::new();
 
@@ -442,7 +442,7 @@ impl<D: Domain> StreamingProver<D> {
             }
         }
 
-        type TaskHandle = task::JoinHandle<Result<(MerkleSetProof, Hash), SendError<Vec<u8>>>>;
+        type TaskHandle = task::JoinHandle<Result<(ProofCommitment, Hash), SendError<Vec<u8>>>>;
         async fn extract_output<D: Domain>(
             bind: Option<Vec<u8>>,
             preprocessing: PreprocessingOutput<D>,

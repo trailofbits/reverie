@@ -79,7 +79,7 @@ impl<D: Domain> PreprocessingExecution<D> {
         // commit to per-player randomness
         let commitments: Vec<Hash> = player_seeds.iter().map(|seed| hash(seed)).collect();
 
-        // aggregate branch hashes into Merkle tree and return pre-processor for circuit
+        // collect per-player seeds and return pre-processor for circuit
         let corrections_prg = player_seeds
             .iter()
             .map(|seed| Prg::new(kdf(CONTEXT_RNG_CORRECTION, seed)))

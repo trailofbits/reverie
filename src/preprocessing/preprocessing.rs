@@ -35,13 +35,13 @@ impl<D: Domain> PreprocessingExecution<D> {
         let mut player_seeds: Vec<[u8; KEY_SIZE]> = vec![[0u8; KEY_SIZE]; D::PLAYERS];
         TreePrf::expand_full(&mut player_seeds, root);
 
-        // mask the branches and compute the root of the Merkle tree
+        // Commit to a random value for the root hash
         let root: Hash = Hash::from_seed(kdf(CONTEXT_RNG_BRANCH_PERMUTE, &root));
 
         // commit to per-player randomness
         let commitments: Vec<Hash> = player_seeds.iter().map(|seed| hash(seed)).collect();
 
-        // aggregate branch hashes into Merkle tree and return pre-processor for circuit
+        // collect per-player seeds and return pre-processor for circuit
         PreprocessingExecution {
             root,
             commitments,
@@ -161,7 +161,7 @@ impl<D: Domain> PreprocessingExecution<D> {
     }
 
     pub fn done(mut self) -> (Hash, Vec<Hash>) {
-        // add corrections and Merkle root to player 0 commitment
+        // add corrections and root commitment to player 0 commitment
         self.commitments[0] = {
             let mut comm = Hasher::new();
             comm.update(self.commitments[0].as_bytes());

@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 
 use std::fmt;
 
-pub use merkle::MerkleSetProof;
+pub use merkle::ProofCommitment;
 use rand::Rng;
 pub use ring::RingHasher;
 pub use tree::TreePrf;

@@ -1,6 +1,6 @@
 use crate::algebra::{Domain, LocalOperation, RingElement, RingModule, Samplable};
 use crate::consts::{CONTEXT_RNG_BRANCH_PERMUTE, CONTEXT_RNG_CORRECTION};
-use crate::crypto::{kdf, MerkleSetProof, Prg, TreePrf, KEY_SIZE};
+use crate::crypto::{kdf, Prg, ProofCommitment, TreePrf, KEY_SIZE};
 use crate::util::{VecMap, Writer};
 use crate::Instruction;
 
@@ -27,8 +27,8 @@ pub struct PreprocessingExecution<D: Domain> {
 }
 
 impl<D: Domain> PreprocessingExecution<D> {
-    pub fn prove_branch(&self) -> MerkleSetProof {
-        MerkleSetProof::new(kdf(CONTEXT_RNG_BRANCH_PERMUTE, &self.root))
+    pub fn prove_branch(&self) -> ProofCommitment {
+        ProofCommitment::new(kdf(CONTEXT_RNG_BRANCH_PERMUTE, &self.root))
     }
 
     pub fn new(root: [u8; KEY_SIZE]) -> Self {
@@ -36,7 +36,7 @@ impl<D: Domain> PreprocessingExecution<D> {
         let mut player_seeds: Vec<[u8; KEY_SIZE]> = vec![[0u8; KEY_SIZE]; D::PLAYERS];
         TreePrf::expand_full(&mut player_seeds, root);
 
-        // aggregate branch hashes into Merkle tree and return pre-processor for circuit
+        // collect per-player seeds and return pre-processor for circuit
         let corrections_prg = player_seeds
             .iter()
             .map(|seed| Prg::new(kdf(CONTEXT_RNG_CORRECTION, seed)))

@@ -1,3 +1,3 @@
 mod set;
 
-pub use set::MerkleSetProof;
+pub use set::ProofCommitment;
