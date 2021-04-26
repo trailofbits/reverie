@@ -1,17 +1,20 @@
-mod reader;
-mod subset;
-mod vec;
-mod writer;
+use std::mem;
+
+use rand::RngCore;
+use sysinfo::SystemExt;
 
 pub use reader::*;
 pub use subset::*;
 pub use vec::VecMap;
 pub use writer::*;
 
-use std::mem;
-
+use crate::algebra::{Domain, RingElement, RingModule, Samplable};
 use crate::consts::*;
-use sysinfo::SystemExt;
+
+mod reader;
+mod subset;
+mod vec;
+mod writer;
 
 pub const fn log2(x: usize) -> usize {
     (mem::size_of::<usize>() * 8) - (x.leading_zeros() as usize) - 1
@@ -54,4 +57,12 @@ mod tests {
     fn test_log2() {
         assert_eq!(log2(1024), 10);
     }
+}
+
+pub fn random_scalar<D: Domain, R: RngCore>(rng: &mut R) -> D::Scalar {
+    let mut share = vec![D::Sharing::ZERO; D::Batch::DIMENSION];
+    let mut batch = vec![D::Batch::ZERO; D::Sharing::DIMENSION];
+    batch[0] = D::Batch::gen(rng);
+    D::convert(&mut share[..], &batch[..]);
+    share[0].get(0)
 }

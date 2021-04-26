@@ -12,8 +12,10 @@ use crate::Instructions;
 
 use std::sync::Arc;
 
+use crate::util::random_scalar;
 use async_channel::{Receiver, SendError, Sender};
 use async_std::task;
+use rand::thread_rng;
 
 /// A type alias for a tuple of a program slice and its witness slice.
 type ProgWitSlice<D> = (Arc<Instructions<D>>, Arc<Vec<<D as Domain>::Scalar>>);
@@ -155,6 +157,27 @@ impl<D: Domain> Prover<D> {
                     #[cfg(debug_assertions)]
                     {
                         self.plain.set(dst, Some(c));
+                    }
+                }
+                Instruction::Random(dst) => {
+                    let randomized = random_scalar::<D, _>(&mut thread_rng());
+                    self.wires.set(dst, randomized);
+
+                    #[cfg(feature = "trace")]
+                    {
+                        println!(
+                            "prover-random : Random({}, {:?}) ; wire = {:?}",
+                            dst,
+                            randomized,
+                            self.wires.get(dst),
+                        );
+                    }
+
+                    // evaluate the circuit in plain for testing
+                    #[cfg(test)]
+                    #[cfg(debug_assertions)]
+                    {
+                        self.plain.set(dst, Some(randomized));
                     }
                 }
                 Instruction::AddConst(dst, src, c) => {

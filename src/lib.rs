@@ -56,20 +56,18 @@ pub enum Instruction<E: RingElement> {
     Input(usize),              // read next field element from input tape
     Output(usize),             // output wire (write wire-value to output tape)
     Const(usize, E),           // fixed constant value
-}
-
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
-pub enum ConnectionInstruction {
-    BToA(usize, #[serde(with = "BigArray")] [usize; 64]), // Change field from GF(2) to GF(2^k) //TODO(gvl): make more flexible, max size of arithmetic ring is now 64 bits
-    AToB(#[serde(with = "BigArray")] [usize; 64], usize), // Change field from GF(2^k) to GF(2) //TODO(gvl): make more flexible, max size of arithmetic ring is now 64 bits
-    Challenge(usize),                                     // Input a challenge on a wire
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ProgramTriple {
-    pub boolean: Vec<Instruction<BitScalar>>,
-    pub arithmetic: Vec<Instruction<Scalar>>,
-    pub connection: Vec<ConnectionInstruction>,
+    Random(usize),             // Emit a random value
 }
 
 type Instructions<D> = Vec<Instruction<<D as algebra::Domain>::Scalar>>;
+
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+enum InstructionCombine {
+    OpGF2(Instruction<BitScalar>),
+    OpZn(Instruction<Scalar>),
+    // There's no great way to use [usize; 64] as the set of boolean wire indices for this type
+    // (because the other variants are only 32 bytes, and Box isn't copy) so instead we use a tuple
+    // of (low index, high index) and grab the bits in between. This means we can't represent
+    // non-contiguous segments of bits, but makes inputting zeros easier.
+    BToA(usize, (usize, usize)),
+}

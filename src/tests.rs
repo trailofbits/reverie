@@ -1,22 +1,14 @@
-use crate::algebra::*;
-use crate::util::VecMap;
-use crate::Instruction;
-
 use rand::Rng;
 use rand::RngCore;
 
-pub fn random_scalar<D: Domain, R: RngCore>(rng: &mut R) -> D::Scalar {
-    let mut share = vec![D::Sharing::ZERO; D::Batch::DIMENSION];
-    let mut batch = vec![D::Batch::ZERO; D::Sharing::DIMENSION];
-    batch[0] = D::Batch::gen(rng);
-    D::convert(&mut share[..], &mut batch[..]);
-    share[0].get(0)
-}
+use crate::algebra::*;
+use crate::util::VecMap;
+use crate::{util, Instruction};
 
 pub fn random_scalars<D: Domain, R: RngCore>(rng: &mut R, length: usize) -> Vec<D::Scalar> {
     let mut input = Vec::with_capacity(length);
     for _ in 0..length {
-        input.push(random_scalar::<D, _>(rng))
+        input.push(util::random_scalar::<D, _>(rng))
     }
     input
 }
@@ -99,11 +91,19 @@ pub fn random_program<D: Domain, R: RngCore>(
                 assigned.push(dst);
             }
             3 => {
-                program.push(Instruction::AddConst(dst, src1, random_scalar::<D, _>(rng)));
+                program.push(Instruction::AddConst(
+                    dst,
+                    src1,
+                    util::random_scalar::<D, _>(rng),
+                ));
                 assigned.push(dst);
             }
             4 => {
-                program.push(Instruction::MulConst(dst, src1, random_scalar::<D, _>(rng)));
+                program.push(Instruction::MulConst(
+                    dst,
+                    src1,
+                    util::random_scalar::<D, _>(rng),
+                ));
                 assigned.push(dst);
             }
             5 => {

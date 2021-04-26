@@ -178,6 +178,10 @@ impl<D: Domain> PreprocessingExecution<D> {
                     // We don't need to mask constant inputs because the circuit is public
                     self.masks.set(dst, D::Sharing::ZERO);
                 }
+                Instruction::Random(dst) => {
+                    // We don't need to mask randomized wires either probably
+                    self.masks.set(dst, D::Sharing::ZERO);
+                }
                 Instruction::AddConst(dst, src, _c) => {
                     // noop in pre-processing
                     self.masks.set(dst, self.masks.get(src));

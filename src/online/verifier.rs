@@ -14,7 +14,9 @@ use std::sync::Arc;
 
 use async_channel::{Receiver, Sender};
 
+use crate::util::random_scalar;
 use async_std::task;
+use rand::thread_rng;
 
 const DEFAULT_CAPACITY: usize = 1024;
 
@@ -178,6 +180,9 @@ impl<D: Domain> StreamingVerifier<D> {
                                     }
                                     Instruction::Const(dst, c) => {
                                         wires.set(dst, c);
+                                    }
+                                    Instruction::Random(dst) => {
+                                        wires.set(dst, random_scalar::<D, _>(&mut thread_rng()));
                                     }
                                     Instruction::AddConst(dst, src, c) => {
                                         let a_w = wires.get(src);
