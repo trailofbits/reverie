@@ -18,3 +18,7 @@ serde = {version = "1.0", features = ["derive"]}
 rayon = "1.4"
 thiserror = "1.0.23"
 bincode = "1.3.2"
+
+[[bin]]
+name = "reverie-composite"
+path = "src/composite.rs"

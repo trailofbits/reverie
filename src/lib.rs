@@ -33,6 +33,10 @@ mod proof;
 
 pub use proof::{ProofGf2P64, ProofGf2P64_64, ProofGf2P64_85, ProofGf2P8};
 
+mod tests;
+
+pub use tests::evaluate_composite_program;
+
 use crate::algebra::RingElement;
 
 use crate::algebra::gf2::BitScalar;
