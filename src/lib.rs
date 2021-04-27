@@ -62,7 +62,7 @@ pub enum Instruction<E: RingElement> {
 type Instructions<D> = Vec<Instruction<<D as algebra::Domain>::Scalar>>;
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
-enum InstructionCombine {
+pub enum InstructionCombine {
     OpGF2(Instruction<BitScalar>),
     OpZn(Instruction<Scalar>),
     // There's no great way to use [usize; 64] as the set of boolean wire indices for this type
