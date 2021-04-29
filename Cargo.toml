@@ -47,7 +47,7 @@ typenum = "1.12"
 
 [dev-dependencies]
 aes = "0.6.0"
-cipher = "0.2"
+cipher = "0.3"
 
 [features]
 trace = []
