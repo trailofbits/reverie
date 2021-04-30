@@ -46,7 +46,7 @@ sysinfo = "0.17.0"
 typenum = "1.12"
 
 [dev-dependencies]
-aes = "0.6.0"
+aes = "0.7.0"
 cipher = "0.2"
 
 [features]
