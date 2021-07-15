@@ -13,7 +13,7 @@ jobs:
   build:
     strategy:
       matrix:
-        platform: [ubuntu-latest, macos-latest]
+        platform: [ubuntu-latest]
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@master
@@ -35,8 +35,3 @@ jobs:
 
       - name: Test
         run: cargo test
-        
-      - name: Build Companion
-        run: |
-          cd companion
-          cargo build
