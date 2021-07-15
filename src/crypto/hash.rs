@@ -18,6 +18,12 @@ pub struct BufferedHasher {
     buffer: Vec<u8>,
 }
 
+impl Default for BufferedHasher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BufferedHasher {
     pub fn new() -> Self {
         BufferedHasher {

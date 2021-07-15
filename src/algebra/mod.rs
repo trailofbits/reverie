@@ -162,9 +162,9 @@ pub trait Domain: Copy + Clone + Debug {
     fn random_shares<R: RngCore>(rng: &mut R, num: usize) -> Vec<Self::Share> {
         // create share generator with randomness from rng
         let mut keys: [[Key; PLAYERS]; PACKED] = [[Default::default(); PLAYERS]; PACKED];
-        for p in 0..PACKED {
-            for i in 0..PLAYERS {
-                rng.fill_bytes(&mut keys[p][i]);
+        for packed_keys in keys.iter_mut().take(PACKED) {
+            for player_key in packed_keys.iter_mut().take(PLAYERS) {
+                rng.fill_bytes(player_key);
             }
         }
         let mut share_gen: ShareGen<Self> = ShareGen::new(&keys, [PLAYERS; PACKED]);

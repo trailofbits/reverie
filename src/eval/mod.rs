@@ -220,6 +220,6 @@ pub fn largest_wires(program: &[CombineOperation]) -> (usize, usize) {
     if let CombineOperation::SizeHint(z64_cells, gf2_cells) = program[0] {
         (gf2_cells, z64_cells)
     } else {
-        largest_wires_exhaustive(&program)
+        largest_wires_exhaustive(program)
     }
 }

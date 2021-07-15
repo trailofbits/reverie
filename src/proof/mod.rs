@@ -88,11 +88,11 @@ pub(crate) fn opening_to_packed(open: &HashMap<usize, usize>) -> Vec<[usize; PLA
     let mut packed: Vec<[usize; PACKED]> = vec![];
     for i in 0..PACKED_REPS {
         let mut pack: [usize; PACKED] = [PLAYERS; PACKED];
-        for j in 0..PACKED {
+        for (j, packed) in pack.iter_mut().enumerate().take(PACKED) {
             let idx = i * PACKED + j;
             if open.contains_key(&idx) {
                 debug_assert!(open[&idx] < PLAYERS);
-                pack[j] = open[&idx];
+                *packed = open[&idx];
             }
         }
         packed.push(pack);
@@ -127,8 +127,8 @@ impl Proof {
                 .map(|_i| {
                     // generate key-material for each instance in the batch
                     let mut keys = [[0u8; KEY_SIZE]; PACKED];
-                    for i in 0..PACKED {
-                        OsRng.fill_bytes(&mut keys[i]);
+                    for key in keys.iter_mut().take(PACKED) {
+                        OsRng.fill_bytes(key);
                     }
 
                     //
@@ -184,6 +184,7 @@ impl Proof {
         let ext = ext.into_par_iter();
 
         // extract in parallel
+        #[allow(clippy::type_complexity)] // I tried to fix this and in panic'd rustc lol
         let ext: Vec<(
             (Vec<OpenOnline>, Vec<OpenPreprocessing>),
             (Vec<OpenOnline>, Vec<OpenPreprocessing>),

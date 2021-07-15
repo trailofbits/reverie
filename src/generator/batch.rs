@@ -28,13 +28,13 @@ impl<D: Domain> BatchGen<D> {
     }
 
     pub fn gen(&mut self, batches: &mut [D::Batch]) {
-        for i in 0..PLAYERS {
+        for (i, batch) in batches.iter_mut().enumerate().take(PLAYERS) {
             if i != self.omit {
-                batches[i].random(&mut self.prgs[i]);
+                batch.random(&mut self.prgs[i]);
             }
             #[cfg(test)]
             if i == self.omit {
-                debug_assert!(batches[i].is_zero());
+                debug_assert!(batch.is_zero());
             }
         }
     }

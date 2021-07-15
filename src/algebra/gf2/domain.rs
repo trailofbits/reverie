@@ -365,7 +365,7 @@ unsafe fn byte_to_shares_avx2(dst: &mut [share::ShareGF2; 8], src: [u8; PACKED *
         src[0x3f] as i8,
     );
 
-    for j in 0..8 {
+    for share in dst.iter_mut().take(8) {
         // cast to type of same size first to avoid sign-extending
         let top = (_mm256_movemask_epi8(fst) as u32) as u64;
         let bot = (_mm256_movemask_epi8(snd) as u32) as u64;
@@ -375,6 +375,6 @@ unsafe fn byte_to_shares_avx2(dst: &mut [share::ShareGF2; 8], src: [u8; PACKED *
         snd = _mm256_add_epi8(snd, snd);
 
         // write 8 packed instances back
-        dst[j].pack = (top << 32) | bot;
+        share.pack = (top << 32) | bot;
     }
 }

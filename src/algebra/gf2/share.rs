@@ -50,8 +50,8 @@ impl From<&str> for ShareGF2 {
 impl fmt::Debug for ShareGF2 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut v: [u64; 8] = [0; 8];
-        for i in 0..8 {
-            v[i] = (self.pack >> (8 * i)) & 0xff;
+        for (i, as_u64) in v.iter_mut().enumerate() {
+            *as_u64 = (self.pack >> (8 * i)) & 0xff;
         }
         for i in 0..8 {
             f.write_fmt(format_args!(
@@ -126,7 +126,7 @@ impl PackSelected for ShareGF2 {
 
         // deal with multiples of 8
         let mut chunks_8 = src.chunks_exact(8);
-        while let Some(chunk) = chunks_8.next() {
+        for chunk in &mut chunks_8 {
             extract(dst, <&[ShareGF2; 8]>::try_from(chunk).unwrap(), &ext);
         }
 
@@ -181,7 +181,7 @@ impl PackSelected for ShareGF2 {
         // translate indexes
         let idx: [usize; PACKED] = [
             selected[0],
-            selected[1] + 1 * PLAYERS,
+            selected[1] + PLAYERS,
             selected[2] + 2 * PLAYERS,
             selected[3] + 3 * PLAYERS,
             selected[4] + 4 * PLAYERS,

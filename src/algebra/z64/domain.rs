@@ -21,7 +21,7 @@ impl Add<recon::ReconZ64> for share::ShareZ64 {
 
     #[inline(always)]
     fn add(self, recon: recon::ReconZ64) -> Self {
-        let mut sum = self.clone();
+        let mut sum = self; // implicit copy
         for i in 0..PACKED {
             sum.pack[i][0] = self.pack[i][0].wrapping_add(recon.pack[i]);
         }
@@ -34,7 +34,7 @@ impl Sub<recon::ReconZ64> for share::ShareZ64 {
 
     #[inline(always)]
     fn sub(self, recon: recon::ReconZ64) -> Self {
-        let mut dif = self.clone();
+        let mut dif = self; // implicit copy
         for i in 0..PACKED {
             dif.pack[i][0] = self.pack[i][0].wrapping_sub(recon.pack[i]);
         }
@@ -68,6 +68,7 @@ impl Domain for DomainZ64 {
     ) {
         debug_assert_eq!(batch::NSHARES, BATCH_SIZE);
         {
+            #[allow(clippy::needless_range_loop)]
             for i in 0..batch::NSHARES {
                 let mut pack: [[u64; PLAYERS]; PACKED] = [[0; PLAYERS]; PACKED];
                 for j in 0..PACKED {

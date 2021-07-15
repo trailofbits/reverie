@@ -64,7 +64,7 @@ const fn unpack_table() -> [[u8; 8]; 0x100] {
             bit_to_mask((byte_val >> 3) & 1),
             bit_to_mask((byte_val >> 2) & 1),
             bit_to_mask((byte_val >> 1) & 1),
-            bit_to_mask((byte_val >> 0) & 1),
+            bit_to_mask((byte_val) & 1),
         ]
     }
     const fn fill_table(mut t: [[u8; 8]; 0x100], byte_val: usize) -> [[u8; 8]; 0x100] {
@@ -178,12 +178,11 @@ fn pack_all(
     dst[rep_0].push(pack(s_0, src));
 
     // pack remaining indexes
-    for i in 1..PACKED {
-        let (rep_i, s_i) = shifts[i];
-        if rep_i == PACKED {
+    for (rep_i, s_i) in shifts.iter().take(PACKED).skip(1) {
+        if *rep_i == PACKED {
             return;
         }
-        dst[rep_i].push(pack(s_i, src));
+        dst[*rep_i].push(pack(*s_i, src));
     }
 }
 
@@ -206,8 +205,8 @@ impl Pack for ReconGF2 {
         let shifts: [(usize, usize); PACKED] = {
             let mut nxt = 0;
             let mut shifts = [(PACKED, 0); PACKED];
-            for i in 0..PACKED {
-                if selected[i] {
+            for (i, is_selected) in selected.iter().enumerate().take(PACKED) {
+                if *is_selected {
                     shifts[nxt] = (i, 64 - (i + 1) * 8);
                     nxt += 1;
                 }
@@ -217,7 +216,7 @@ impl Pack for ReconGF2 {
 
         // deal with multiples of 8
         let mut chunks_8 = src.chunks_exact(8);
-        while let Some(chunk) = chunks_8.next() {
+        for chunk in &mut chunks_8 {
             let arr = <&[ReconGF2; PACKED]>::try_from(chunk).unwrap();
             pack_all(dst, arr, &shifts);
         }
@@ -265,8 +264,8 @@ impl ReconGF2 {
     pub(crate) fn valid(&self) -> bool {
         let mut valid: bool = true;
         let bits: [u8; PACKED] = self.pack.to_le_bytes();
-        for i in 0..PACKED {
-            valid &= bits[i] == 0xff || bits[i] == 0x00;
+        for bit in bits.iter().take(PACKED) {
+            valid &= *bit == 0xff || *bit == 0x00;
         }
         valid
     }
@@ -293,6 +292,7 @@ impl From<bool> for ReconGF2 {
     }
 }
 
+#[allow(clippy::from_over_into)]
 impl Into<[u8; PACKED]> for ReconGF2 {
     #[inline(always)]
     fn into(self) -> [u8; PACKED] {
@@ -300,6 +300,7 @@ impl Into<[u8; PACKED]> for ReconGF2 {
     }
 }
 
+#[allow(clippy::from_over_into)]
 impl Into<bool> for ReconGF2 {
     #[inline(always)]
     fn into(self) -> bool {
@@ -308,8 +309,8 @@ impl Into<bool> for ReconGF2 {
         {
             // check that the same constant occurs across all repetitions.
             let val = bits[0];
-            for i in 0..PACKED {
-                debug_assert_eq!(val, bits[i]);
+            for bit in bits.iter().take(PACKED) {
+                debug_assert_eq!(val, *bit);
             }
         }
         bits[0] != 0

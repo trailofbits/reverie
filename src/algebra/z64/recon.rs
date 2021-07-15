@@ -95,9 +95,9 @@ impl Pack for ReconZ64 {
         //
         for _ in 0..(bytes / 8) {
             let mut val = ReconZ64 { pack: [0u64; 8] };
-            for j in 0..PACKED {
+            for (j, chunk) in chunks.iter_mut().enumerate().take(PACKED) {
                 val.pack[j] = u64::from_le_bytes(
-                    chunks[j]
+                    chunk
                         .next()
                         .map(|v| *<&[u8; 8]>::try_from(v).unwrap())
                         .unwrap_or([0u8; 8]),
@@ -151,8 +151,8 @@ impl Mul for ReconZ64 {
 
     fn mul(self, recon: Self) -> Self {
         let mut pack: [u64; PACKED] = [0; PACKED];
-        for i in 0..PACKED {
-            pack[i] = self.pack[i].wrapping_mul(recon.pack[i]);
+        for (i, packed_prod) in pack.iter_mut().enumerate().take(PACKED) {
+            *packed_prod = self.pack[i].wrapping_mul(recon.pack[i]);
         }
         Self { pack }
     }
@@ -163,8 +163,8 @@ impl Add for ReconZ64 {
 
     fn add(self, recon: Self) -> Self {
         let mut pack: [u64; PACKED] = [0; PACKED];
-        for i in 0..PACKED {
-            pack[i] = self.pack[i].wrapping_add(recon.pack[i]);
+        for (i, packed_sum) in pack.iter_mut().enumerate().take(PACKED) {
+            *packed_sum = self.pack[i].wrapping_add(recon.pack[i]);
         }
         Self { pack }
     }
@@ -175,8 +175,8 @@ impl Sub for ReconZ64 {
 
     fn sub(self, recon: Self) -> Self {
         let mut pack: [u64; PACKED] = [0; PACKED];
-        for i in 0..PACKED {
-            pack[i] = self.pack[i].wrapping_sub(recon.pack[i]);
+        for (i, packed_dif) in pack.iter_mut().enumerate().take(PACKED) {
+            *packed_dif = self.pack[i].wrapping_sub(recon.pack[i]);
         }
         Self { pack }
     }

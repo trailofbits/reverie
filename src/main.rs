@@ -76,7 +76,7 @@ async fn prove<WP: Parser<bool> + Send + 'static>(
     let witness: FileStreamer<_, WP> = FileStreamer::new(witness_path)?;
 
     println!("Evaluating program in ~zero knowledge~");
-    let wire_counts = largest_wires(&program.as_slice());
+    let wire_counts = largest_wires(program.as_slice());
 
     let program_arc = Arc::new(program);
 
@@ -100,7 +100,7 @@ async fn oneshot<WP: Parser<gf2::Recon> + Send + 'static>(
     let witness: FileStreamer<_, WP> = FileStreamer::new(witness_path)?;
 
     println!("Evaluating program in cleartext");
-    evaluate_composite_program(&program.as_slice(), &witness.rewind());
+    evaluate_composite_program(program.as_slice(), &witness.rewind());
 
     Ok(())
 }

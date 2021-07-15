@@ -81,18 +81,12 @@ impl<T1: Transcript<gf2::Domain>, T2: Transcript<z64::Domain>> CombineInstance<T
         #[cfg(debug_assertions)]
         if T1::IS_PROVER {
             // sanity check: check that reconstructing the bits as 64-bit integers and adding works as expected
-            let a_val = recon_gf2_to_z64(
-                gf2::Domain::reconstruct,
-                <&[Wire<gf2::Domain>; z64::BIT_SIZE]>::try_from(a).unwrap(),
-            );
+            let a_val = recon_gf2_to_z64(gf2::Domain::reconstruct, a);
             let b_val = recon_gf2_to_z64(
                 gf2::Domain::reconstruct,
                 <&[Wire<gf2::Domain>; z64::BIT_SIZE]>::try_from(b).unwrap(),
             );
-            let c_val = recon_gf2_to_z64(
-                gf2::Domain::reconstruct,
-                <&[Wire<gf2::Domain>; z64::BIT_SIZE]>::try_from(&res).unwrap(),
-            );
+            let c_val = recon_gf2_to_z64(gf2::Domain::reconstruct, &res);
             debug_assert_eq!(a_val + b_val, c_val);
         }
 
@@ -147,9 +141,9 @@ impl<T1: Transcript<gf2::Domain>, T2: Transcript<z64::Domain>> CombineInstance<T
                         unsafe { MaybeUninit::zeroed().assume_init() };
 
                     // generate fresh shares for Boolean circuit
-                    for i in 0..z64::BIT_SIZE {
-                        gf2_wires[i].mask = self.gf2.transcript.new_mask();
-                        gf2_wires[i].corr = gf2::Recon::zero();
+                    for wire in gf2_wires.iter_mut().take(z64::BIT_SIZE) {
+                        wire.mask = self.gf2.transcript.new_mask();
+                        wire.corr = gf2::Recon::zero();
                     }
 
                     // reconstruct and convert to z64

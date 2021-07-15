@@ -29,10 +29,10 @@ impl<D: Domain> VerifierTranscriptOnline<D> {
         //
         #[cfg(debug_assertions)]
         {
-            for i in 0..PACKED {
-                let omit = open_proofs[i].omit as usize;
+            for proof in open_proofs.iter().take(PACKED) {
+                let omit = proof.omit as usize;
                 debug_assert!(omit < PLAYERS);
-                debug_assert_eq!(open_proofs[i].seeds[omit], [0u8; KEY_SIZE]);
+                debug_assert_eq!(proof.seeds[omit], [0u8; KEY_SIZE]);
             }
         }
 
