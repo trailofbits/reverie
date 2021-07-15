@@ -114,6 +114,8 @@ impl ProofSingle {
     }
 }
 
+// TODO: Are these collects actually needless, or do they do something important with the parallel iteration?
+#[allow(clippy::needless_collect)]
 impl Proof {
     pub fn new(
         circuit: Arc<Vec<CombineOperation>>, // combined circuit
