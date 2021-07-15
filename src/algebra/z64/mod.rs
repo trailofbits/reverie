@@ -1,22 +1,18 @@
-use super::*;
+use std::ops::{Add, Mul, Sub};
+
+pub use batch::BatchZ64 as Batch;
+pub use domain::DomainZ64 as Domain;
+pub use recon::ReconZ64 as Recon;
+pub use share::ShareZ64 as Share;
+
+use super::*; // {Batch, Deserialize, Domain, Recon, Serialize, Share, BATCH_SIZE, PACKED, PLAYERS};
 
 mod batch;
-mod scalar;
 
-//mod share64;
-mod share8;
+mod recon;
 
-//mod domain64;
-mod domain8;
+mod share;
 
-pub use batch::Batch;
-pub use scalar::Scalar;
+mod domain;
 
-//pub use share64::Sharing64;
-pub use share8::Sharing8;
-
-//pub use domain64::Z64P64;
-pub use domain8::Z64P8;
-
-pub const Z0: Scalar = <Scalar as RingElement>::ZERO;
-pub const Z1: Scalar = <Scalar as RingElement>::ONE;
+pub const BIT_SIZE: usize = 64;

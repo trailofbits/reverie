@@ -1,22 +1,19 @@
-# Reverie
+# Speed-Reverie
 
-![Nightly Rust CI Status](https://github.com/trailofbits/zk-proof/workflows/nightly/badge.svg)
+Playground for ideas on how to speedup and simplify Reverie.
 
-Reverie is an implementation (prover and verifier) of the MPC-in-the-head NIZKPoK outlined in
-[Improved Non-Interactive Zero Knowledge with Applications to Post-Quantum Signatures](https://eprint.iacr.org/2018/475).
-Reverie seeks to offer concrete prover efficiency (linear proving time with small constants) for
-complex predicates. The implementation seeks to offer 128-bits of (classical) security and support
-arbitrary rings, most efficiently
-Z<sub>2</sub>, Z<sub>8</sub>, Z<sub>16</sub>, Z<sub>32</sub> and Z<sub>64</sub>.
+## Running
 
-Reverie provides both a library (with a simplified and a streaming interface),
-in addition to a "companion" program for proving/verifying statements specified in Bristol format
-to enable easy experimentation.
+Using `SSE+AESNI`
 
-## Building
+    time RUSTFLAGS="-C target-cpu=native -C target-feature=+aes,+ssse3,+sse2" cargo run --release
 
-Reverie requires a relatively recent `nightly` Rust.
+Or even better with `AVX2+AESNI`
 
-```bash
-$ cargo build
-```
+    time RUSTFLAGS="-C target-cpu=native -C target-feature=+aes,+ssse3,+sse2,+avx2" cargo run --release
+
+## Ideas
+
+- Pack 8 instances of 8 players over GF(2) into a single 64-bit integer (see [gist](https://gist.github.com/rot256/174fd53c0aac8cf04ef9810e8a10b0c0) for details).
+- Switch to AES (with AESNI)?
+- Stream intermediate result to disk to avoid doing 2 passed when proving.

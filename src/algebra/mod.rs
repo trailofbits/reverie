@@ -1,196 +1,407 @@
+use crate::crypto::hash;
+use crate::crypto::prg::{Key, PRG};
+use crate::generator::ShareGen;
+use crate::{BATCH_SIZE, PACKED, PLAYERS};
+
+use std::convert::{AsMut, AsRef};
 use std::fmt::Debug;
 use std::io;
-use std::io::Write;
 use std::ops::{Add, Mul, Sub};
 
-use crate::util::Writer;
+use num_traits::identities::Zero;
+use rand::RngCore;
 
-use rand::distributions::{Distribution, Standard};
-use rand::{Rng, RngCore};
-
-use serde::{Deserialize, Serialize};
-
-mod ring;
-
-/// General purpose "bit-by-bit" domain
+#[allow(clippy::suspicious_arithmetic_impl)] // Clippy thinks GF2 arithmetic is suspicious
 pub mod gf2;
-
-// Ring of integers mod 64
 pub mod z64;
 
-/// These two domains are primarily used for bit-slicing LowMC inside the circuit
-pub mod gf2_vec;
-pub mod gf2_vec85;
-
-pub use ring::{RingElement, RingModule};
-
-pub trait Serializable {
-    fn serialize<W: io::Write>(&self, w: &mut W) -> io::Result<()>;
+pub trait Serialize {
+    fn serialize<W: io::Write>(&self, writer: &mut W) -> io::Result<()>;
 }
 
-pub trait Samplable {
-    fn gen<R: RngCore>(rng: &mut R) -> Self;
+pub trait Deserialize {
+    fn deserialize<R: io::Read>(&mut self, reader: &mut R) -> io::Result<()>;
 }
 
-pub trait Packable: Sized + 'static {
-    type Error: Debug;
-
-    fn pack<'a, W: Write, I: Iterator<Item = &'a Self>>(dst: W, elems: I) -> io::Result<()>;
-
-    fn unpack<W: Writer<Self>>(dst: W, bytes: &[u8]) -> Result<(), Self::Error>;
+impl<T: AsRef<[u8]>> Serialize for T {
+    fn serialize<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
+        writer.write_all(self.as_ref())
+    }
 }
 
-impl<T> Samplable for T
-where
-    Standard: Distribution<T>,
+impl<T: AsMut<[u8]>> Deserialize for T {
+    fn deserialize<R: io::Read>(&mut self, reader: &mut R) -> io::Result<()> {
+        reader.read_exact(self.as_mut())
+    }
+}
+
+pub trait Hashable {
+    fn hash(&self, hashers: &mut hash::PackedHasher);
+}
+
+pub trait Recon:
+    Sized
+    + Pack
+    + Zero
+    + Add<Output = Self>
+    + Mul<Output = Self>
+    + Sub<Output = Self>
+    + Copy
+    + Debug
+    + Clone
+    + Hashable
+    + Default
+    + PartialEq
+    + Eq
+    + EqIndex
 {
-    fn gen<R: RngCore>(rng: &mut R) -> T {
-        rng.gen()
+}
+
+pub trait Batch: Sized + Add + Zero + Default {
+    fn random(&mut self, prg: &mut PRG);
+}
+
+pub trait Pack: Sized {
+    fn pack(
+        dst: &mut [Vec<u8>; PACKED], // serialized elements for each repetition
+        src: &[Self],                // slice of packed elements
+        selected: &[bool; PACKED],   // should the repetition be extracted?
+    );
+
+    fn unpack(
+        dst: &mut Vec<Self>,   // packed elements
+        src: &[&[u8]; PACKED], // slice of bytes for each repetition
+    );
+}
+
+pub trait PackSelected: Sized {
+    /// Extract and save (to dst) the shares of the selected players from the sharings.
+    /// E.g. given a 2 packed sharing between 4 players: `abcd|1234`
+    /// Between players:
+    ///
+    /// - P_a
+    /// - P_b
+    /// - P_c
+    /// - P_d
+    ///
+    /// - P_1
+    /// - P_2
+    /// - P_3
+    /// - P_4
+    ///
+    /// And `selected = [1, 3]`, the destination vector will contain:
+    ///
+    /// - `dst[0] = [b, ...]`
+    /// - `dst[1] = [1, ...]`
+    ///
+    /// # Arguments
+    ///
+    /// - `dst`: Individually serialized share for each player (one vector of results per instance).
+    /// - `src`: The input sharings.
+    /// - `selected`: The players whose shares should be extracted.
+    ///               If `selected[i] >= PLAYERS` no share are extracted.
+    ///
+    fn pack_selected(dst: &mut [Vec<u8>; PACKED], src: &[Self], selected: [usize; PACKED]);
+
+    fn unpack_selected(dst: &mut Vec<Self>, src: &[&[u8]; PACKED], selected: [usize; PACKED]);
+}
+
+pub trait Share:
+    Sized
+    + PackSelected
+    + Debug
+    + Zero
+    + Add<Output = Self>
+    + Sub<Output = Self>
+    + Default
+    + Copy
+    + Clone
+    + Hashable
+    + EqIndex
+{
+}
+
+// Used in unit tests to compare individual coordinates.
+pub trait EqIndex {
+    fn compare_index(
+        _rep1: usize,
+        _p1: usize,
+        _v1: &Self, // first index
+        _rep2: usize,
+        _p2: usize,
+        _v2: &Self, // second index
+    ) -> bool {
+        true
     }
 }
 
-/// A sharing is a serializable ring module with a reconstruction homomorphism:
-///
-/// (v1 + v2).reconstruct() = v1.reconstruct() + v2.reconstruct()
-///
-/// For additive sharings (used here) this corresponds to the sum of the coordinates.
-/// The dimension of the sharing is equal to the number of players in the MPC protocol.
-pub trait Sharing<R: RingElement>: RingModule<R> + Serializable + LocalOperation {
-    fn reconstruct(&self) -> R;
-}
+pub trait Domain: Copy + Clone + Debug {
+    // per-player batch
+    type Batch: Batch;
 
-/// Apply a deterministic operation to the type, default implementation is a noop.
-///
-/// Used for cyclic shifts in the [F]^n domain (vector space over fields)
-pub trait LocalOperation: Sized + Copy {
-    fn operation(&self) -> Self {
-        *self
+    // packed reconstruction
+    type Recon: Recon;
+
+    // packed shares of players
+    type Share: Share
+        + Mul<Self::Recon, Output = Self::Share>
+        + Add<Self::Recon, Output = Self::Share>;
+
+    //
+    fn reconstruct(share: &Self::Share) -> Self::Recon;
+
+    // one share per player
+    fn batches_to_shares(
+        to: &mut [Self::Share; BATCH_SIZE],
+        from: &[[Self::Batch; PLAYERS]; PACKED],
+    );
+
+    /// Used in tests only
+    ///
+    /// Generates random shares
+    fn random_shares<R: RngCore>(rng: &mut R, num: usize) -> Vec<Self::Share> {
+        // create share generator with randomness from rng
+        let mut keys: [[Key; PLAYERS]; PACKED] = [[Default::default(); PLAYERS]; PACKED];
+        for p in 0..PACKED {
+            for i in 0..PLAYERS {
+                rng.fill_bytes(&mut keys[p][i]);
+            }
+        }
+        let mut share_gen: ShareGen<Self> = ShareGen::new(&keys, [PLAYERS; PACKED]);
+
+        // generate requested shares one-by-one
+        let mut shares: Vec<Self::Share> = Vec::with_capacity(num);
+        for _ in 0..num {
+            shares.push(share_gen.next());
+        }
+        shares
     }
+
+    /// Used in tests only
+    ///
+    /// Generates random reconstructions
+    fn random_recon<R: RngCore>(rng: &mut R, num: usize) -> Vec<Self::Recon> {
+        let shares = Self::random_shares(rng, num);
+        shares.iter().map(|s| Self::reconstruct(s)).collect()
+    }
+
+    // Type of constant parameter to ADDC/MULC gates
+    type ConstType: Into<Self::Recon> + Copy + Debug + PartialEq;
+
+    // multiplicative identity
+    const ONE: Self::ConstType;
+
+    // additive identity
+    const ZERO: Self::ConstType;
 }
 
-/// Represents a ring and player count instance of the protocol
-pub trait Domain: Debug + Copy + Send + Sync + 'static {
-    const PLAYERS: usize;
-    const PREPROCESSING_REPETITIONS: usize;
-    const ONLINE_REPETITIONS: usize;
-    const NR_OF_BITS: usize;
-
-    type Scalar: LocalOperation + RingElement + Packable + Sized;
-
-    /// a batch of ring elements belonging to a single player
-    type Batch: RingModule<Self::Scalar> + Samplable + Serializable + Debug + Packable;
-
-    /// a sharing of a value across all players
-    type Sharing: Sharing<Self::Scalar> + Debug;
-
-    /// Map from:
-    ///
-    /// Self::Batch ^ Self::Sharing::DIMENSION -> Self::Sharing ^ Self::Batch::DIMENSION
-    ///
-    /// This corresponds to a transpose of the following matrix:
-    ///
-    /// The destination is always holds at least SHARINGS_PER_BATCH bytes.
-    fn convert(dst: &mut [Self::Sharing], src: &[Self::Batch]);
-
-    /// Map from:
-    ///
-    /// Self::Sharing ^ Self::Batch::DIMENSION -> Self::Batch ^ Self::Sharing::DIMENSION
-    fn convert_inv(dst: &mut [Self::Batch], src: &[Self::Sharing]);
-}
-
-/// Derived property-based test for any domain
 #[cfg(test)]
-fn test_domain<D: Domain>() {
-    use rand::thread_rng;
+mod tests {
+    use super::*;
 
-    let mut rng = thread_rng();
+    use rand::rngs::OsRng;
+    use rand::Rng;
 
-    fn rnd_batches<D: Domain, R: RngCore>(rng: &mut R) -> Vec<D::Batch> {
-        let mut batches: Vec<D::Batch> = Vec::with_capacity(D::Sharing::DIMENSION);
-        for _ in 0..D::Sharing::DIMENSION {
-            batches.push(D::Batch::gen(rng));
+    use std::convert::TryFrom;
+
+    fn test_recon_pack<D: Domain>() {
+        let tests = vec![
+            // (reps, selected, recons)
+            (2, 1),
+        ];
+
+        for (num_reps, num_recons) in tests.into_iter() {
+            // select random indexes to extract
+            let mut selected = vec![false; PACKED * num_reps];
+            let mut rem = PACKED;
+            while rem > 0 {
+                let i = OsRng.gen::<usize>() % selected.len();
+                if !selected[i] {
+                    rem -= 1;
+                    selected[i] = true;
+                }
+            }
+
+            // generate random reconstructions
+            let recon: Vec<Vec<D::Recon>> = (0..num_reps)
+                .map(|_| D::random_recon(&mut OsRng, num_recons))
+                .collect();
+
+            // pack the reconstructions into individual coordinates
+            let mut packed: Vec<Vec<u8>> = (0..PACKED * num_reps).map(|_| vec![]).collect();
+            for i in 0..num_reps {
+                let range = i * PACKED..(i + 1) * PACKED;
+                D::Recon::pack(
+                    <&mut [Vec<u8>; PACKED]>::try_from(&mut packed[range.clone()]).unwrap(),
+                    &recon[i][..],
+                    <&[bool; PACKED]>::try_from(&selected[range]).unwrap(),
+                );
+            }
+
+            // collect back into a packed reconstructions
+            let mut recovered: Vec<D::Recon> = vec![];
+            let mut streams: Vec<&[u8]> = vec![];
+
+            for (i, sel) in selected.iter().copied().enumerate() {
+                if sel {
+                    streams.push(&packed[i][..]);
+                }
+            }
+
+            assert_eq!(streams.len(), PACKED);
+            D::Recon::unpack(
+                &mut recovered,
+                <&[&[u8]; PACKED]>::try_from(&streams[..]).unwrap(),
+            );
+
+            assert!(recovered.len() >= num_recons);
+
+            // check that the recovered reconstructions are the same as the original in the packed indexes
+            for i in 0..num_recons {
+                let mut nxt = 0;
+                for (j, sel) in selected.iter().copied().enumerate() {
+                    if sel {
+                        let v1 = &recovered[i];
+                        let v2 = &recon[j / PACKED][i];
+                        let rep1 = nxt;
+                        let rep2 = j % PACKED;
+                        assert!(
+                            D::Recon::compare_index(
+                                nxt,
+                                0,
+                                &recovered[i], //
+                                j % PACKED,
+                                0,
+                                &recon[j / PACKED][i],
+                            ),
+                            "recovered[_] = {:?}, recon[_] = {:?}, rep1 = {}, rep2 = {}",
+                            v1,
+                            v2,
+                            rep1,
+                            rep2
+                        );
+                        nxt += 1;
+                    }
+                }
+            }
+
+            /*
+            let mut recon_unpacked: Vec<D::Recon> = vec![];
+            D::Recon::unpack(
+                &mut recon_unpacked,
+                &[
+                    &dst[0], &dst[1], &dst[2], &dst[3], &dst[4], &dst[5], &dst[6], &dst[7],
+                ],
+            );
+            */
         }
-        batches
-    }
 
-    fn rnd_sharings<D: Domain, R: RngCore>(rng: &mut R) -> Vec<D::Sharing> {
-        let batches = rnd_batches::<D, R>(rng);
-        let mut sharings = vec![D::Sharing::ZERO; D::Batch::DIMENSION];
-        D::convert(&mut sharings, &batches);
-        sharings
-    }
+        let selected: [bool; PACKED] = [true; PACKED];
 
-    // check serialize of batch
-    for _ in 0..1000 {
-        // generate a random number of random batches
-        let num_batches: usize = 1 + rng.gen::<usize>() % 100;
-        let mut batches: Vec<D::Batch> = Vec::with_capacity(num_batches);
-        for _ in 0..num_batches {
-            batches.push(D::Batch::gen(&mut rng))
-        }
+        for num in vec![1, 2, 3, 6, 18, 32, 64, 63, 65, 128, 127] {
+            let shares = D::random_shares(&mut OsRng, num);
+            let recon: Vec<D::Recon> = shares.iter().map(|s| D::reconstruct(s)).collect();
+            let mut dst = [
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+            ];
+            D::Recon::pack(&mut dst, &recon[..], &selected);
+            let mut recon_unpacked: Vec<D::Recon> = vec![];
+            D::Recon::unpack(
+                &mut recon_unpacked,
+                &[
+                    &dst[0], &dst[1], &dst[2], &dst[3], &dst[4], &dst[5], &dst[6], &dst[7],
+                ],
+            );
 
-        // serialize into a vector
-        let mut serialized: Vec<u8> = vec![];
-        D::Batch::pack(&mut serialized, batches.iter()).unwrap();
-
-        // deserialize and check equality
-        let mut result: Vec<D::Batch> = vec![];
-        D::Batch::unpack(&mut result, &serialized).unwrap();
-        assert_eq!(batches, result);
-    }
-
-    // check that convert_inv is the inverse of convert
-    for _ in 0..1000 {
-        let batches = rnd_batches::<D, _>(&mut rng);
-        let mut sharings: Vec<D::Sharing> = vec![D::Sharing::ZERO; D::Batch::DIMENSION];
-
-        D::convert(&mut sharings, &batches);
-
-        let mut batches_after = rnd_batches::<D, _>(&mut rng);
-
-        D::convert_inv(&mut batches_after, &sharings[..]);
-
-        assert_eq!(
-            &batches[..],
-            &batches_after[..],
-            "convert_inv o convert != id"
-        );
-    }
-
-    // check that reconstruction is additively homomorphic
-    for _ in 0..1000 {
-        let sharings_1 = rnd_sharings::<D, _>(&mut rng);
-        let sharings_2 = rnd_sharings::<D, _>(&mut rng);
-
-        for i in 0..sharings_1.len() {
-            let a: D::Scalar = (sharings_1[i] + sharings_2[i]).reconstruct();
-            let b: D::Scalar = sharings_1[i].reconstruct() + sharings_2[i].reconstruct();
-            assert_eq!(a, b);
+            for i in 0..recon.len() {
+                assert_eq!(recon_unpacked[i], recon[i]);
+            }
         }
     }
-}
 
-#[test]
-fn test_gf2_p8() {
-    test_domain::<gf2::Gf2P8>();
-}
+    fn test_share_partial_pack<D: Domain>() {
+        for num in vec![1, 2, 3, 6, 18, 32, 64, 63, 65, 128, 127] {
+            let shares = D::random_shares(&mut OsRng, num);
 
-#[test]
-fn test_gf2_p64() {
-    test_domain::<gf2::Gf2P64>();
-}
+            let selected: [usize; PACKED] = [
+                OsRng.gen::<usize>() % PLAYERS,
+                OsRng.gen::<usize>() % PLAYERS,
+                OsRng.gen::<usize>() % PLAYERS,
+                OsRng.gen::<usize>() % PLAYERS,
+                OsRng.gen::<usize>() % PLAYERS,
+                OsRng.gen::<usize>() % PLAYERS,
+                OsRng.gen::<usize>() % PLAYERS,
+                OsRng.gen::<usize>() % PLAYERS,
+            ];
 
-#[test]
-fn test_gf2_p64_64() {
-    test_domain::<gf2_vec::Gf2P64_64>();
-}
+            let mut shares_packed = [
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+            ];
 
-#[test]
-fn test_gf2_p64_85() {
-    test_domain::<gf2_vec85::Gf2P64_85>();
-}
+            D::Share::pack_selected(&mut shares_packed, &shares[..], selected);
 
-#[test]
-fn test_z64_p8() {
-    test_domain::<z64::Z64P8>();
+            let mut shares_partial: Vec<D::Share> = vec![];
+
+            D::Share::unpack_selected(
+                &mut shares_partial,
+                &[
+                    &shares_packed[0],
+                    &shares_packed[1],
+                    &shares_packed[2],
+                    &shares_packed[3],
+                    &shares_packed[4],
+                    &shares_packed[5],
+                    &shares_packed[6],
+                    &shares_packed[7],
+                ],
+                selected,
+            );
+
+            assert!(shares_partial.len() >= shares.len());
+
+            println!("{:?}", shares_packed);
+
+            for j in 0..shares.len() {
+                for rep in 0..PACKED {
+                    let p = selected[rep];
+                    assert!(
+                        D::Share::compare_index(rep, p, &shares_partial[j], rep, p, &shares[j]),
+                        "{:?}",
+                        selected
+                    );
+                }
+            }
+        }
+
+        // test packing
+    }
+
+    fn test_domain<D: Domain>() {
+        test_recon_pack::<D>();
+        test_share_partial_pack::<D>();
+    }
+
+    #[test]
+    fn test_gf2() {
+        test_domain::<gf2::Domain>();
+    }
+
+    #[test]
+    fn test_z64() {
+        test_domain::<z64::Domain>();
+    }
 }

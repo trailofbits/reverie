@@ -1,105 +1,100 @@
-use super::*;
+use std::convert::{AsMut, AsRef};
+use std::mem::MaybeUninit;
+use std::ops::{Add, Mul, Sub};
 
-use crate::util::Writer;
+use num_traits::identities::Zero;
 
-use serde::{Deserialize, Serialize};
+use crate::algebra::*;
+use crate::crypto::prg::PRG;
 
-use std::convert::TryInto;
-use std::io;
+pub const NSHARES: usize = 128;
 
-//Batches for Z64 are always dimension 1
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Batch(pub(super) u64);
+#[derive(Debug, Copy, Clone)]
+pub struct BatchZ64 {
+    pub(crate) pack: [u64; NSHARES],
+}
 
-impl Add for Batch {
+impl Default for BatchZ64 {
+    fn default() -> Self {
+        BatchZ64 {
+            pack: [0u64; NSHARES],
+        }
+    }
+}
+
+impl Batch for BatchZ64 {
+    fn random(&mut self, prg: &mut PRG) {
+        let (_prefix, aligned, _suffix) = unsafe { self.pack.align_to_mut::<u8>() };
+        prg.gen(aligned);
+    }
+}
+
+impl Zero for BatchZ64 {
+    #[inline(always)]
+    fn zero() -> Self {
+        BatchZ64 { pack: [0; NSHARES] }
+    }
+
+    fn is_zero(&self) -> bool {
+        self.pack.iter().all(|x| *x == 0)
+    }
+}
+
+impl AsMut<[u8]> for BatchZ64 {
+    fn as_mut(&mut self) -> &mut [u8] {
+        let (_prefix, aligned, _suffix) = unsafe { self.pack.align_to_mut::<u8>() };
+        aligned
+    }
+}
+
+impl AsRef<[u8]> for BatchZ64 {
+    fn as_ref(&self) -> &[u8] {
+        let (_prefix, aligned, _suffix) = unsafe { self.pack.align_to::<u8>() };
+        aligned
+    }
+}
+
+impl Add for BatchZ64 {
     type Output = Self;
 
-    #[allow(clippy::suspicious_arithmetic_impl)]
     #[inline(always)]
-    fn add(self, other: Self) -> Self::Output {
-        Self(u64::wrapping_add(self.0, other.0))
+    fn add(self, other: Self) -> Self {
+        let mut res = Self {
+            pack: unsafe { MaybeUninit::zeroed().assume_init() },
+        };
+        for i in 0..NSHARES {
+            res.pack[i] = self.pack[i].wrapping_add(other.pack[i]);
+        }
+        res
     }
 }
 
-impl Sub for Batch {
+impl Sub for BatchZ64 {
     type Output = Self;
 
-    #[allow(clippy::suspicious_arithmetic_impl)]
     #[inline(always)]
-    fn sub(self, other: Self) -> Self::Output {
-        Self(u64::wrapping_sub(self.0, other.0))
+    fn sub(self, other: Self) -> Self {
+        let mut res = Self {
+            pack: unsafe { MaybeUninit::zeroed().assume_init() },
+        };
+        for i in 0..NSHARES {
+            res.pack[i] = self.pack[i].wrapping_sub(other.pack[i]);
+        }
+        res
     }
 }
 
-impl Mul for Batch {
+impl Mul for BatchZ64 {
     type Output = Self;
 
-    #[allow(clippy::suspicious_arithmetic_impl)]
     #[inline(always)]
-    fn mul(self, other: Self) -> Self::Output {
-        Self(u64::wrapping_mul(self.0, other.0))
-    }
-}
-
-impl RingElement for Batch {
-    const ONE: Batch = Self(1);
-    const ZERO: Batch = Self(0);
-}
-
-impl RingModule<Scalar> for Batch {
-    const DIMENSION: usize = 1;
-
-    #[inline(always)]
-    fn action(&self, s: Scalar) -> Self {
-        Self(u64::wrapping_mul(self.0, s.0))
-    }
-
-    fn get(&self, i: usize) -> Scalar {
-        debug_assert_eq!(i, 0);
-        Scalar(self.0)
-    }
-
-    fn set(&mut self, i: usize, s: Scalar) {
-        debug_assert_eq!(i, 0);
-        self.0 = s.0;
-    }
-}
-
-impl Serializable for Batch {
-    fn serialize<W: io::Write>(&self, w: &mut W) -> io::Result<()> {
-        w.write_all(&self.0.to_le_bytes())
-    }
-}
-
-impl Samplable for Batch {
-    fn gen<R: RngCore>(rng: &mut R) -> Batch {
-        let res = rng.gen::<u64>();
-        Batch(res)
-    }
-}
-
-impl Packable for Batch {
-    type Error = ();
-
-    fn pack<'a, W: io::Write, I: Iterator<Item = &'a Batch>>(
-        mut dst: W,
-        elems: I,
-    ) -> io::Result<()> {
-        for batch in elems {
-            dst.write_all(&batch.0.to_le_bytes())?;
+    fn mul(self, other: Self) -> Self {
+        let mut res = Self {
+            pack: unsafe { MaybeUninit::zeroed().assume_init() },
+        };
+        for i in 0..NSHARES {
+            res.pack[i] = self.pack[i].wrapping_mul(other.pack[i]);
         }
-        Ok(())
-    }
-
-    fn unpack<W: Writer<Batch>>(mut dst: W, bytes: &[u8]) -> Result<(), ()> {
-        if bytes.len() % 8 != 0 {
-            return Err(());
-        }
-
-        for chunk in bytes.chunks(8) {
-            let batch = u64::from_le_bytes(chunk.try_into().unwrap());
-            dst.write(Batch(batch));
-        }
-        Ok(())
+        res
     }
 }

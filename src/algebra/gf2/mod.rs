@@ -1,26 +1,44 @@
-use super::*;
-
-use core::arch::x86_64::*;
+use std::ops::{Add, Mul, Sub};
 
 mod batch;
-mod scalar;
+mod domain;
+mod recon;
+mod share;
 
-mod share64;
-mod share8;
+pub use domain::DomainGF2 as Domain;
 
-mod domain64;
-mod domain8;
+pub use batch::BatchGF2 as Batch;
+pub use recon::ReconGF2 as Recon;
+pub use share::ShareGF2 as Share;
 
-pub use batch::BitBatch;
-pub use scalar::BitScalar;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-pub use share64::BitSharing64;
-pub use share8::BitSharing8;
+    #[test]
+    fn test_mul_add() {
+        let r1 = Recon::from("1010 1010");
+        let r2 = Recon::from("1110 1010");
+        let s1 = Share::from("[0001 0001][1010 0110][0011 1101][0101 1000][1010 1010][0010 0001][0111 0101][1101 0001]");
+        let s2 = Share::from("[1000 1010][0100 1101][0001 0011][1101 0000][1010 1111][1000 0100][0011 1101][1011 1000]");
+        let s3 = Share::from("[0001 0001][1100 1100][1001 0111][0000 0100][0100 1010][1010 0100][0110 1001][1011 0010]");
+        let s4 = Share::from("[1100 0001][0010 0111][1001 0101][0000 1000][0100 1100][1010 1000][0011 0110][0100 0000]");
 
-pub use domain64::Gf2P64;
-pub use domain8::Gf2P8;
+        println!("r1 = {:?}", r1);
+        println!("r2 = {:?}", r2);
+        println!("s1 = {:?}", s1);
+        println!("s2 = {:?}", s2);
+        println!("s4 = {:?}", s3);
+        println!("s5 = {:?}", s4);
+        println!(" | = {:?}", s2 * r1 + s1 * r2 + s3 + s4);
 
-use batch::BATCH_SIZE_BYTES;
-
-pub const BIT0: BitScalar = <BitScalar as RingElement>::ZERO;
-pub const BIT1: BitScalar = <BitScalar as RingElement>::ONE;
+        /*
+        tx: mask_ab             =              [0001 0001][1010 0110][0011 1101][01011000][10101010][00100001][01110101][11010001]
+        tx: mask_new            =              [1000 1010][0100 1101][0001 0011][11010000][10101111][10000100][00111101][10111000]
+        tx: w1                  = Wire { mask: [0001 0001][1100 1100][1001 0111][00000100][01001010][10100100][01101001][10110010], corr: 10101010 }
+        tx: w2                  = Wire { mask: [1100 0001][0010 0111][1001 0101][00001000][01001100][10101000][00110110][01000000], corr: 11101010 }
+                                                   ?
+        recon (before adding)   =              [1001 1011][0000 0000][00101110][10000100][00000101][10101001][00100001][10011011]
+        */
+    }
+}
