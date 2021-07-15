@@ -1,8 +1,19 @@
 [package]
-authors = ["Mathias Hall-Andersen <mathias@hall-andersen.dk>"]
+name = "reverie-zk"
+description = "An efficient implementation of the NIZKPoK outlined in KKW 2018"
+license = "AGPL-3.0"
+homepage = "https://github.com/trailofbits/reverie"
+repository = "https://github.com/trailofbits/reverie"
+version = "0.3.0"
+authors = [
+    "Mathias Hall-Andersen <mathias@hall-andersen.dk>",
+    "William Woodruff <william@trailofbits.com>",
+    "Eric Hennenfent <eric.hennenfent@trailofbits.com>"
+]
 edition = "2018"
-name = "speed_reverie"
-version = "0.1.0"
+readme = "README.md"
+keywords = ["crypto", "cryptography", "zero-knowledge"]
+categories = ["cryptography"]
 build = "build.rs"
 
 [dependencies]
