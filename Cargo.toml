@@ -16,6 +16,13 @@ keywords = ["crypto", "cryptography", "zero-knowledge"]
 categories = ["cryptography"]
 build = "build.rs"
 
+[package.metadata.release]
+no-dev-version = true
+disable-publish = true # handled by GitHub Actions
+
+[badges]
+maintenance = { status = "actively-developed" }
+
 [dependencies]
 aesni = "0.10"
 async-std = "1.7"
