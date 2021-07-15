@@ -8,6 +8,7 @@ use std::fmt::Debug;
 use std::io;
 use std::ops::{Add, Mul, Sub};
 
+use mcircuit::WireValue;
 use num_traits::identities::Zero;
 use rand::RngCore;
 
@@ -186,7 +187,7 @@ pub trait Domain: Copy + Clone + Debug {
     }
 
     // Type of constant parameter to ADDC/MULC gates
-    type ConstType: Into<Self::Recon> + Copy + Debug + PartialEq;
+    type ConstType: Into<Self::Recon> + Copy + Debug + PartialEq + WireValue;
 
     // multiplicative identity
     const ONE: Self::ConstType;

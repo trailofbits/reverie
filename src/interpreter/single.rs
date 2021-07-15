@@ -89,6 +89,13 @@ impl<D: Domain, T: Transcript<D>> Instance<D, T> {
         }
     }
 
+    pub(crate) fn op_sub_const(w: &Wire<D>, v: D::Recon) -> Wire<D> {
+        Wire {
+            mask: w.mask,
+            corr: w.corr - v,
+        }
+    }
+
     pub(crate) fn op_mul_const(w: &Wire<D>, v: D::Recon) -> Wire<D> {
         Wire {
             mask: w.mask * v,
@@ -119,6 +126,10 @@ impl<D: Domain, T: Transcript<D>> Instance<D, T> {
                 self.wires[*dst] = Self::op_add_const(&self.wires[*src], (*val).into())
             }
 
+            Operation::SubConst(dst, src, val) => {
+                self.wires[*dst] = Self::op_sub_const(&self.wires[*src], (*val).into())
+            }
+
             Operation::MulConst(dst, src, val) => {
                 self.wires[*dst] = Self::op_mul_const(&self.wires[*src], (*val).into())
             }
@@ -134,6 +145,13 @@ impl<D: Domain, T: Transcript<D>> Instance<D, T> {
                     mask: self.transcript.new_mask(),
                     corr: Zero::zero(),
                 };
+            }
+
+            Operation::Const(dst, val) => {
+                self.wires[*dst] = Wire {
+                    mask: Zero::zero(),
+                    corr: (*val).into(),
+                }
             }
         };
     }
