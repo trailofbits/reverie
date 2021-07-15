@@ -23,6 +23,7 @@ use std::io;
 use std::io::BufReader;
 use std::process::exit;
 
+use num_traits::Zero;
 use std::marker::PhantomData;
 use std::mem;
 use std::sync::Arc;
@@ -98,9 +99,10 @@ async fn oneshot<WP: Parser<gf2::Recon> + Send + 'static>(
 
     // open and parse witness
     let witness: FileStreamer<_, WP> = FileStreamer::new(witness_path)?;
+    let witness: Vec<bool> = witness.rewind().iter().map(|r| !r.is_zero()).collect();
 
     println!("Evaluating program in cleartext");
-    evaluate_composite_program(program.as_slice(), &witness.rewind());
+    evaluate_composite_program(program.as_slice(), &witness, &[]);
 
     Ok(())
 }
