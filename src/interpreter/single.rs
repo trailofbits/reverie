@@ -2,8 +2,8 @@ use num_traits::Zero;
 
 use crate::algebra::Domain;
 use crate::interpreter::Wire;
-use crate::transcript::Transcript;
 use crate::Operation;
+use crate::transcript::Transcript;
 
 pub struct Instance<D: Domain, T: Transcript<D>> {
     pub(crate) transcript: T,       //
@@ -167,9 +167,11 @@ mod test {
     use std::iter::Map;
     use std::slice::Iter;
 
+    use mcircuit::HasIO;
+
+    use crate::{gf2, PACKED, z64};
     use crate::crypto::prg::KEY_SIZE;
     use crate::transcript::ProverTranscript;
-    use crate::{gf2, z64, PACKED};
 
     use super::*;
 
