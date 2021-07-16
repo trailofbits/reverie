@@ -123,6 +123,7 @@ impl Proof {
         wit_z64: Arc<Vec<u64>>,              // z64 witness
         wire_counts: (usize, usize),         // Sizes for instances
     ) -> Self {
+        let (z64_count, gf2_count) = wire_counts;
         // execute every instance in parallel
         let instances: Vec<CombineInstance<_, _>> =
             parallel_iter!((0..PACKED_REPS).collect::<Vec<usize>>())
@@ -136,13 +137,13 @@ impl Proof {
                     //
                     let instance_gf2 = Instance::new(
                         ProverTranscript::new(wit_gf2.iter().map(|b| (*b).into()), keys),
-                        wire_counts.0,
+                        gf2_count,
                     );
 
                     //
                     let instance_z64 = Instance::new(
                         ProverTranscript::new(wit_z64.iter().map(|b| (*b).into()), keys),
-                        wire_counts.1,
+                        z64_count,
                     );
 
                     // process every instruction in the circuit
@@ -228,6 +229,8 @@ impl Proof {
             return false;
         }
 
+        let (z64_count, gf2_count) = wire_counts;
+
         let online_reps: Vec<(&[OpenOnline], &[OpenOnline])> = self
             .gf2
             .online
@@ -246,11 +249,11 @@ impl Proof {
         let online_reps = parallel_iter!(online_reps).map(|(gf2, z64)| {
             let instance_gf2 = Instance::new(
                 VerifierTranscriptOnline::new(<&[_; PACKED]>::try_from(gf2).unwrap()),
-                wire_counts.0,
+                gf2_count,
             );
             let instance_z64 = Instance::new(
                 VerifierTranscriptOnline::new(<&[_; PACKED]>::try_from(z64).unwrap()),
-                wire_counts.1,
+                z64_count,
             );
             let mut ins = CombineInstance::new(instance_gf2, instance_z64);
             for op in circuit.iter() {
@@ -263,11 +266,11 @@ impl Proof {
         let preprocessing_reps = parallel_iter!(preprocessing_reps).map(|(gf2, z64)| {
             let instance_gf2 = Instance::new(
                 VerifierTranscriptPreprocess::new(<&[_; PACKED]>::try_from(gf2).unwrap()),
-                wire_counts.0,
+                gf2_count,
             );
             let instance_z64 = Instance::new(
                 VerifierTranscriptPreprocess::new(<&[_; PACKED]>::try_from(z64).unwrap()),
-                wire_counts.1,
+                z64_count,
             );
             let mut ins = CombineInstance::new(instance_gf2, instance_z64);
             for op in circuit.iter() {

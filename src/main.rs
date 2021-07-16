@@ -1,14 +1,20 @@
 #![allow(dead_code)]
 #![allow(unused_imports)]
 
-mod witness;
+use std::fs::File;
+use std::io;
+use std::io::{BufReader, BufWriter};
+use std::marker::PhantomData;
+use std::mem;
+use std::process::exit;
+use std::sync::Arc;
 
+use async_std::task;
+use clap::{App, Arg};
+use num_traits::Zero;
 use rand::rngs::OsRng;
 use rand::Rng;
 
-use async_std::task;
-
-use clap::{App, Arg};
 use reverie::algebra::*;
 use reverie::crypto::prg::KEY_SIZE;
 use reverie::interpreter::{CombineInstance, Instance};
@@ -18,15 +24,7 @@ use reverie::PACKED;
 use reverie::{evaluate_composite_program, largest_wires};
 use reverie::{CombineOperation, Operation};
 
-use std::fs::File;
-use std::io;
-use std::io::BufReader;
-use std::process::exit;
-
-use num_traits::Zero;
-use std::marker::PhantomData;
-use std::mem;
-use std::sync::Arc;
+mod witness;
 
 mod built_info {
     include!(concat!(env!("OUT_DIR"), "/built.rs"));
@@ -67,25 +65,58 @@ impl<E, P: Parser<E>> FileStreamer<E, P> {
 async fn prove<WP: Parser<bool> + Send + 'static>(
     program_path: &str,
     witness_path: &str,
+    proof_path: &str,
 ) -> io::Result<Result<(), String>> {
     // open and parse program
-    let file = File::open(program_path)?;
-    let reader = BufReader::new(file);
-    let program: Vec<CombineOperation> = bincode::deserialize_from(reader).unwrap();
+    let program_file = File::open(program_path)?;
+    let program_reader = BufReader::new(program_file);
+    let program: Vec<CombineOperation> = bincode::deserialize_from(program_reader).unwrap();
 
     // open and parse witness
     let witness: FileStreamer<_, WP> = FileStreamer::new(witness_path)?;
 
+    // Create Proof
     println!("Evaluating program in ~zero knowledge~");
     let wire_counts = largest_wires(program.as_slice());
+    let proof = Proof::new(
+        Arc::new(program),
+        witness.rewind(),
+        Arc::new(vec![]),
+        wire_counts,
+    );
 
-    let program_arc = Arc::new(program);
+    // Write proof to file
+    let proof_file = File::create(proof_path)?;
+    let proof_writer = BufWriter::new(proof_file);
+    if bincode::serialize_into(proof_writer, &proof).is_ok() {
+        Ok(Ok(()))
+    } else {
+        Ok(Err("Could not serialize Proof".to_string()))
+    }
+}
 
-    let proof = Proof::new(program_arc, witness.rewind(), Arc::new(vec![]), wire_counts);
+async fn verify<WP: Parser<bool> + Send + 'static>(
+    program_path: &str,
+    proof_path: &str,
+) -> io::Result<Result<(), String>> {
+    // open and parse program
+    let program_file = File::open(program_path)?;
+    let program_reader = BufReader::new(program_file);
+    let program: Vec<CombineOperation> = bincode::deserialize_from(program_reader).unwrap();
 
-    println!("size = {}", bincode::serialize(&proof).unwrap().len());
+    // Deserialize the proof
+    let proof_file = File::open(proof_path)?;
+    let proof_reader = BufReader::new(proof_file);
+    let proof: Proof = bincode::deserialize_from(proof_reader).unwrap();
 
-    Ok(Ok(()))
+    // Verify the proof
+    println!("Verifying Proof");
+    let wire_counts = largest_wires(program.as_slice());
+    if proof.verify(Arc::new(program), wire_counts) {
+        Ok(Ok(()))
+    } else {
+        Ok(Err("Unverifiable Proof".to_string()))
+    }
 }
 
 async fn oneshot<WP: Parser<gf2::Recon> + Send + 'static>(
@@ -107,14 +138,47 @@ async fn oneshot<WP: Parser<gf2::Recon> + Send + 'static>(
     Ok(())
 }
 
+async fn oneshot_zk<WP: Parser<bool> + Send + 'static>(
+    program_path: &str,
+    witness_path: &str,
+) -> io::Result<Result<(), String>> {
+    // open and parse program
+    let file = File::open(program_path)?;
+    let reader = BufReader::new(file);
+    let program: Vec<CombineOperation> = bincode::deserialize_from(reader).unwrap();
+
+    // open and parse witness
+    let witness: FileStreamer<_, WP> = FileStreamer::new(witness_path)?;
+
+    println!("Evaluating program in ~zero knowledge~");
+    let wire_counts = largest_wires(program.as_slice());
+
+    let program_arc = Arc::new(program);
+
+    // Create the proof
+    let proof = Proof::new(
+        program_arc.clone(),
+        witness.rewind(),
+        Arc::new(vec![]),
+        wire_counts,
+    );
+
+    // Verify the proof
+    if proof.verify(program_arc, wire_counts) {
+        Ok(Ok(()))
+    } else {
+        Ok(Err("Unverifiable Proof".to_string()))
+    }
+}
+
 async fn async_main() {
     let matches = App::new("Speed Reverie")
         .about("Gotta go fast")
         .arg(
             Arg::with_name("operation")
                 .long("operation")
-                .help("Specify the operation: \"prove\"")
-                .possible_values(&["prove", "oneshot", "version_info"])
+                .help("Specify the operation: \"prove\", \"verify\"")
+                .possible_values(&["prove", "verify", "oneshot", "oneshot-zk", "version_info"])
                 .empty_values(false)
                 .required(true),
         )
@@ -124,6 +188,7 @@ async fn async_main() {
                 .help("The path to the file containing the witness (for proving)")
                 .required_if("operation", "prove")
                 .required_if("operation", "oneshot")
+                .required_if("operation", "oneshot-zk")
                 .required_if("operation", "bench")
                 .empty_values(false),
         )
@@ -132,8 +197,18 @@ async fn async_main() {
                 .long("program-path")
                 .help("The path to the file containing the program (or statement)")
                 .required_if("operation", "prove")
+                .required_if("operation", "verify")
                 .required_if("operation", "oneshot")
+                .required_if("operation", "oneshot-zk")
                 .required_if("operation", "bench")
+                .empty_values(false),
+        )
+        .arg(
+            Arg::with_name("proof-path")
+                .long("proof-path")
+                .help("The path to write the proof file")
+                .required_if("operation", "prove")
+                .required_if("operation", "verify")
                 .empty_values(false),
         )
         .get_matches();
@@ -153,10 +228,39 @@ async fn async_main() {
                 Ok(output) => println!("{:?}", output),
             }
         }
+        "oneshot-zk" => {
+            let res = oneshot_zk::<witness::WitParser>(
+                matches.value_of("program-path").unwrap(),
+                matches.value_of("witness-path").unwrap(),
+            )
+            .await;
+            match res {
+                Err(e) => {
+                    eprintln!("Invalid proof: {}", e);
+                    exit(-1)
+                }
+                Ok(output) => println!("{:?}", output),
+            }
+        }
         "prove" => {
             let res = prove::<witness::WitParser>(
                 matches.value_of("program-path").unwrap(),
                 matches.value_of("witness-path").unwrap(),
+                matches.value_of("proof-path").unwrap(),
+            )
+            .await;
+            match res {
+                Err(e) => {
+                    eprintln!("Invalid proof: {}", e);
+                    exit(-1)
+                }
+                Ok(output) => println!("{:?}", output),
+            }
+        }
+        "verify" => {
+            let res = verify::<witness::WitParser>(
+                matches.value_of("program-path").unwrap(),
+                matches.value_of("proof-path").unwrap(),
             )
             .await;
             match res {
@@ -186,243 +290,3 @@ async fn print_version() {
 fn main() {
     task::block_on(async_main());
 }
-
-/*
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn many_mul() {
-        let w_gf2: Vec<gf2::Recon> = vec![true.into(); 64];
-        let t_gf2: ProverTranscript<gf2::Domain, _> = ProverTranscript::new(w_gf2.iter().copied());
-
-        let w_z64: Vec<z64::Recon> = vec![];
-        let t_z64: ProverTranscript<z64::Domain, _> = ProverTranscript::new(w_z64.iter().copied());
-
-        let mut keys = [[[0u8; KEY_SIZE]; PLAYERS]; PACKED];
-
-        let mut rng = OsRng::new().unwrap();
-        for i in 0..PACKED {
-            for j in 0..PLAYERS {
-                rng.fill_bytes(&mut keys[i][j]);
-            }
-        }
-
-        let i_gf2 = Instance::new(t_gf2, 128, &keys, [PLAYERS; PACKED]);
-        let i_z64 = Instance::new(t_z64, 10, &keys, [PLAYERS; PACKED]);
-
-        let mut ins = CombineInstance::new(i_gf2, i_z64);
-
-        let program = vec![
-            CombineOperation::B2A(0, 0),
-            CombineOperation::Z64(Operation::AssertZero(0)),
-        ];
-
-        for op in program.iter() {
-            ins.step(op)
-        }
-
-        for _ in 0..100_000 {
-            ins.step(&CombineOperation::B2A(0, 0));
-        }
-
-        for i in 0..100_000_000 {
-            if i % 1_000_000 == 0 {
-                println!("{}", i);
-            }
-            ins.step(&CombineOperation::GF2(Operation::Mul(0, 0, 0)));
-        }
-
-        println!("size: {} B", proof_size(ins));
-    }
-}
-2. Attempt to scroll and interact with the UI while the gadget tool is running
-
-struct BatchGenerator {
-    omit: usize,
-    // prgs: [ChaCha; PLAYERS],
-    prgs: [Aes128Ctr; PLAYERS],
-}
-
-impl BatchGenerator {
-    fn new(seeds: &[[u8; KEY_SIZE]; PLAYERS], omit: usize) -> Self {
-        BatchGenerator {
-            omit,
-            prgs: [
-                new_aes(&seeds[0]),
-                new_aes(&seeds[1]),
-                new_aes(&seeds[2]),
-                new_aes(&seeds[3]),
-                new_aes(&seeds[4]),
-                new_aes(&seeds[5]),
-                new_aes(&seeds[6]),
-                new_aes(&seeds[7]),
-                /*
-                ChaCha::new_chacha12(&seeds[0], &[0u8; 8]),
-                ChaCha::new_chacha12(&seeds[1], &[0u8; 8]),
-                ChaCha::new_chacha12(&seeds[2], &[0u8; 8]),
-                ChaCha::new_chacha12(&seeds[3], &[0u8; 8]),
-                ChaCha::new_chacha12(&seeds[4], &[0u8; 8]),
-                ChaCha::new_chacha12(&seeds[5], &[0u8; 8]),
-                ChaCha::new_chacha12(&seeds[6], &[0u8; 8]),
-                ChaCha::new_chacha12(&seeds[7], &[0u8; 8]),
-                */
-            ],
-        }
-    }
-
-    fn gen(&mut self, dst: &mut [Batch; PLAYERS]) {
-        for i in 0..PLAYERS {
-            dst[i] = Batch::zero();
-            if i != self.omit {
-                // let _ = self.prgs[i].xor_read(dst[i].as_mut());
-                self.prgs[i].apply_keystream(dst[i].as_mut());
-            }
-        }
-    }
-
-    fn gen_recons(&mut self, dst: &mut [Batch; PLAYERS]) -> Batch {
-        let mut recons = Batch::zero();
-        for i in 0..PLAYERS {
-            dst[i] = Batch::zero();
-            if i != self.omit {
-                // let _ = self.prgs[i].xor_read(dst[i].as_mut());
-                self.prgs[i].apply_keystream(dst[i].as_mut());
-            }
-            recons += &dst[i];
-        }
-        recons
-    }
-}
-
-struct BeaverMachine {
-    corr: blake3::Hasher,
-    reps: [BatchGenerator; PACKED],
-    next: usize,
-    temp_a: [[Batch; PLAYERS]; PACKED],
-    temp_b: [[Batch; PLAYERS]; PACKED],
-    temp_c: [[Batch; PLAYERS]; PACKED],
-    a: [Share; 8 * batch::BATCH_SIZE],
-    b: [Share; 8 * batch::BATCH_SIZE],
-    c: [Share; 8 * batch::BATCH_SIZE],
-}
-
-impl BeaverMachine {
-    fn gen(&mut self) {
-        // generate fresh shares
-        for i in 0..PACKED {
-            let a = self.reps[i].gen_recons(&mut self.temp_a[i]);
-            let b = self.reps[i].gen_recons(&mut self.temp_b[i]);
-            let c = self.reps[i].gen_recons(&mut self.temp_c[i]);
-
-            // player 0 correction
-            let delta = a * b - c;
-            self.corr.update(delta.as_ref());
-
-            // correct player 0 share of c
-            self.temp_c[i][0] += &delta;
-        }
-
-        // transpose into shares
-        convert(&mut self.a, &self.temp_a);
-        convert(&mut self.b, &self.temp_b);
-        convert(&mut self.c, &self.temp_c);
-    }
-
-    #[inline(always)]
-    fn next(&mut self) -> (Share, Share, Share) {
-        if self.next >= 8 * batch::BATCH_SIZE {
-            self.gen();
-            self.next = 1;
-            (self.a[0], self.b[0], self.c[0])
-        } else {
-            let res = (self.a[self.next], self.b[self.next], self.c[self.next]);
-            self.next += 1;
-            res
-        }
-    }
-
-    fn new(reps: &[([[u8; KEY_SIZE]; PLAYERS], usize); PACKED]) -> Self {
-        let reps = [
-            BatchGenerator::new(&reps[0].0, reps[0].1),
-            BatchGenerator::new(&reps[1].0, reps[1].1),
-            BatchGenerator::new(&reps[2].0, reps[2].1),
-            BatchGenerator::new(&reps[3].0, reps[3].1),
-            BatchGenerator::new(&reps[4].0, reps[4].1),
-            BatchGenerator::new(&reps[5].0, reps[5].1),
-            BatchGenerator::new(&reps[6].0, reps[6].1),
-            BatchGenerator::new(&reps[7].0, reps[7].1),
-        ];
-        BeaverMachine {
-            corr: blake3::Hasher::new(),
-            next: 8 * batch::BATCH_SIZE,
-            reps,
-            temp_a: unsafe { MaybeUninit::zeroed().assume_init() },
-            temp_b: unsafe { MaybeUninit::zeroed().assume_init() },
-            temp_c: unsafe { MaybeUninit::zeroed().assume_init() },
-            a: unsafe { MaybeUninit::zeroed().assume_init() },
-            b: unsafe { MaybeUninit::zeroed().assume_init() },
-            c: unsafe { MaybeUninit::zeroed().assume_init() },
-        }
-    }
-}
-
-
-const KEY_SIZE: usize = 16;
-const PLAYERS: usize = 8;
-const PACKED: usize = 8;
-
-fn main() {
-    let total_reps = 256;
-
-    let packed_reps = vec![0; total_reps / PACKED];
-
-    let _: Vec<()> = packed_reps
-        .par_iter()
-        .map(|_| {
-            let op = Operation::Mul(0, 0, 0);
-            let mut wires: Vec<Share> = Vec::with_capacity(1024);
-
-            wires.push(Share::zero());
-
-            let mut beaver = BeaverMachine::new(&[
-                ([[0u8; KEY_SIZE]; PLAYERS], PLAYERS),
-                ([[0u8; KEY_SIZE]; PLAYERS], PLAYERS),
-                ([[0u8; KEY_SIZE]; PLAYERS], PLAYERS),
-                ([[0u8; KEY_SIZE]; PLAYERS], PLAYERS),
-                ([[0u8; KEY_SIZE]; PLAYERS], PLAYERS),
-                ([[0u8; KEY_SIZE]; PLAYERS], PLAYERS),
-                ([[0u8; KEY_SIZE]; PLAYERS], PLAYERS),
-                ([[0u8; KEY_SIZE]; PLAYERS], PLAYERS),
-            ]);
-
-            // try to benchmark 200 000 000 multiplications
-            for i in 0..50_000_000 {
-                // if i % 1_000_000 == 0 {
-                //    println!("{}", i);
-                //}
-                match op {
-                    Operation::Add(dst, src1, src2) => {
-                        wires[dst] = wires[src1] + wires[src2];
-                    }
-                    Operation::Mul(dst, src1, src2) => {
-                        // take next multiplication triple
-                        let (a, b, c) = beaver.next();
-                        let x = wires[src1];
-                        let y = wires[src2];
-
-                        // do beaver multiplication
-                        let d = (x - a).recons();
-                        let e = (y - b).recons();
-                        wires[dst] = c + x * e + y * d - e * d;
-                    }
-                    Operation::Random(dst) => {}
-                    Operation::Zero(src) => {}
-                    Operation::Input(dst) => {}
-                }
-            }
-        })
-        .collect();
-}
-*/

@@ -221,16 +221,11 @@ impl<D: Domain, I: Iterator<Item = D::Recon>> Transcript<D> for ProverTranscript
 
     fn zero_check(&mut self, recon: D::Recon) {
         // TODO: create a useful trace for the user
-        println!(
-            "{}: {:?}",
-            if recon.is_zero() { "OKAY" } else { "FAIL" },
+        assert!(
+            recon.is_zero(),
+            "witness is invalid!. Wire has value {:?}, expected zero.",
             recon
         );
-        // assert!(
-        //     recon.is_zero(),
-        //     "witness is invalid!. Wire has value {:?}, expected zero.",
-        //     recon
-        // );
     }
 
     fn new_mask(&mut self) -> D::Share {
