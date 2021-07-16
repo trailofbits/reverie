@@ -86,7 +86,7 @@ async fn prove<WP: Parser<bool> + Send + 'static>(
     );
 
     // Write proof to file
-    let proof_file = File::open(proof_path)?;
+    let proof_file = File::create(proof_path)?;
     let proof_writer = BufWriter::new(proof_file);
     if bincode::serialize_into(proof_writer, &proof).is_ok() {
         Ok(Ok(()))
