@@ -46,7 +46,7 @@ impl<T1: Transcript<gf2::Domain>, T2: Transcript<z64::Domain>> CombineInstance<T
 
         macro_rules! op_and {
             ($x:expr, $y:expr) => {
-                Instance::<gf2::Domain, T1>::op_mul(t, $x, $y);
+                Instance::<gf2::Domain, T1>::op_mul(t, $x, $y)
             };
         }
 
