@@ -114,6 +114,8 @@ impl ProofSingle {
     }
 }
 
+// The collects are necessary in release mode
+#[allow(clippy::needless_collect)]
 impl Proof {
     pub fn new(
         circuit: Arc<Vec<CombineOperation>>, // combined circuit
@@ -186,7 +188,7 @@ impl Proof {
         let ext = ext.into_par_iter();
 
         // extract in parallel
-        #[allow(clippy::type_complexity)] // I tried to fix this and in panic'd rustc lol
+        #[allow(clippy::type_complexity)] // I tried to fix this and it panic'd rustc lol
         let ext: Vec<(
             (Vec<OpenOnline>, Vec<OpenPreprocessing>),
             (Vec<OpenOnline>, Vec<OpenPreprocessing>),
