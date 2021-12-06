@@ -129,7 +129,9 @@ impl<T1: Transcript<gf2::Domain>, T2: Transcript<z64::Domain>> CombineInstance<T
                 }
             }
             CombineOperation::GF2(op) => self.gf2.step(op),
+            CombineOperation::GF2AsU8(_) => { unimplemented!("Reverie doesn't support u8-encoded bool operations (and probably never will)") }
             CombineOperation::Z64(op) => self.z64.step(op),
+            CombineOperation::Z256(_op) => { unimplemented!("Reverie doesn't support the 256-bit integer ring yet") }
             CombineOperation::B2A(dst, src) => {
                 let dst = *dst;
                 let src = *src;
