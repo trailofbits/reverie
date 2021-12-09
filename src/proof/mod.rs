@@ -114,7 +114,7 @@ impl ProofSingle {
     }
 }
 
-// TODO: Are these collects actually needless, or do they do something important with the parallel iteration?
+// The collects are necessary in release mode
 #[allow(clippy::needless_collect)]
 impl Proof {
     pub fn new(
@@ -125,7 +125,7 @@ impl Proof {
     ) -> Self {
         let (z64_count, gf2_count) = wire_counts;
         // execute every instance in parallel
-        let instances: Vec<CombineInstance<_, _>> =
+        let instances: Vec<([Hash; PACKED], (_, _))> =
             parallel_iter!((0..PACKED_REPS).collect::<Vec<usize>>())
                 .map(|_i| {
                     // generate key-material for each instance in the batch
@@ -151,17 +151,18 @@ impl Proof {
                     for op in circuit.iter() {
                         ins.step(op);
                     }
-                    ins
+                    let hash = ins.hash();
+                    let (gf2_ins, z64_ins) = ins.split();
+                    (hash, (gf2_ins.extract(), z64_ins.extract()))
                 })
                 .collect();
 
         // compute challenge
         let mut comms = vec![];
         let mut transcripts = vec![];
-        for ins in instances.into_iter() {
-            comms.extend(&ins.hash());
-            let (gf2_ins, z64_ins) = ins.split();
-            transcripts.push((gf2_ins.extract(), z64_ins.extract()));
+        for (hash, extractions) in instances.into_iter() {
+            comms.extend(&hash);
+            transcripts.push(extractions);
         }
 
         // commit to transcript states
@@ -187,7 +188,7 @@ impl Proof {
         let ext = ext.into_par_iter();
 
         // extract in parallel
-        #[allow(clippy::type_complexity)] // I tried to fix this and in panic'd rustc lol
+        #[allow(clippy::type_complexity)] // I tried to fix this and it panic'd rustc lol
         let ext: Vec<(
             (Vec<OpenOnline>, Vec<OpenPreprocessing>),
             (Vec<OpenOnline>, Vec<OpenPreprocessing>),
