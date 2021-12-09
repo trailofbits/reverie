@@ -9,7 +9,7 @@ use crate::algebra::{EqIndex, Hashable, Pack, Recon};
 use crate::crypto::hash::PackedHasher;
 use crate::PACKED;
 
-#[derive(Copy, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Copy, PartialEq, Eq, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct ReconGF2 {
     pub(crate) pack: u64,
 }
@@ -268,12 +268,6 @@ impl ReconGF2 {
             valid &= *bit == 0xff || *bit == 0x00;
         }
         valid
-    }
-}
-
-impl Default for ReconGF2 {
-    fn default() -> Self {
-        ReconGF2 { pack: 0 }
     }
 }
 

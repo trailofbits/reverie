@@ -11,7 +11,7 @@ use super::domain::byte_to_shares_x86;
 
 use std::convert::TryFrom;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Default)]
 pub struct ShareGF2 {
     pub(crate) pack: u64,
 }
@@ -207,12 +207,6 @@ impl PackSelected for ShareGF2 {
             // copy partial shares to destination
             dst.extend_from_slice(&tmp_dst);
         }
-    }
-}
-
-impl Default for ShareGF2 {
-    fn default() -> Self {
-        ShareGF2 { pack: 0 }
     }
 }
 
