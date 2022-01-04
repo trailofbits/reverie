@@ -1,16 +1,15 @@
+use core::mem::MaybeUninit;
+use std::convert::TryFrom;
+
+use num_traits::Zero;
+
+use super::single::Instance;
 use crate::algebra::{gf2, z64, Domain};
 use crate::crypto::hash::Hash;
 use crate::interpreter::Wire;
 use crate::transcript::Transcript;
 use crate::HASH;
 use crate::{CombineOperation, PACKED};
-
-use super::single::Instance;
-
-use std::convert::TryFrom;
-
-use core::mem::MaybeUninit;
-use num_traits::Zero;
 
 pub struct CombineInstance<T1: Transcript<gf2::Domain>, T2: Transcript<z64::Domain>> {
     gf2: Instance<gf2::Domain, T1>,

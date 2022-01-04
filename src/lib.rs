@@ -2,10 +2,9 @@
 
 extern crate test;
 
+pub use algebra::*;
 pub use mcircuit::{evaluate_composite_program, largest_wires};
 pub use mcircuit::{CombineOperation, Operation};
-
-pub use algebra::*;
 
 pub mod algebra;
 pub mod crypto;

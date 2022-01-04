@@ -1,10 +1,8 @@
-use super::*;
-
 use core::arch::x86_64::*;
-
-use crate::algebra::{Domain, BATCH_SIZE, PACKED, PLAYERS};
-
 use std::convert::TryFrom;
+
+use super::*;
+use crate::algebra::{Domain, BATCH_SIZE, PACKED, PLAYERS};
 
 #[derive(Copy, Clone, Debug)]
 pub struct DomainGF2 {}

@@ -1,5 +1,4 @@
 use super::*;
-
 use crate::algebra::{Domain, BATCH_SIZE, PACKED, PLAYERS};
 
 impl Mul<recon::ReconZ64> for share::ShareZ64 {

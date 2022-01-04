@@ -1,10 +1,10 @@
 mod combine;
 mod single;
 
-use crate::algebra::Domain;
-
 pub use combine::CombineInstance;
 pub use single::Instance;
+
+use crate::algebra::Domain;
 
 #[derive(Debug)]
 pub struct Wire<D: Domain> {

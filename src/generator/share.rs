@@ -1,9 +1,7 @@
 use super::*;
-
 #[cfg(any(debug_assertions, test))]
 #[allow(unused_imports)]
 use crate::algebra::EqIndex;
-
 #[cfg(any(debug_assertions, test))]
 use crate::crypto::prg::KEY_SIZE;
 
@@ -69,12 +67,11 @@ impl<D: Domain> ShareGen<D> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    use crate::algebra;
-
     use rand::rngs::OsRng;
     use rand::{Rng, RngCore};
+
+    use super::*;
+    use crate::algebra;
 
     fn share_generator<D: Domain>() {
         let mut keys = [[[0u8; KEY_SIZE]; PLAYERS]; PACKED];

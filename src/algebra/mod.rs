@@ -1,8 +1,3 @@
-use crate::crypto::hash;
-use crate::crypto::prg::{Key, PRG};
-use crate::generator::ShareGen;
-use crate::{BATCH_SIZE, PACKED, PLAYERS};
-
 use std::convert::{AsMut, AsRef};
 use std::fmt::Debug;
 use std::io;
@@ -11,6 +6,11 @@ use std::ops::{Add, Mul, Sub};
 use mcircuit::WireValue;
 use num_traits::identities::Zero;
 use rand::RngCore;
+
+use crate::crypto::hash;
+use crate::crypto::prg::{Key, PRG};
+use crate::generator::ShareGen;
+use crate::{BATCH_SIZE, PACKED, PLAYERS};
 
 #[allow(clippy::suspicious_arithmetic_impl)] // Clippy thinks GF2 arithmetic is suspicious
 pub mod gf2;
@@ -198,12 +198,12 @@ pub trait Domain: Copy + Clone + Debug {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::convert::TryFrom;
 
     use rand::rngs::OsRng;
     use rand::Rng;
 
-    use std::convert::TryFrom;
+    use super::*;
 
     fn test_recon_pack<D: Domain>() {
         let tests = vec![

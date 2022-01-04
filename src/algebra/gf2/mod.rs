@@ -5,9 +5,8 @@ mod domain;
 mod recon;
 mod share;
 
-pub use domain::DomainGF2 as Domain;
-
 pub use batch::BatchGF2 as Batch;
+pub use domain::DomainGF2 as Domain;
 pub use recon::ReconGF2 as Recon;
 pub use share::ShareGF2 as Share;
 

@@ -1,3 +1,11 @@
+use std::collections::HashMap;
+use std::convert::TryFrom;
+use std::sync::Arc;
+
+use rand::rngs::OsRng;
+use rand::RngCore;
+use serde::{Deserialize, Serialize};
+
 use crate::crypto::hash::{Hash, Hasher, HASH_SIZE};
 use crate::crypto::prg::{Key, KEY_SIZE};
 use crate::crypto::ro::RandomOracle;
@@ -6,15 +14,6 @@ use crate::transcript::{ProverTranscript, VerifierTranscriptOnline, VerifierTran
 use crate::{
     CombineOperation, ONLINE_REPS, PACKED, PACKED_REPS, PLAYERS, PREPROCESSING_REPS, TOTAL_REPS,
 };
-
-use serde::{Deserialize, Serialize};
-
-use std::collections::HashMap;
-use std::convert::TryFrom;
-use std::sync::Arc;
-
-use rand::rngs::OsRng;
-use rand::RngCore;
 
 const CTX_CHALLENGE: &str = "random-oracle challenge";
 
@@ -310,13 +309,11 @@ impl Proof {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
+    use bincode;
     use test::Bencher;
 
+    use super::*;
     use crate::Operation;
-
-    use bincode;
 
     #[bench]
     fn bench_prover(b: &mut Bencher) {
