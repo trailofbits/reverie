@@ -1,15 +1,13 @@
+use std::convert::TryFrom;
 use std::fmt;
 use std::ops::{Add, Sub};
 
 use num_traits::Zero;
 
+use super::domain::byte_to_shares_x86;
 use crate::algebra::{EqIndex, Hashable, PackSelected, Share};
 use crate::crypto::hash::PackedHasher;
 use crate::{PACKED, PLAYERS};
-
-use super::domain::byte_to_shares_x86;
-
-use std::convert::TryFrom;
 
 #[derive(Copy, Clone, Default)]
 pub struct ShareGF2 {

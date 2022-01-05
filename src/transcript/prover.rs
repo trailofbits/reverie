@@ -1,15 +1,14 @@
-use super::*;
-
-use crate::algebra::{Hashable, Pack, PackSelected};
-use crate::crypto::hash::PackedHasher;
-use crate::generator::ShareGen;
-use crate::proof::{OpenOnline, OpenPreprocessing};
-
 use std::any::type_name;
 use std::convert::TryFrom;
 use std::mem;
 
 use num_traits::Zero;
+
+use super::*;
+use crate::algebra::{Hashable, Pack, PackSelected};
+use crate::crypto::hash::PackedHasher;
+use crate::generator::ShareGen;
+use crate::proof::{OpenOnline, OpenPreprocessing};
 
 pub struct ProverTranscript<D: Domain, I: Iterator<Item = D::Recon>> {
     // original un-expanded seeds

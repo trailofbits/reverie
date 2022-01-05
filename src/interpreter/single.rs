@@ -169,11 +169,10 @@ mod test {
 
     use mcircuit::HasIO;
 
+    use super::*;
     use crate::crypto::prg::KEY_SIZE;
     use crate::transcript::ProverTranscript;
     use crate::{gf2, z64, PACKED};
-
-    use super::*;
 
     fn test_gate_gf2(witness: &[bool], gate: Operation<bool>) -> gf2::Recon {
         let mut program: Vec<Operation<bool>> = Vec::new();

@@ -1,13 +1,11 @@
-use super::*;
+use num_traits::Zero;
 
+use super::*;
 use crate::algebra::{Domain, Hashable};
 use crate::crypto::hash::PackedHasher;
 use crate::generator::ShareGen;
 use crate::proof::OpenPreprocessing;
-
 use crate::PACKED;
-
-use num_traits::Zero;
 
 pub struct VerifierTranscriptPreprocess<D: Domain> {
     share_gen: Box<ShareGen<D>>,

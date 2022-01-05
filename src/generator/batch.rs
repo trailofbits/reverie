@@ -1,7 +1,7 @@
-use super::*;
-
 #[cfg(test)]
 use num_traits::Zero;
+
+use super::*;
 
 pub struct BatchGen<D: Domain> {
     omit: usize,

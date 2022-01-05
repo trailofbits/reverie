@@ -1,5 +1,6 @@
-use crate::PACKED;
 use blake3;
+
+use crate::PACKED;
 
 const BUFFER_SIZE: usize = 1 << 16;
 const BUFFER_SLACK: usize = 128;

@@ -14,7 +14,6 @@ use clap::{App, Arg};
 use num_traits::Zero;
 use rand::rngs::OsRng;
 use rand::Rng;
-
 use reverie::algebra::*;
 use reverie::crypto::prg::KEY_SIZE;
 use reverie::interpreter::{CombineInstance, Instance};
@@ -175,41 +174,44 @@ async fn async_main() {
     let matches = App::new("Speed Reverie")
         .about("Gotta go fast")
         .arg(
-            Arg::with_name("operation")
+            Arg::new("operation")
                 .long("operation")
                 .help("Specify the operation: \"prove\", \"verify\"")
                 .possible_values(&["prove", "verify", "oneshot", "oneshot-zk", "version_info"])
-                .empty_values(false)
+                .forbid_empty_values(true)
                 .required(true),
         )
         .arg(
-            Arg::with_name("witness-path")
+            Arg::new("witness-path")
                 .long("witness-path")
                 .help("The path to the file containing the witness (for proving)")
-                .required_if("operation", "prove")
-                .required_if("operation", "oneshot")
-                .required_if("operation", "oneshot-zk")
-                .required_if("operation", "bench")
-                .empty_values(false),
+                .required_if_eq_any(&[
+                    ("operation", "prove"),
+                    ("operation", "oneshot"),
+                    ("operation", "oneshot-zk"),
+                    ("operation", "bench"),
+                ])
+                .forbid_empty_values(true),
         )
         .arg(
-            Arg::with_name("program-path")
+            Arg::new("program-path")
                 .long("program-path")
                 .help("The path to the file containing the program (or statement)")
-                .required_if("operation", "prove")
-                .required_if("operation", "verify")
-                .required_if("operation", "oneshot")
-                .required_if("operation", "oneshot-zk")
-                .required_if("operation", "bench")
-                .empty_values(false),
+                .required_if_eq_any(&[
+                    ("operation", "prove"),
+                    ("operation", "verify"),
+                    ("operation", "oneshot"),
+                    ("operation", "oneshot-zk"),
+                    ("operation", "bench"),
+                ])
+                .forbid_empty_values(true),
         )
         .arg(
-            Arg::with_name("proof-path")
+            Arg::new("proof-path")
                 .long("proof-path")
                 .help("The path to write the proof file")
-                .required_if("operation", "prove")
-                .required_if("operation", "verify")
-                .empty_values(false),
+                .required_if_eq_any(&[("operation", "prove"), ("operation", "verify")])
+                .forbid_empty_values(true),
         )
         .get_matches();
 

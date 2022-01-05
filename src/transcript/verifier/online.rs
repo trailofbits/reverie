@@ -1,16 +1,13 @@
-use super::*;
+use num_traits::Zero;
 
+use super::*;
+#[cfg(debug_assertions)]
+use crate::algebra::EqIndex;
 use crate::algebra::{Domain, Hashable, Pack, PackSelected};
 use crate::crypto::hash::PackedHasher;
 use crate::generator::ShareGen;
 use crate::proof::OpenOnline;
-
 use crate::PACKED;
-
-use num_traits::Zero;
-
-#[cfg(debug_assertions)]
-use crate::algebra::EqIndex;
 
 pub struct VerifierTranscriptOnline<D: Domain> {
     #[cfg(debug_assertions)]
