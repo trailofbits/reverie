@@ -179,6 +179,7 @@ async fn async_main() {
                 .help("Specify the operation: \"prove\", \"verify\"")
                 .possible_values(&["prove", "verify", "oneshot", "oneshot-zk", "version_info"])
                 .forbid_empty_values(true)
+                .takes_value(true)
                 .required(true),
         )
         .arg(
@@ -191,6 +192,7 @@ async fn async_main() {
                     ("operation", "oneshot-zk"),
                     ("operation", "bench"),
                 ])
+                .takes_value(true)
                 .forbid_empty_values(true),
         )
         .arg(
@@ -204,14 +206,16 @@ async fn async_main() {
                     ("operation", "oneshot-zk"),
                     ("operation", "bench"),
                 ])
-                .forbid_empty_values(true),
+                .forbid_empty_values(true)
+                .takes_value(true),
         )
         .arg(
             Arg::new("proof-path")
                 .long("proof-path")
                 .help("The path to write the proof file")
                 .required_if_eq_any(&[("operation", "prove"), ("operation", "verify")])
-                .forbid_empty_values(true),
+                .forbid_empty_values(true)
+                .takes_value(true),
         )
         .get_matches();
 
