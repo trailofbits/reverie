@@ -69,6 +69,7 @@ pub trait Pack: Sized {
         selected: &[bool; PACKED],   // should the repetition be extracted?
     );
 
+    #[allow(clippy::ptr_arg)]
     fn unpack(
         dst: &mut Vec<Self>,   // packed elements
         src: &[&[u8]; PACKED], // slice of bytes for each repetition
@@ -104,6 +105,7 @@ pub trait PackSelected: Sized {
     ///
     fn pack_selected(dst: &mut [Vec<u8>; PACKED], src: &[Self], selected: [usize; PACKED]);
 
+    #[allow(clippy::ptr_arg)]
     fn unpack_selected(dst: &mut Vec<Self>, src: &[&[u8]; PACKED], selected: [usize; PACKED]);
 }
 
