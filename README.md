@@ -2,7 +2,7 @@
 
 An efficient implementation of the NIZKPoK outlined in KKW 2018
 
-![Nightly Rust CI Status](https://github.com/trailofbits/zk-proof/workflows/nightly/badge.svg)
+[![CI](https://github.com/trailofbits/reverie/actions/workflows/ci.yml/badge.svg)](https://github.com/trailofbits/reverie/actions/workflows/ci.yml)
 
 Reverie is an implementation (prover and verifier) of the MPC-in-the-head NIZKPoK outlined in
 [Improved Non-Interactive Zero Knowledge with Applications to Post-Quantum Signatures](https://eprint.iacr.org/2018/475).
