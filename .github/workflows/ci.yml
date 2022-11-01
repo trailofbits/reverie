@@ -28,7 +28,9 @@ jobs:
         run: cargo fmt -- --check
 
       - name: Lint
-        run: cargo clippy -- -D warnings
+        run: |
+        # NOTE: See rust-lang/rust-clippy#9763 for FPs with explicit_auto_deref.
+        cargo clippy -- -D warnings -A clippy::explicit_auto_deref
 
       - name: Build
         run: cargo build
