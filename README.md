@@ -16,15 +16,20 @@ in addition to a CLI program for proving/verifying statements specified in Brist
 to enable easy experimentation.
 
 ## Running
+
 Reverie requires a relatively recent `nightly` Rust.
 
 Using `SSE+AESNI`
 
-    time RUSTFLAGS="-C target-cpu=native -C target-feature=+aes,+ssse3,+sse2" cargo run --release
+```console
+time RUSTFLAGS="-C target-cpu=native -C target-feature=+aes,+ssse3,+sse2" cargo run --release
+```
 
 Or even better with `AVX2+AESNI`
 
-    time RUSTFLAGS="-C target-cpu=native -C target-feature=+aes,+ssse3,+sse2,+avx2" cargo run --release
+```console
+time RUSTFLAGS="-C target-cpu=native -C target-feature=+aes,+ssse3,+sse2,+avx2" cargo run --release
+```
 
 ## Improvements in 0.3+
 
