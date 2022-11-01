@@ -16,7 +16,7 @@ impl PRG {
     pub fn new(key: &[u8; KEY_SIZE]) -> Self {
         let key = GenericArray::from_slice(key);
         let nonce = GenericArray::from_slice(&[0u8; 16]);
-        PRG(Aes128Ctr::new(key.into(), nonce))
+        PRG(Aes128Ctr::new(key, nonce))
     }
 
     pub fn xor_bytes(&mut self, dst: &mut [u8]) {
