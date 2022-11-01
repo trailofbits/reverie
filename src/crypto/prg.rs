@@ -4,7 +4,7 @@ use aes::Aes128;
 
 const BLOCK_SIZE: usize = 16;
 
-type Aes128Ctr = ctr::Ctr64LE<Aes128>;
+type Aes128Ctr = ctr::Ctr128BE<Aes128>;
 
 pub const KEY_SIZE: usize = 16;
 
