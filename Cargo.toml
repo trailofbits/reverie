@@ -4,7 +4,7 @@ description = "An efficient implementation of the NIZKPoK outlined in KKW 2018"
 license = "AGPL-3.0"
 homepage = "https://github.com/trailofbits/reverie"
 repository = "https://github.com/trailofbits/reverie"
-version = "0.3.1"
+version = "0.3.2"
 authors = [
     "Mathias Hall-Andersen <mathias@hall-andersen.dk>",
     "William Woodruff <william@trailofbits.com>",
