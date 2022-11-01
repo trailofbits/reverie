@@ -17,8 +17,9 @@ categories = ["cryptography"]
 build = "build.rs"
 
 [package.metadata.release]
-no-dev-version = true
-disable-publish = true # handled by GitHub Actions
+dev-version = false
+publish = false # handled by GitHub Actions
+push = true
 
 [badges]
 maintenance = { status = "actively-developed" }
