@@ -1,9 +1,10 @@
-use aesni::cipher::generic_array::GenericArray;
-use aesni::cipher::NewBlockCipher;
-use aesni::stream::{FromBlockCipher, SyncStreamCipher};
-use aesni::Aes128Ctr;
+use aes::cipher::generic_array::GenericArray;
+use aes::cipher::{KeyIvInit, StreamCipher};
+use aes::Aes128;
 
 const BLOCK_SIZE: usize = 16;
+
+type Aes128Ctr = ctr::Ctr64LE<Aes128>;
 
 pub const KEY_SIZE: usize = 16;
 
@@ -15,7 +16,7 @@ impl PRG {
     pub fn new(key: &[u8; KEY_SIZE]) -> Self {
         let key = GenericArray::from_slice(key);
         let nonce = GenericArray::from_slice(&[0u8; 16]);
-        PRG(Aes128Ctr::from_block_cipher(aesni::Aes128::new(key), nonce))
+        PRG(Aes128Ctr::new(key.into(), nonce))
     }
 
     pub fn xor_bytes(&mut self, dst: &mut [u8]) {
