@@ -14,8 +14,8 @@ use clap::{value_parser, Arg, Command};
 use num_traits::Zero;
 use reverie::algebra::*;
 use reverie::proof::Proof;
+use reverie::CombineOperation;
 use reverie::{evaluate_composite_program, largest_wires};
-use reverie::{CombineOperation};
 
 mod witness;
 
