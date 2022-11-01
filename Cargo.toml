@@ -24,7 +24,7 @@ disable-publish = true # handled by GitHub Actions
 maintenance = { status = "actively-developed" }
 
 [dependencies]
-aesni = "0.10"
+aesni = "0.99"
 async-std = "1.7"
 bincode = "1.3.3"
 blake3 = "1.0.0"
