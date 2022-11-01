@@ -1,5 +1,4 @@
-#![allow(dead_code)]
-#![allow(unused_imports)]
+#![allow(clippy::explicit_auto_deref)]
 
 use std::fs::File;
 use std::io;
@@ -13,16 +12,10 @@ use std::sync::Arc;
 use async_std::task;
 use clap::{value_parser, Arg, Command};
 use num_traits::Zero;
-use rand::rngs::OsRng;
-use rand::Rng;
 use reverie::algebra::*;
-use reverie::crypto::prg::KEY_SIZE;
-use reverie::interpreter::{CombineInstance, Instance};
 use reverie::proof::Proof;
-use reverie::transcript::ProverTranscript;
-use reverie::PACKED;
 use reverie::{evaluate_composite_program, largest_wires};
-use reverie::{CombineOperation, Operation};
+use reverie::{CombineOperation};
 
 mod witness;
 
