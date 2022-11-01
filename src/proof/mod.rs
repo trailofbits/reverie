@@ -160,7 +160,7 @@ impl Proof {
         let mut comms = vec![];
         let mut transcripts = vec![];
         for (hash, extractions) in instances.into_iter() {
-            comms.extend(&hash);
+            comms.extend(hash);
             transcripts.push(extractions);
         }
 

@@ -177,7 +177,7 @@ async fn async_main() {
             Arg::new("operation")
                 .long("operation")
                 .help("Specify the operation: \"prove\", \"verify\"")
-                .possible_values(&["prove", "verify", "oneshot", "oneshot-zk", "version_info"])
+                .possible_values(["prove", "verify", "oneshot", "oneshot-zk", "version_info"])
                 .forbid_empty_values(true)
                 .takes_value(true)
                 .required(true),
