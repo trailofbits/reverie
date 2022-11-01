@@ -2,7 +2,6 @@ use std::fs::File;
 use std::io::{self, prelude::*, BufReader};
 
 use reverie::algebra::gf2;
-use reverie::Domain;
 
 use super::Parser;
 

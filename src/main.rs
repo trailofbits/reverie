@@ -1,27 +1,21 @@
-#![allow(dead_code)]
-#![allow(unused_imports)]
+#![allow(clippy::explicit_auto_deref)]
 
 use std::fs::File;
 use std::io;
 use std::io::{BufReader, BufWriter};
 use std::marker::PhantomData;
 use std::mem;
+use std::path::PathBuf;
 use std::process::exit;
 use std::sync::Arc;
 
 use async_std::task;
-use clap::{App, Arg};
+use clap::{value_parser, Arg, Command};
 use num_traits::Zero;
-use rand::rngs::OsRng;
-use rand::Rng;
 use reverie::algebra::*;
-use reverie::crypto::prg::KEY_SIZE;
-use reverie::interpreter::{CombineInstance, Instance};
 use reverie::proof::Proof;
-use reverie::transcript::ProverTranscript;
-use reverie::PACKED;
+use reverie::CombineOperation;
 use reverie::{evaluate_composite_program, largest_wires};
-use reverie::{CombineOperation, Operation};
 
 mod witness;
 
@@ -170,60 +164,58 @@ async fn oneshot_zk<WP: Parser<bool> + Send + 'static>(
     }
 }
 
-async fn async_main() {
-    let matches = App::new("Speed Reverie")
+fn app() -> Command {
+    Command::new("Speed Reverie")
         .about("Gotta go fast")
         .arg(
             Arg::new("operation")
                 .long("operation")
                 .help("Specify the operation: \"prove\", \"verify\"")
-                .possible_values(["prove", "verify", "oneshot", "oneshot-zk", "version_info"])
-                .forbid_empty_values(true)
-                .takes_value(true)
+                .value_parser(["prove", "verify", "oneshot", "oneshot-zk", "version_info"])
                 .required(true),
         )
         .arg(
             Arg::new("witness-path")
                 .long("witness-path")
                 .help("The path to the file containing the witness (for proving)")
-                .required_if_eq_any(&[
+                .required_if_eq_any([
                     ("operation", "prove"),
                     ("operation", "oneshot"),
                     ("operation", "oneshot-zk"),
                     ("operation", "bench"),
                 ])
-                .takes_value(true)
-                .forbid_empty_values(true),
+                .value_parser(value_parser!(PathBuf)),
         )
         .arg(
             Arg::new("program-path")
                 .long("program-path")
                 .help("The path to the file containing the program (or statement)")
-                .required_if_eq_any(&[
+                .required_if_eq_any([
                     ("operation", "prove"),
                     ("operation", "verify"),
                     ("operation", "oneshot"),
                     ("operation", "oneshot-zk"),
                     ("operation", "bench"),
                 ])
-                .forbid_empty_values(true)
-                .takes_value(true),
+                .value_parser(value_parser!(PathBuf)),
         )
         .arg(
             Arg::new("proof-path")
                 .long("proof-path")
                 .help("The path to write the proof file")
-                .required_if_eq_any(&[("operation", "prove"), ("operation", "verify")])
-                .forbid_empty_values(true)
-                .takes_value(true),
+                .required_if_eq_any([("operation", "prove"), ("operation", "verify")])
+                .value_parser(value_parser!(PathBuf)),
         )
-        .get_matches();
+}
 
-    match matches.value_of("operation").unwrap() {
+async fn async_main() {
+    let matches = app().get_matches();
+
+    match *matches.get_one("operation").unwrap() {
         "oneshot" => {
             let res = oneshot::<witness::WitParser>(
-                matches.value_of("program-path").unwrap(),
-                matches.value_of("witness-path").unwrap(),
+                *matches.get_one("program-path").unwrap(),
+                *matches.get_one("witness-path").unwrap(),
             )
             .await;
             match res {
@@ -236,8 +228,8 @@ async fn async_main() {
         }
         "oneshot-zk" => {
             let res = oneshot_zk::<witness::WitParser>(
-                matches.value_of("program-path").unwrap(),
-                matches.value_of("witness-path").unwrap(),
+                *matches.get_one("program-path").unwrap(),
+                *matches.get_one("witness-path").unwrap(),
             )
             .await;
             match res {
@@ -250,9 +242,9 @@ async fn async_main() {
         }
         "prove" => {
             let res = prove::<witness::WitParser>(
-                matches.value_of("program-path").unwrap(),
-                matches.value_of("witness-path").unwrap(),
-                matches.value_of("proof-path").unwrap(),
+                *matches.get_one("program-path").unwrap(),
+                *matches.get_one("witness-path").unwrap(),
+                *matches.get_one("proof-path").unwrap(),
             )
             .await;
             match res {
@@ -265,8 +257,8 @@ async fn async_main() {
         }
         "verify" => {
             let res = verify::<witness::WitParser>(
-                matches.value_of("program-path").unwrap(),
-                matches.value_of("proof-path").unwrap(),
+                *matches.get_one("program-path").unwrap(),
+                *matches.get_one("proof-path").unwrap(),
             )
             .await;
             match res {
@@ -295,4 +287,14 @@ async fn print_version() {
 
 fn main() {
     task::block_on(async_main());
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_app() {
+        app().debug_assert();
+    }
 }
