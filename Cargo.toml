@@ -37,10 +37,10 @@ num-traits = "0.2"
 rand = "0.8"
 rayon = "1.5"
 serde = {version = "1.0.125", features = ["derive"]}
-built = {version = "0.5.1", features = ["git2", "chrono", "semver"] }
+built = {version = "0.6.0", features = ["git2", "chrono", "semver"] }
 
 [build-dependencies]
-built = "0.5.1"
+built = "0.6.0"
 
 [lib]
 name = "reverie"
